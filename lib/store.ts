@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { FIELD_META, GRANT_FIELDS } from "./fields";
-import { audienceOfAgency, expiresAtFrom } from "./grant";
+import { audienceOfAgency, emptyEnvelope, expiresAtFrom } from "./grant";
 import { HAPPY_PATH_UTTERANCE } from "./rules";
 import type {
   AgencyId,
@@ -57,9 +57,10 @@ export function createInitialState(): DemoState {
     vaultHoldings: buildVaultHoldings(),
     grants: [],
     envelopes: {
-      "G-甲": { grantId: "G-甲", agencyId: "jia", fields: {}, fetchedAt: null },
-      "G-乙": { grantId: "G-乙", agencyId: "yi", fields: {}, fetchedAt: null },
+      "G-甲": emptyEnvelope("G-甲", "jia"),
+      "G-乙": emptyEnvelope("G-乙", "yi"),
     },
+    tickets: {},
     audit: [],
     chat: [
       {
@@ -70,6 +71,7 @@ export function createInitialState(): DemoState {
       },
     ],
     plan: null,
+    lastProtocol: null,
     agencies: {
       jia: {
         id: "jia",
@@ -116,6 +118,8 @@ function normalizeGrant(grant: Grant): Grant {
     expiresAt: grant.expiresAt || expiresAtFrom(grant.proposedAt),
     status,
     revokeOn: grant.revokeOn || "submitted",
+    ticketId: grant.ticketId ?? null,
+    ticket: grant.ticket ?? null,
   };
 }
 
@@ -123,7 +127,17 @@ function hydrateState(state: DemoState): DemoState {
   if (!state.vaultHoldings?.length) {
     state.vaultHoldings = buildVaultHoldings();
   }
+  if (!state.tickets) state.tickets = {};
+  if (state.lastProtocol === undefined) state.lastProtocol = null;
   state.grants = (state.grants ?? []).map(normalizeGrant);
+  for (const id of ["G-甲", "G-乙"] as GrantId[]) {
+    const envelope = state.envelopes?.[id];
+    if (!envelope) {
+      state.envelopes[id] = emptyEnvelope(id, id === "G-甲" ? "jia" : "yi");
+    } else if (envelope.receipt === undefined) {
+      envelope.receipt = null;
+    }
+  }
   return state;
 }
 

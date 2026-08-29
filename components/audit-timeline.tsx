@@ -8,6 +8,7 @@ const ACTION: Record<AuditEntry["action"], string> = {
   submit: "送件",
   revoke: "撤銷",
   deny: "拒絕",
+  receipt: "收據",
 };
 
 export function AuditTimeline({

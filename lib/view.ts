@@ -1,6 +1,6 @@
+import { FIELD_IDS } from "./types";
 import { FIELD_META, INCOME_FIELDS } from "./fields";
 import type { DemoState, FieldId, GrantId, GrantStatus } from "./types";
-import { FIELD_IDS } from "./types";
 
 export function formatClock(iso: string): string {
   return new Date(iso).toLocaleString("zh-TW", {
@@ -39,12 +39,14 @@ export function agentSight(state: DemoState) {
 
   for (const grant of state.grants) {
     for (const field of grant.fields) authorized.add(field);
-    const values = Object.keys(state.envelopes[grant.id]?.fields ?? {}) as FieldId[];
+    const envelope = state.envelopes[grant.id];
+    const live = Object.keys(envelope?.fields ?? {}) as FieldId[];
     if (grant.status === "active") {
-      for (const field of values) readableNow.add(field);
+      for (const field of live) readableNow.add(field);
     }
     if (grant.status === "consumed") {
-      for (const field of values) consumed.add(field);
+      const ids = envelope?.receipt?.fieldIds ?? live;
+      for (const field of ids) consumed.add(field);
     }
   }
 
@@ -61,7 +63,9 @@ export function agentSight(state: DemoState) {
 }
 
 export function incomeNeverGranted(state: DemoState): boolean {
-  return state.grants.every((grant) => !grant.fields.some((id) => INCOME_FIELDS.includes(id)));
+  return state.grants.every(
+    (grant) => !grant.fields.some((id) => INCOME_FIELDS.includes(id)),
+  );
 }
 
 export function incomeSummary(state: DemoState): { label: string; value: string }[] {
@@ -82,6 +86,23 @@ export function agencyTitle(agencyId: "jia" | "yi"): string {
 }
 
 export function envelopeHasIncome(state: DemoState, grantId: GrantId): boolean {
-  const fields = state.envelopes[grantId]?.fields ?? {};
-  return INCOME_FIELDS.some((id) => id in fields);
+  const envelope = state.envelopes[grantId];
+  const live = envelope?.fields ?? {};
+  if (INCOME_FIELDS.some((id) => id in live)) return true;
+  const receiptIds = envelope?.receipt?.fieldIds ?? [];
+  return INCOME_FIELDS.some((id) => receiptIds.includes(id));
+}
+
+export function shortHash(hash: string): string {
+  return hash.slice(0, 12);
+}
+
+export function fatEnvelopeFields(
+  state: DemoState,
+): Partial<Record<FieldId, string>> {
+  const out: Partial<Record<FieldId, string>> = {};
+  for (const holding of state.vaultHoldings ?? []) {
+    out[holding.fieldId] = holding.value;
+  }
+  return out;
 }

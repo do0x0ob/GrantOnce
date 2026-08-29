@@ -5,8 +5,9 @@ import { AgencyPane } from "@/components/agency-pane";
 import { AgentPane } from "@/components/agent-pane";
 import { PrincipalPane } from "@/components/principal-pane";
 import { Button } from "@/components/ui/button";
-import { HOUSEHOLD_FIELDS, JIA_FIELDS } from "@/lib/fields";
+import { HOUSEHOLD_FIELDS, JIA_FIELDS, YI_FIELDS } from "@/lib/fields";
 import type { DemoState } from "@/lib/types";
+import { fatEnvelopeFields } from "@/lib/view";
 import { useDemo } from "@/hooks/use-demo";
 
 const PANES = [
@@ -20,6 +21,8 @@ type PaneId = (typeof PANES)[number]["id"];
 export function DemoApp({ initialState }: { initialState: DemoState }) {
   const demo = useDemo(initialState);
   const [pane, setPane] = useState<PaneId>("principal");
+  const [contrast, setContrast] = useState(false);
+  const fatFields = fatEnvelopeFields(demo.state);
 
   return (
     <div className="flex h-full min-h-0 flex-1 flex-col bg-[#F6F3EE]">
@@ -29,16 +32,33 @@ export function DemoApp({ initialState }: { initialState: DemoState }) {
           <span className="ml-2 text-stone-400">分匣授權</span>
           <span className="ml-3 text-[13px] text-stone-400">只准這一次，而且只准這一匣。</span>
         </p>
-        <Button
-          variant="ghost"
-          size="sm"
-          className="rounded-full text-stone-400 hover:text-stone-600"
-          disabled={demo.busy}
-          onClick={() => void demo.reset()}
-        >
-          重設
-        </Button>
+        <div className="flex items-center gap-1">
+          <Button
+            variant="ghost"
+            size="sm"
+            className={`rounded-full ${contrast ? "text-rose-600 hover:text-rose-700" : "text-stone-400 hover:text-stone-600"}`}
+            aria-pressed={contrast}
+            onClick={() => setContrast((value) => !value)}
+          >
+            {contrast ? "回到分匣" : "對照胖授權"}
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="rounded-full text-stone-400 hover:text-stone-600"
+            disabled={demo.busy}
+            onClick={() => void demo.reset()}
+          >
+            重設
+          </Button>
+        </div>
       </header>
+
+      {contrast ? (
+        <p className="px-6 pb-2 text-[13px] leading-5 text-rose-600">
+          錯的解法是給代理人一張胖 token。fields:* — 甲乙都看到全部，包括所得。
+        </p>
+      ) : null}
 
       {demo.error ? (
         <p className="px-6 pb-2 text-[13px] leading-5 text-rose-600">{demo.error}</p>
@@ -81,19 +101,40 @@ export function DemoApp({ initialState }: { initialState: DemoState }) {
           <AgencyPane
             state={demo.state}
             busy={demo.busy}
-            onOverscope={() =>
+            contrast={contrast}
+            fatFields={fatFields}
+            onOverscopeYi={() =>
               demo.fetchMyData({
                 grantId: "G-乙",
                 fields: HOUSEHOLD_FIELDS,
-                actor: "agency-yi",
               })
             }
-            onSubmitJia={() => demo.submit("G-甲", "agency-jia")}
+            onSlotAsTicketYi={() =>
+              demo.fetchMyData({
+                grantId: "G-甲",
+                fields: JIA_FIELDS,
+                ticket: "G-jia",
+              })
+            }
+            onOverscopeJia={() =>
+              demo.fetchMyData({
+                grantId: "G-甲",
+                fields: YI_FIELDS,
+              })
+            }
+            onSlotAsTicketJia={() =>
+              demo.fetchMyData({
+                grantId: "G-乙",
+                fields: HOUSEHOLD_FIELDS,
+                ticket: "G-yi",
+              })
+            }
+            onSubmitJia={() => demo.submit("G-甲")}
             onReplayJia={() =>
               demo.fetchMyData({
                 grantId: "G-甲",
                 fields: JIA_FIELDS,
-                actor: "agency-jia",
+                ticket: "G-jia",
               })
             }
           />

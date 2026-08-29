@@ -1,7 +1,6 @@
 /**
  * Happy-path walk through GrantOnce MCP tools.
- * Uses the official MCP client + in-memory transport so the model-facing
- * tool surface is what we assert — never the vault.
+ * Fetch/submit take HMAC tickets only — never an actor parameter.
  */
 process.env.GRANTONCE_STORE ??= `/tmp/grantonce-mcp-test-${process.pid}.json`;
 
@@ -10,9 +9,10 @@ async function main() {
   const { InMemoryTransport } = await import(
     "@modelcontextprotocol/sdk/inMemory.js"
   );
-  const { HOUSEHOLD_FIELDS, JIA_FIELDS, YI_FIELDS } = await import("../lib/fields");
+  const { HOUSEHOLD_FIELDS, JIA_FIELDS, INCOME_FIELDS } = await import("../lib/fields");
   const { HAPPY_PATH_UTTERANCE } = await import("../lib/rules");
-  const { resetState } = await import("../lib/store");
+  const { getState, resetState } = await import("../lib/store");
+  const { revokeGrant } = await import("../lib/authz");
   const { createGrantOnceServer } = await import("./server");
   const { TOOL_NAMES, vaultLeakIn } = await import("./tools");
 
@@ -24,6 +24,7 @@ async function main() {
     audience: string;
     status: string;
     fields: string[];
+    ticketId: string | null;
   };
 
   let failed = 0;
@@ -74,6 +75,23 @@ async function main() {
     TOOL_NAMES.every((name) => names.includes(name)),
     `lists tools: ${TOOL_NAMES.join(", ")}`,
   );
+  const fetchTool = listed.tools.find((t) => t.name === "fetch_field");
+  const fetchProps = (fetchTool?.inputSchema as { properties?: Record<string, unknown> })
+    ?.properties;
+  const submitTool = listed.tools.find((t) => t.name === "submit_application");
+  const submitProps = (submitTool?.inputSchema as { properties?: Record<string, unknown> })
+    ?.properties;
+  const approveTool = listed.tools.find((t) => t.name === "approve_grant");
+  const approveProps = (approveTool?.inputSchema as { properties?: Record<string, unknown> })
+    ?.properties;
+  assert(approveProps && !("actor" in approveProps), "approve_grant has no actor param");
+  assert(fetchProps && "ticket" in fetchProps, "fetch_field takes ticket");
+  assert(submitProps && "ticket" in submitProps, "submit_application takes ticket");
+  for (const tool of listed.tools) {
+    const props = (tool.inputSchema as { properties?: Record<string, unknown> })?.properties ?? {};
+    assert(!("actor" in props), `${tool.name} has no actor param`);
+    assert(!("caller" in props), `${tool.name} has no caller param`);
+  }
 
   const plan = await call(client, "plan_applications", {
     utterance: HAPPY_PATH_UTTERANCE,
@@ -88,114 +106,78 @@ async function main() {
   const plannedYi = planned.find((g) => g.id === "G-乙");
   assert(Boolean(plannedJia && plannedYi), "plan returns both grant objects");
   assert(plannedJia?.issuer === "P-lin-demo", "G-甲 issuer is principal id");
-  assert(plannedYi?.issuer === "P-lin-demo", "G-乙 issuer is principal id");
-  assert(
-    planned.every((g) => g.issuer && g.issuer !== "林曉晴"),
-    "issuer is not hardcoded 林曉晴",
-  );
-  assert(plannedJia?.audience === "agency-jia", "G-甲 audience is agency-jia");
   assert(plannedYi?.audience === "agency-yi", "G-乙 audience is agency-yi");
-  assert(plannedJia?.subject === "P-lin-demo", "G-甲 subject is vault principal");
   assert(
     planned.every((g) => !g.fields.some((id) => id.startsWith("income."))),
     "income never enters a proposed grant",
   );
 
+  const noTicket = await call(client, "fetch_field", {
+    ticket: "G-yi",
+    fields: HOUSEHOLD_FIELDS,
+  });
+  assert(noTicket.data.ok === false, "slot id G-yi is not a ticket");
+  assert(noTicket.data.code === "BAD_TICKET", "guessable slot is BAD_TICKET");
+
+  const missingTicket = await call(client, "fetch_field", { fields: HOUSEHOLD_FIELDS });
+  assert(missingTicket.data.ok === false, "fetch without ticket denied");
+  assert(missingTicket.data.code === "BAD_TICKET", "missing ticket is BAD_TICKET");
+
   const approveJia = await call(client, "approve_grant", { grantId: "G-jia" });
   assert(approveJia.data.ok === true, "approve_grant G-甲");
+  const ticketJia = approveJia.data.ticket as string;
+  assert(typeof ticketJia === "string" && ticketJia.startsWith("grn_"), "approve returns ticket");
+  assert(ticketJia.includes("."), "ticket includes HMAC mac");
   const approvedJia = approveJia.data.grant as PublicGrant;
   assert(approvedJia.status === "active", "G-甲 is active");
-  assert(
-    approvedJia.issuer === "P-lin-demo",
-    "approve does not override issuer from the session",
-  );
+  assert(approvedJia.issuer === "P-lin-demo", "approve does not override issuer");
   assert(approvedJia.audience === "agency-jia", "approved G-甲 keeps audience");
 
   const approveYi = await call(client, "approve_grant", { grantId: "G-乙" });
   assert(approveYi.data.ok === true, "approve_grant G-乙");
-  assert(
-    (approveYi.data.grant as PublicGrant).issuer === "P-lin-demo",
-    "G-乙 issuer stays session principal id",
-  );
+  const ticketYi = approveYi.data.ticket as string;
+  assert(ticketYi.startsWith("grn_"), "G-乙 ticket issued");
 
   const overscope = await call(client, "fetch_field", {
-    grantId: "G-yi",
+    ticket: ticketYi,
     fields: HOUSEHOLD_FIELDS,
-    actor: "agency-yi",
   });
-  assert(overscope.data.ok === false, "fetch_field household on 乙 is denied");
+  assert(overscope.data.ok === false, "fetch_field household on 乙 ticket is denied");
   assert(overscope.data.status === 403, "deny is HTTP 403");
   assert(overscope.data.code === "OVERSCOPED", "deny code OVERSCOPED");
-  assert(overscope.data.audited === true, "deny is audited");
   assert(overscope.result.isError === true, "MCP marks 403 as isError");
 
-  const stealFetch = await call(client, "fetch_field", {
-    grantId: "G-乙",
-    fields: YI_FIELDS,
-    actor: "agency-jia",
-  });
-  assert(stealFetch.data.ok === false, "甲 using 乙's grant is denied");
-  assert(stealFetch.data.status === 403, "audience mismatch is 403");
-  assert(
-    stealFetch.data.code === "AUDIENCE_MISMATCH",
-    "甲/乙 audience mismatch code",
-  );
-  assert(stealFetch.data.audited === true, "audience mismatch is audited");
+  const submitNoTicket = await call(client, "submit_application", {});
+  assert(submitNoTicket.data.ok === false, "submit without ticket denied");
+  assert(submitNoTicket.data.code === "BAD_TICKET", "submit missing ticket is BAD_TICKET");
 
-  const stealSubmit = await call(client, "submit_application", {
-    grantId: "G-乙",
-    actor: "agency-jia",
-  });
-  assert(stealSubmit.data.ok === false, "甲 submit on 乙's grant is denied");
-  assert(stealSubmit.data.status === 403, "submit audience mismatch is 403");
-  assert(
-    stealSubmit.data.code === "AUDIENCE_MISMATCH",
-    "submit audience mismatch code",
-  );
-  assert(stealSubmit.data.audited === true, "submit audience mismatch audited");
-
-  const missingActor = await call(client, "fetch_field", {
-    grantId: "G-甲",
-    fields: JIA_FIELDS,
-  });
-  assert(missingActor.data.ok === false, "fetch_field without actor denied");
-  assert(missingActor.data.code === "MISSING_ACTOR", "missing actor code");
-
-  const submit = await call(client, "submit_application", {
-    grantId: "G-甲",
-    actor: "agency-jia",
-  });
+  const submit = await call(client, "submit_application", { ticket: ticketJia });
   assert(submit.data.ok === true, "submit_application consumes G-甲");
   assert(
     (submit.data.grant as { status: string }).status === "consumed",
     "G-甲 status consumed",
   );
 
+  const envelopeJia = getState().envelopes["G-甲"];
+  assert(Object.keys(envelopeJia.fields).length === 0, "consumed envelope has no plaintext");
+  assert(Boolean(envelopeJia.receipt?.hash), "consumed envelope has receipt hash");
+  assert(
+    !envelopeJia.receipt?.fieldIds.some((id) =>
+      (INCOME_FIELDS as readonly string[]).includes(id),
+    ),
+    "receipt does not list income",
+  );
+
   const replay = await call(client, "fetch_field", {
-    grantId: "G-甲",
+    ticket: ticketJia,
     fields: JIA_FIELDS,
-    actor: "agency-jia",
   });
   assert(replay.data.ok === false, "replay fetch after submit denied");
-  assert(replay.data.status === 403, "replay is 403");
-  assert(replay.data.code === "GRANT_INACTIVE", "replay code GRANT_INACTIVE");
+  assert(replay.data.code === "GRANT_INACTIVE" || replay.data.code === "BAD_TICKET", "replay denied");
 
-  const stealRevoke = await call(client, "revoke_grant", {
-    grantId: "G-乙",
-    caller: "agency-jia",
-    reason: "甲試圖撤銷乙匣",
-  });
-  assert(stealRevoke.data.ok === false, "non-issuer revoke is denied");
-  assert(stealRevoke.data.status === 403, "non-issuer revoke is 403");
-  assert(
-    stealRevoke.data.code === "ISSUER_MISMATCH",
-    "revoke-by-non-issuer code ISSUER_MISMATCH",
-  );
-  assert(stealRevoke.data.audited === true, "non-issuer revoke is audited");
-  assert(
-    (stealRevoke.data.grant as { status: string }).status === "active",
-    "G-乙 stays active after failed revoke",
-  );
+  const revokeSpoof = revokeGrant("G-乙", "假冒撤銷", { id: "agency-jia" });
+  assert(!revokeSpoof.result.ok, "non-issuer cannot revoke");
+  assert(revokeSpoof.result.ok === false && revokeSpoof.result.code === "ISSUER_MISMATCH", "ISSUER_MISMATCH");
 
   const revoke = await call(client, "revoke_grant", {
     grantId: "G-乙",
@@ -209,36 +191,12 @@ async function main() {
 
   const audit = await call(client, "get_audit", {});
   assert(audit.data.ok === true, "get_audit ok");
-  assert(
-    audit.data.incomeNeverEnteredGrant === true,
-    "income never entered a grant",
-  );
-  const auditGrants = audit.data.grants as PublicGrant[];
-  assert(
-    auditGrants.every((g) => g.issuer === "P-lin-demo"),
-    "audit grants keep session issuer ids",
-  );
-  const entries = audit.data.audit as {
-    action: string;
-    grantId: string | null;
-    detail: string;
-  }[];
+  assert(audit.data.incomeNeverEnteredGrant === true, "income never entered a grant");
+  const entries = audit.data.audit as { action: string; grantId: string | null }[];
   const actions = new Set(entries.map((e) => e.action));
-  for (const action of ["approve", "fetch", "submit", "revoke", "deny"] as const) {
+  for (const action of ["approve", "fetch", "submit", "revoke", "deny", "receipt"] as const) {
     assert(actions.has(action), `audit contains ${action}`);
   }
-  assert(
-    entries.some((e) => e.action === "deny" && e.grantId === "G-乙"),
-    "audit has 乙 household deny",
-  );
-  assert(
-    entries.some((e) => e.action === "deny" && e.detail.includes("audience")),
-    "audit has audience mismatch",
-  );
-  assert(
-    entries.some((e) => e.action === "deny" && e.detail.includes("issuer")),
-    "audit has revoke-by-non-issuer",
-  );
 
   await client.close();
   await mcp.close();

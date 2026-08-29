@@ -3,13 +3,11 @@ import {
   asGrantId,
   fetchWithGrant,
   householdOverscopeFields,
-  parseActorId,
   proposeGrantsFromPlan,
   revokeGrant,
   submitApplication,
 } from "../lib/authz";
 import { FIELD_META } from "../lib/fields";
-import { actorLabel } from "../lib/grant";
 import {
   ageHint,
   HAPPY_PATH_UTTERANCE,
@@ -42,6 +40,9 @@ export function vaultLeakIn(payload: unknown): string | null {
   }
   if (blob.includes("vaultHoldings") || blob.includes('"records"')) {
     return "vault object";
+  }
+  if (blob.includes("grantonce-demo-hmac-key")) {
+    return "hmac key";
   }
   return null;
 }
@@ -85,6 +86,7 @@ function grantPublic(grantId: GrantId) {
     approvedAt: grant.approvedAt,
     consumedAt: grant.consumedAt,
     revokedAt: grant.revokedAt,
+    ticketId: grant.ticketId,
   };
 }
 
@@ -185,37 +187,28 @@ export function planApplications(utterance: string) {
 
 export function approveGrant(grantIdRaw: string) {
   const grantId = requireGrantId(grantIdRaw);
-  const { error } = approveGrantAndFetch(grantId);
+  const { error, ticket } = approveGrantAndFetch(grantId);
   const grant = grantPublic(grantId);
   const payload = error
-    ? { ok: false, error, grant }
+    ? { ok: false as const, error, grant }
     : {
-        ok: true,
+        ok: true as const,
         grant,
-        fetchedFieldIds: grant?.fields ?? [],
-        note: "核准後授權層已把白名單欄位送入機關收件匣。模型看不到金庫值。所得不在此匣。",
+        ticket,
+        note: "核准後 runtime 發出 HMAC ticket。後續 fetch / submit 只認 ticket，不認 actor。",
       };
   assertNoVaultLeak(payload, "approve_grant");
   return payload;
 }
 
-export function fetchField(input: {
-  grantId: string;
-  fields?: string[];
-  actor?: string;
-}) {
-  const grantId = requireGrantId(input.grantId);
-  const actorId = parseActorId(input.actor);
+export function fetchField(input: { ticket?: string; fields?: string[] }) {
+  const ticket = (input.ticket ?? "").trim();
   const fields =
     input.fields && input.fields.length > 0
       ? input.fields
       : householdOverscopeFields();
 
-  const { result } = fetchWithGrant(
-    grantId,
-    fields,
-    actorId ? { id: actorId, name: actorLabel(actorId) } : null,
-  );
+  const { result } = fetchWithGrant(ticket, fields);
 
   if (!result.ok) {
     const payload = {
@@ -223,23 +216,20 @@ export function fetchField(input: {
       status: 403 as const,
       code: result.code,
       error: result.error,
-      grantId,
       deniedFields: result.deniedFields ?? [],
       deniedFieldLabels: fieldLabels(result.deniedFields ?? []),
-      actor: actorId,
       audited: true,
     };
     assertNoVaultLeak(payload, "fetch_field");
     return payload;
   }
 
-  const fetchedFieldIds = Object.keys(result.fields);
   const payload = {
     ok: true,
     status: 200 as const,
     grantId: result.grantId,
-    fetchedFieldIds,
-    fetchedFieldLabels: fieldLabels(fetchedFieldIds),
+    fetchedFieldIds: result.fieldIds,
+    fetchedFieldLabels: fieldLabels(result.fieldIds),
     deliveredTo: "agency-envelope",
     note: "欄位值已送入機關收件匣，未回傳給模型。",
   };
@@ -247,41 +237,34 @@ export function fetchField(input: {
   return payload;
 }
 
-export function submitApp(grantIdRaw: string, actorRaw?: string) {
-  const grantId = requireGrantId(grantIdRaw);
-  const actorId = parseActorId(actorRaw);
-  const { result } = submitApplication(
-    grantId,
-    actorId ? { id: actorId, name: actorLabel(actorId) } : null,
-  );
-  const grant = grantPublic(grantId);
+export function submitApp(ticketRaw: string) {
+  const ticket = ticketRaw.trim();
+  const { result } = submitApplication(ticket);
+  const grant = result.ok ? grantPublic(result.grantId) : null;
   const payload = result.ok
     ? {
         ok: true as const,
         grant,
-        note: `送件完成，匣 ${grantId} 已耗用。重放 fetch_field 將 403。`,
+        note: `送件完成，匣 ${result.grantId} 已耗用。ticket 失效。重放 fetch_field 將 403。`,
       }
     : {
         ok: false as const,
         status: 403 as const,
         code: result.code,
         error: result.error,
-        grantId,
-        actor: actorId,
-        grant,
         audited: true,
       };
   assertNoVaultLeak(payload, "submit_application");
   return payload;
 }
 
-export function revokeApp(grantIdRaw: string, reason?: string, callerRaw?: string) {
+export function revokeApp(grantIdRaw: string, reason?: string) {
   const grantId = requireGrantId(grantIdRaw);
-  const callerId = parseActorId(callerRaw);
+  const issuer = getState().principal.id;
   const { result } = revokeGrant(
     grantId,
     reason?.trim() || `委託人撤銷匣 ${grantId}`,
-    callerId ? { id: callerId, name: actorLabel(callerId) } : null,
+    { id: issuer },
   );
   const grant = grantPublic(grantId);
   const payload = result.ok
@@ -292,9 +275,7 @@ export function revokeApp(grantIdRaw: string, reason?: string, callerRaw?: strin
         code: result.code,
         error: result.error,
         grantId,
-        caller: callerId,
         grant,
-        audited: result.code === "ISSUER_MISMATCH",
       };
   assertNoVaultLeak(payload, "revoke_grant");
   return payload;
@@ -315,7 +296,13 @@ export function getAudit() {
       audience: g.audience,
       status: g.status,
       fieldIds: g.fields,
+      ticketId: g.ticketId,
       containsIncome: false,
+    })),
+    envelopes: (Object.keys(state.envelopes) as GrantId[]).map((id) => ({
+      grantId: id,
+      liveFieldIds: Object.keys(state.envelopes[id].fields),
+      receipt: state.envelopes[id].receipt,
     })),
     audit: state.audit.map((entry) => ({
       id: entry.id,
@@ -327,7 +314,7 @@ export function getAudit() {
       detail: entry.detail,
       deniedFields: entry.deniedFields ?? [],
     })),
-    note: "所得從未進入任何授權匣。稽核只記動作，不含金庫值。",
+    note: "所得從未進入任何授權匣。稽核只記動作，不含金庫值。送件後收件匣只留雜湊。",
   };
   assertNoVaultLeak(payload, "get_audit");
   return payload;
@@ -351,26 +338,21 @@ export function callTool(
     }
     case "fetch_field": {
       const data = fetchField({
-        grantId: String(args.grantId ?? ""),
+        ticket: String(args.ticket ?? ""),
         fields: Array.isArray(args.fields)
           ? args.fields.map(String)
           : undefined,
-        actor: args.actor != null ? String(args.actor) : undefined,
       });
       return { data, isError: data.ok === false };
     }
     case "submit_application": {
-      const data = submitApp(
-        String(args.grantId ?? ""),
-        args.actor != null ? String(args.actor) : undefined,
-      );
+      const data = submitApp(String(args.ticket ?? ""));
       return { data, isError: data.ok === false };
     }
     case "revoke_grant": {
       const data = revokeApp(
         String(args.grantId ?? ""),
         args.reason != null ? String(args.reason) : undefined,
-        args.caller != null ? String(args.caller) : undefined,
       );
       return { data, isError: data.ok === false };
     }

@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useState } from "react";
-import { GRANT_HTTP_TOKEN } from "@/lib/fields";
 import type { DemoState, GrantId } from "@/lib/types";
 
 type ActionResult = {
@@ -18,8 +17,12 @@ async function readPayload(res: Response): Promise<{ state?: DemoState; error?: 
   return { state: data.state, error: data.error };
 }
 
+function ticketFor(state: DemoState, grantId: GrantId): string | null {
+  return state.grants.find((grant) => grant.id === grantId)?.ticket ?? null;
+}
+
 export function useDemo(initialState: DemoState) {
-  const [state, setState] = useState<DemoState>(initialState);
+  const [state, setState] = useState(initialState);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -87,22 +90,18 @@ export function useDemo(initialState: DemoState) {
   );
 
   const fetchMyData = useCallback(
-    async (input: {
-      grantId: GrantId;
-      fields: string[];
-      actor: string;
-    }) => {
+    async (input: { grantId: GrantId; fields: string[]; ticket?: string }) => {
       setBusy(true);
       try {
+        const token = input.ticket ?? ticketFor(state, input.grantId) ?? input.grantId;
         const res = await fetch("/api/mydata/fetch", {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            Authorization: `Bearer Grant ${GRANT_HTTP_TOKEN[input.grantId]}`,
+            Authorization: `Bearer Grant ${token}`,
           },
           body: JSON.stringify({
             fields: input.fields,
-            actor: input.actor,
           }),
         });
         return await apply(res);
@@ -110,24 +109,28 @@ export function useDemo(initialState: DemoState) {
         setBusy(false);
       }
     },
-    [apply],
+    [apply, state],
   );
 
   const submit = useCallback(
-    async (grantId: GrantId, actor: string) => {
+    async (grantId: GrantId, ticketOverride?: string) => {
       setBusy(true);
       try {
+        const ticket = ticketOverride ?? ticketFor(state, grantId) ?? "";
         const res = await fetch("/api/applications/submit", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ grantId, actor }),
+          headers: {
+            "Content-Type": "application/json",
+            ...(ticket ? { Authorization: `Bearer Grant ${ticket}` } : {}),
+          },
+          body: JSON.stringify({ ticket }),
         });
         return await apply(res);
       } finally {
         setBusy(false);
       }
     },
-    [apply],
+    [apply, state],
   );
 
   const reset = useCallback(async () => {
