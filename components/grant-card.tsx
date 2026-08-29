@@ -1,9 +1,18 @@
-import { Button } from "@/components/ui/button";
+import { StatusChip } from "@/components/denial-banner";
 import { IdentityDot } from "@/components/identity-dot";
+import { SURFACE } from "@/components/surface";
+import { Button } from "@/components/ui/button";
 import { FIELD_META } from "@/lib/fields";
 import type { Grant } from "@/lib/types";
-import { agencyTitle, GRANT_STATUS_LABEL, grantExpiry, groupedFields } from "@/lib/view";
 import { cn } from "@/lib/utils";
+import { agencyTitle, GRANT_STATUS_LABEL, grantExpiry, groupedFields } from "@/lib/view";
+
+const CHIP: Record<Grant["status"], "stone" | "rose" | "mint" | "amber"> = {
+  proposed: "amber",
+  active: "mint",
+  revoked: "stone",
+  consumed: "stone",
+};
 
 export function GrantCard({
   grant,
@@ -21,80 +30,58 @@ export function GrantCard({
   const groups = groupedFields(grant.fields);
   const spent = grant.status === "consumed" || grant.status === "revoked";
   const tone = grant.agencyId === "jia" ? "jia" : "yi";
+  const idColor = grant.agencyId === "jia" ? "text-emerald-700" : "text-amber-700";
 
   return (
-    <article
-      className={cn(
-        "rounded-[20px] bg-white p-4 shadow-[0_1px_2px_rgba(0,0,0,0.04)]",
-        spent && "opacity-70",
-      )}
-    >
+    <article className={cn(SURFACE, "px-5 py-4", spent && "opacity-80")}>
       <div className="flex items-start justify-between gap-3">
         <div className="flex items-center gap-2">
           <IdentityDot tone={tone} />
           <div>
-            <p className="text-[12px] text-neutral-500">{grant.id}</p>
-            <p className="text-[15px] font-medium tracking-tight text-neutral-900">
-              {grant.programTitle}
-            </p>
+            <p className={cn("text-[15px] leading-6", idColor)}>{grant.id}</p>
+            <p className="text-[13px] leading-5 text-stone-500">{grant.programTitle}</p>
           </div>
         </div>
-        <span
-          className={cn(
-            "rounded-full px-2.5 py-0.5 text-[11px] font-medium",
-            grant.status === "active" && "bg-emerald-50 text-emerald-700",
-            grant.status === "proposed" && "bg-neutral-100 text-neutral-600",
-            grant.status === "consumed" && "bg-neutral-200 text-neutral-700",
-            grant.status === "revoked" && "bg-neutral-200 text-neutral-600",
-          )}
-        >
-          {GRANT_STATUS_LABEL[grant.status]}
-        </span>
+        <StatusChip tone={CHIP[grant.status]}>{GRANT_STATUS_LABEL[grant.status]}</StatusChip>
       </div>
 
-      <dl className="mt-3 space-y-1.5 text-[13px] leading-5">
-        <Row term="目的" detail={grant.purpose} />
-        <Row term="簽發人" detail={`${issuer}（本人同意）`} />
-        <Row term="收件機關" detail={agencyTitle(grant.agencyId)} />
-        <div className="grid grid-cols-[4.5rem_1fr] gap-x-2">
-          <dt className="text-neutral-500">欄位</dt>
-          <dd className="text-neutral-800">
-            {groups.map(([group, ids]) => (
-              <p key={group}>
-                {group}：{ids.map((id) => FIELD_META[id].label).join("、")}
-              </p>
-            ))}
-          </dd>
-        </div>
-        <Row term="效期" detail={grantExpiry(grant.status)} />
-        <Row term="排除" detail="所得、健保。沒有 fields:*" />
-      </dl>
+      <div className="mt-3 space-y-1 text-[13px] leading-6 text-stone-600">
+        <p>
+          <span className="text-stone-400">簽發 </span>
+          {issuer}
+          <span className="text-stone-400"> · {agencyTitle(grant.agencyId)}</span>
+        </p>
+        {groups.map(([group, ids]) => (
+          <p key={group}>
+            <span className="text-stone-400">{group} </span>
+            {ids.map((id) => FIELD_META[id].label).join("、")}
+          </p>
+        ))}
+        <p className="text-stone-400">
+          {grantExpiry(grant.status)} · 排除所得、健保
+        </p>
+      </div>
 
-      {spent && grant.status !== "revoked" ? (
-        <p className="mt-3 text-[13px] text-neutral-600">此匣已耗用，無法再擷取。</p>
-      ) : (
-        <div className="mt-3 flex flex-wrap gap-2">
-          {grant.status === "proposed" || grant.status === "revoked" ? (
-            <Button size="sm" className="rounded-full" disabled={busy} onClick={onApprove}>
-              核准這一匣
-            </Button>
-          ) : null}
-          {grant.status === "active" ? (
-            <Button size="sm" variant="outline" className="rounded-full" disabled={busy} onClick={onRevoke}>
-              撤銷
-            </Button>
-          ) : null}
+      {grant.status === "proposed" || grant.status === "revoked" ? (
+        <div className="mt-3">
+          <Button size="sm" className="rounded-full" disabled={busy} onClick={onApprove}>
+            核准這一匣
+          </Button>
         </div>
-      )}
+      ) : null}
+      {grant.status === "active" ? (
+        <div className="mt-3">
+          <Button
+            size="sm"
+            variant="ghost"
+            className="rounded-full text-stone-400"
+            disabled={busy}
+            onClick={onRevoke}
+          >
+            撤銷
+          </Button>
+        </div>
+      ) : null}
     </article>
-  );
-}
-
-function Row({ term, detail }: { term: string; detail: string }) {
-  return (
-    <div className="grid grid-cols-[4.5rem_1fr] gap-x-2">
-      <dt className="text-neutral-500">{term}</dt>
-      <dd className="text-neutral-800">{detail}</dd>
-    </div>
   );
 }

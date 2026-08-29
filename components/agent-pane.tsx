@@ -1,92 +1,103 @@
+import { StatusChip } from "@/components/denial-banner";
 import { IdentityDot } from "@/components/identity-dot";
+import { SURFACE } from "@/components/surface";
 import { FIELD_META } from "@/lib/fields";
 import type { DemoState, FieldId } from "@/lib/types";
-import { agentSight } from "@/lib/view";
+import { agentSight, groupedFields, incomeNeverGranted } from "@/lib/view";
+import { Lock } from "lucide-react";
+
+const GROUP_ORDER = ["所得", "戶籍", "親子關係", "台電", "健保"];
 
 export function AgentPane({ state }: { state: DemoState }) {
   const sight = agentSight(state);
+  const holdings = state.vaultHoldings ?? [];
+  const groups = [...groupedFields(holdings.map((h) => h.fieldId))].sort(
+    ([a], [b]) => GROUP_ORDER.indexOf(a) - GROUP_ORDER.indexOf(b),
+  );
+  const heldOut = incomeNeverGranted(state);
 
   return (
-    <div className="flex h-full min-h-0 flex-col">
-      <header className="mb-4 flex items-center gap-2.5">
-        <IdentityDot tone="agent" className="size-3" />
-        <div>
-          <h2 className="text-[15px] font-medium tracking-tight text-neutral-900">補助申請代理人</h2>
-          <p className="text-[12px] text-neutral-500">規則引擎比資格 · 匣才是憑證</p>
+    <div className="flex h-full min-h-0 flex-col gap-4">
+      <div className="flex items-center gap-2">
+        <IdentityDot tone="agent" />
+        <p className="text-[14px] leading-5 text-stone-700">代理人</p>
+      </div>
+
+      <section className={`${SURFACE} flex min-h-0 flex-1 flex-col px-5 py-4`}>
+        <div className="mb-3 flex items-center gap-1.5">
+          <Lock className="size-3 text-stone-400" strokeWidth={1.75} aria-hidden />
+          <p className="text-[13px] leading-5 text-stone-400">假 MyData 金庫</p>
         </div>
-      </header>
-
-      <section className="mb-3 rounded-[20px] bg-white p-4 shadow-[0_1px_2px_rgba(0,0,0,0.04)]">
-        <h3 className="mb-2 text-[12px] text-neutral-500">計畫</h3>
-        {!state.plan ? (
-          <p className="text-[13px] leading-5 text-neutral-500">等待需求。偵測搬家後列出兩個最小欄位匣。</p>
-        ) : (
-          <div className="space-y-3">
-            {state.plan.programs.map((program) => (
-              <div key={program.grantId}>
-                <div className="flex items-center gap-2">
-                  <IdentityDot tone={program.agencyId === "jia" ? "jia" : "yi"} />
-                  <p className="text-[13px] font-medium text-neutral-900">{program.title}</p>
-                  <span className="text-[12px] text-neutral-400">{program.grantId}</span>
+        <div className="min-h-0 flex-1 space-y-4 overflow-y-auto">
+          {groups.map(([group, ids]) => {
+            const rows = ids
+              .map((id) => holdings.find((h) => h.fieldId === id))
+              .filter((row): row is NonNullable<typeof row> => Boolean(row));
+            const sealed = rows.some((row) => row.sealed);
+            return (
+              <div key={group}>
+                <div className="mb-1 flex items-center gap-2">
+                  <p className="text-[14px] leading-5 text-stone-800">{group}</p>
+                  {sealed ? (
+                    <StatusChip tone="rose">在金庫 · 未入匣</StatusChip>
+                  ) : (
+                    <StatusChip>可分匣</StatusChip>
+                  )}
                 </div>
-                <p className="mt-0.5 pl-4 text-[12px] text-neutral-500">{program.agencyName}</p>
-                <ul className="mt-1 space-y-0.5 pl-4 text-[13px] leading-5 text-neutral-700">
-                  {program.reasons.map((reason) => (
-                    <li key={reason}>{reason}</li>
+                <dl className="space-y-0.5">
+                  {rows.map((row) => (
+                    <div
+                      key={row.fieldId}
+                      className="grid grid-cols-[6.2rem_1fr] gap-2 text-[13px] leading-6"
+                    >
+                      <dt className="text-stone-400">{row.label}</dt>
+                      <dd className="text-stone-800">
+                        {row.value}
+                        {sealed ? (
+                          <Lock
+                            className="ml-1 inline size-3 align-[-2px] text-stone-300"
+                            strokeWidth={1.75}
+                            aria-hidden
+                          />
+                        ) : null}
+                      </dd>
+                    </div>
                   ))}
-                </ul>
+                </dl>
+                {sealed ? (
+                  <p className="mt-1 text-[13px] leading-5 text-stone-400">
+                    {heldOut ? "未進入任何授權匣" : "錯誤：所得已被列入匣"}
+                  </p>
+                ) : null}
               </div>
-            ))}
-            <p className="rounded-2xl bg-amber-50 px-3 py-2 text-[13px] leading-5 text-amber-900">
-              {state.plan.ageHint}
-            </p>
-          </div>
-        )}
-      </section>
-
-      <section className="min-h-0 flex-1 space-y-3 overflow-auto rounded-[20px] bg-white p-4 shadow-[0_1px_2px_rgba(0,0,0,0.04)]">
-        <h3 className="text-[12px] text-neutral-500">現在看得見／看不見</h3>
-        <SightBlock title="現在可讀" empty="還沒有有效匣。" ids={sight.readableNow} />
-        <SightBlock title="已耗用，不能再讀" empty="尚無耗用的匣。" ids={sight.consumed} />
-        <div className="rounded-2xl bg-rose-50 px-3 py-2.5">
-          <p className="text-[13px] font-medium text-rose-800">金庫有、未授權</p>
-          <p className="mt-1 text-[13px] leading-5 text-rose-700">
-            {sight.incomeHeldBack.length > 0
-              ? `所得：${sight.incomeHeldBack.map((id) => FIELD_META[id].label).join("、")}。未進入任何匣。`
-              : "所得已被授權（本演示不該發生）。"}
-          </p>
+            );
+          })}
+        </div>
+        <div className="mt-4 border-t border-stone-100 pt-3">
+          <p className="text-[12px] leading-5 text-stone-400">現在可讀</p>
+          <Sight ids={sight.readableNow} empty="還沒有有效匣。" />
+          {sight.consumed.length > 0 ? (
+            <>
+              <p className="mt-2 text-[12px] leading-5 text-stone-400">已耗用</p>
+              <Sight ids={sight.consumed} empty="" />
+            </>
+          ) : null}
+          {state.plan?.ageHint ? (
+            <p className="mt-2 text-[13px] leading-6 text-stone-400">{state.plan.ageHint}</p>
+          ) : null}
         </div>
       </section>
     </div>
   );
 }
 
-function SightBlock({
-  title,
-  empty,
-  ids,
-}: {
-  title: string;
-  empty: string;
-  ids: FieldId[];
-}) {
+function Sight({ ids, empty }: { ids: FieldId[]; empty: string }) {
+  if (ids.length === 0) {
+    return empty ? <p className="text-[13px] leading-6 text-stone-400">{empty}</p> : null;
+  }
   return (
-    <div>
-      <p className="text-[12px] text-neutral-500">{title}</p>
-      {ids.length === 0 ? (
-        <p className="text-[13px] text-neutral-400">{empty}</p>
-      ) : (
-        <div className="mt-1.5 flex flex-wrap gap-1.5">
-          {ids.map((id) => (
-            <span
-              key={id}
-              className="rounded-full bg-neutral-100 px-2.5 py-0.5 text-[12px] text-neutral-700"
-            >
-              {FIELD_META[id].label}
-            </span>
-          ))}
-        </div>
-      )}
-    </div>
+    <p className="text-[13px] leading-6 text-stone-600">
+      {ids.map((id) => FIELD_META[id].label).join("、")}
+    </p>
   );
 }

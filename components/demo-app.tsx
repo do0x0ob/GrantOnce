@@ -10,9 +10,9 @@ import type { DemoState } from "@/lib/types";
 import { useDemo } from "@/hooks/use-demo";
 
 const PANES = [
-  { id: "principal", label: "委託人" },
-  { id: "agent", label: "代理人" },
-  { id: "agency", label: "機關＋稽核" },
+  { id: "principal", label: "匣" },
+  { id: "agent", label: "金庫" },
+  { id: "agency", label: "機關" },
 ] as const;
 
 type PaneId = (typeof PANES)[number]["id"];
@@ -22,19 +22,17 @@ export function DemoApp({ initialState }: { initialState: DemoState }) {
   const [pane, setPane] = useState<PaneId>("principal");
 
   return (
-    <div className="flex h-full min-h-0 flex-1 flex-col bg-white">
-      <header className="flex shrink-0 items-center justify-between gap-3 px-5 py-3">
-        <div>
-          <p className="text-[15px] font-medium tracking-tight text-neutral-900">
-            GrantOnce
-            <span className="ml-2 font-normal text-neutral-500">分匣授權</span>
-          </p>
-          <p className="text-[13px] text-neutral-500">只准這一次，而且只准這一匣。</p>
-        </div>
+    <div className="flex h-full min-h-0 flex-1 flex-col bg-[#F6F3EE]">
+      <header className="flex shrink-0 items-baseline justify-between gap-3 px-6 py-3.5">
+        <p className="text-[15px] leading-6 tracking-tight text-stone-800">
+          GrantOnce
+          <span className="ml-2 text-stone-400">分匣授權</span>
+          <span className="ml-3 text-[13px] text-stone-400">只准這一次，而且只准這一匣。</span>
+        </p>
         <Button
-          variant="outline"
+          variant="ghost"
           size="sm"
-          className="rounded-full border-neutral-200"
+          className="rounded-full text-stone-400 hover:text-stone-600"
           disabled={demo.busy}
           onClick={() => void demo.reset()}
         >
@@ -43,12 +41,10 @@ export function DemoApp({ initialState }: { initialState: DemoState }) {
       </header>
 
       {demo.error ? (
-        <div className="mx-5 mb-2 rounded-2xl bg-rose-50 px-4 py-2 text-[13px] text-rose-700">
-          {demo.error}
-        </div>
+        <p className="px-6 pb-2 text-[13px] leading-5 text-rose-600">{demo.error}</p>
       ) : null}
 
-      <nav className="flex shrink-0 gap-1 px-4 pb-2 xl:hidden">
+      <nav className="flex shrink-0 gap-1 px-5 pb-2 xl:hidden">
         {PANES.map((item) => (
           <Button
             key={item.id}
@@ -62,9 +58,9 @@ export function DemoApp({ initialState }: { initialState: DemoState }) {
         ))}
       </nav>
 
-      <div className="grid min-h-0 flex-1 grid-cols-1 gap-3 px-3 pb-3 xl:grid-cols-3">
+      <div className="grid min-h-0 flex-1 grid-cols-1 gap-5 px-5 pb-5 xl:grid-cols-[minmax(20rem,1.1fr)_minmax(17rem,0.9fr)_minmax(24rem,1.25fr)]">
         <section
-          className={`min-h-0 overflow-hidden rounded-[24px] bg-[#F5F5F5] p-4 xl:flex xl:flex-col ${pane === "principal" ? "flex flex-col" : "hidden"}`}
+          className={`min-h-0 overflow-hidden ${pane === "principal" ? "flex flex-col" : "hidden"} xl:flex xl:flex-col`}
         >
           <PrincipalPane
             state={demo.state}
@@ -75,12 +71,12 @@ export function DemoApp({ initialState }: { initialState: DemoState }) {
           />
         </section>
         <section
-          className={`min-h-0 overflow-auto rounded-[24px] bg-[#F5F5F5] p-4 xl:block ${pane === "agent" ? "block" : "hidden"}`}
+          className={`min-h-0 overflow-hidden ${pane === "agent" ? "flex flex-col" : "hidden"} xl:flex xl:flex-col`}
         >
           <AgentPane state={demo.state} />
         </section>
         <section
-          className={`min-h-0 overflow-auto rounded-[24px] bg-[#F5F5F5] p-4 xl:block ${pane === "agency" ? "block" : "hidden"}`}
+          className={`min-h-0 overflow-hidden ${pane === "agency" ? "flex flex-col" : "hidden"} xl:flex xl:flex-col`}
         >
           <AgencyPane
             state={demo.state}
