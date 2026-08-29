@@ -3,11 +3,13 @@ import {
   asGrantId,
   fetchWithGrant,
   householdOverscopeFields,
+  parseActorId,
   proposeGrantsFromPlan,
   revokeGrant,
   submitApplication,
 } from "../lib/authz";
 import { FIELD_META } from "../lib/fields";
+import { actorLabel } from "../lib/grant";
 import {
   ageHint,
   HAPPY_PATH_UTTERANCE,
@@ -27,14 +29,6 @@ export const TOOL_NAMES = [
   "revoke_grant",
   "get_audit",
 ] as const;
-
-export type ActorRole = "agent" | "agency-jia" | "agency-yi";
-
-const ACTORS: Record<ActorRole, { name: string; role: ActorRole }> = {
-  agent: { name: "補助代理人", role: "agent" },
-  "agency-jia": { name: "甲｜新北市社會局", role: "agency-jia" },
-  "agency-yi": { name: "乙｜經濟部能源署 × 台電", role: "agency-yi" },
-};
 
 /** Distinctive vault values the model must never receive. */
 export const VAULT_VALUE_MARKERS = Object.values(VAULT.records).filter(
@@ -71,35 +65,30 @@ function requireGrantId(raw: string): GrantId {
   return grantId;
 }
 
-function normalizeActor(raw?: string): { name: string; role: ActorRole } {
-  const t = (raw ?? "agent").trim().toLowerCase();
-  if (t === "agency-yi" || t === "yi" || t === "乙" || t === "agency-b") {
-    return ACTORS["agency-yi"];
-  }
-  if (t === "agency-jia" || t === "jia" || t === "甲" || t === "agency-a") {
-    return ACTORS["agency-jia"];
-  }
-  return ACTORS.agent;
-}
-
 function grantPublic(grantId: GrantId) {
   const grant = getState().grants.find((g) => g.id === grantId);
   if (!grant) return null;
   return {
     id: grant.id,
-    agencyId: grant.agencyId,
+    issuer: grant.issuer,
+    subject: grant.subject,
+    audience: grant.audience,
     purpose: grant.purpose,
-    programTitle: grant.programTitle,
     fields: grant.fields,
     fieldLabels: fieldLabels(grant.fields),
+    source: grant.source,
+    expiresAt: grant.expiresAt,
     status: grant.status,
+    revokeOn: grant.revokeOn,
+    agencyId: grant.agencyId,
+    programTitle: grant.programTitle,
     approvedAt: grant.approvedAt,
     consumedAt: grant.consumedAt,
     revokedAt: grant.revokedAt,
   };
 }
 
-export function planApplications(utterance: string) {
+export function planApplications(utterance: string, issuer?: string) {
   const message = utterance.trim() || HAPPY_PATH_UTTERANCE;
   const situation = situationFromUtterance(message);
 
@@ -146,7 +135,9 @@ export function planApplications(utterance: string) {
         "沒有「一次交出全部資料」的按鈕。",
       ],
     };
-    proposeGrantsFromPlan(s, programs);
+    proposeGrantsFromPlan(s, programs, {
+      issuer: issuer?.trim() || undefined,
+    });
     appendChat(
       s,
       "agent",
@@ -194,9 +185,11 @@ export function planApplications(utterance: string) {
   return payload;
 }
 
-export function approveGrant(grantIdRaw: string) {
+export function approveGrant(grantIdRaw: string, issuer?: string) {
   const grantId = requireGrantId(grantIdRaw);
-  const { error } = approveGrantAndFetch(grantId);
+  const { error } = approveGrantAndFetch(grantId, {
+    issuer: issuer?.trim() || undefined,
+  });
   const grant = grantPublic(grantId);
   const payload = error
     ? { ok: false, error, grant }
@@ -216,13 +209,17 @@ export function fetchField(input: {
   actor?: string;
 }) {
   const grantId = requireGrantId(input.grantId);
-  const actor = normalizeActor(input.actor);
+  const actorId = parseActorId(input.actor);
   const fields =
     input.fields && input.fields.length > 0
       ? input.fields
       : householdOverscopeFields();
 
-  const { result } = fetchWithGrant(grantId, fields, actor);
+  const { result } = fetchWithGrant(
+    grantId,
+    fields,
+    actorId ? { id: actorId, name: actorLabel(actorId) } : null,
+  );
 
   if (!result.ok) {
     const payload = {
@@ -233,7 +230,7 @@ export function fetchField(input: {
       grantId,
       deniedFields: result.deniedFields ?? [],
       deniedFieldLabels: fieldLabels(result.deniedFields ?? []),
-      actor: actor.role,
+      actor: actorId,
       audited: true,
     };
     assertNoVaultLeak(payload, "fetch_field");
@@ -254,16 +251,29 @@ export function fetchField(input: {
   return payload;
 }
 
-export function submitApp(grantIdRaw: string) {
+export function submitApp(grantIdRaw: string, actorRaw?: string) {
   const grantId = requireGrantId(grantIdRaw);
-  const { error } = submitApplication(grantId);
+  const actorId = parseActorId(actorRaw);
+  const { result } = submitApplication(
+    grantId,
+    actorId ? { id: actorId, name: actorLabel(actorId) } : null,
+  );
   const grant = grantPublic(grantId);
-  const payload = error
-    ? { ok: false, error, grant }
-    : {
-        ok: true,
+  const payload = result.ok
+    ? {
+        ok: true as const,
         grant,
         note: `送件完成，匣 ${grantId} 已耗用。重放 fetch_field 將 403。`,
+      }
+    : {
+        ok: false as const,
+        status: 403 as const,
+        code: result.code,
+        error: result.error,
+        grantId,
+        actor: actorId,
+        grant,
+        audited: true,
       };
   assertNoVaultLeak(payload, "submit_application");
   return payload;
@@ -293,6 +303,9 @@ export function getAudit() {
     neverGrantedFieldIds: sight.neverGranted,
     grants: state.grants.map((g) => ({
       id: g.id,
+      issuer: g.issuer,
+      subject: g.subject,
+      audience: g.audience,
       status: g.status,
       fieldIds: g.fields,
       containsIncome: false,
@@ -322,11 +335,17 @@ export function callTool(
   switch (name) {
     case "plan_applications":
       return {
-        data: planApplications(String(args.utterance ?? "")),
+        data: planApplications(
+          String(args.utterance ?? ""),
+          args.issuer != null ? String(args.issuer) : undefined,
+        ),
         isError: false,
       };
     case "approve_grant": {
-      const data = approveGrant(String(args.grantId ?? ""));
+      const data = approveGrant(
+        String(args.grantId ?? ""),
+        args.issuer != null ? String(args.issuer) : undefined,
+      );
       return { data, isError: data.ok === false };
     }
     case "fetch_field": {
@@ -340,7 +359,10 @@ export function callTool(
       return { data, isError: data.ok === false };
     }
     case "submit_application": {
-      const data = submitApp(String(args.grantId ?? ""));
+      const data = submitApp(
+        String(args.grantId ?? ""),
+        args.actor != null ? String(args.actor) : undefined,
+      );
       return { data, isError: data.ok === false };
     }
     case "revoke_grant": {

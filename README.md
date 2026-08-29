@@ -4,7 +4,7 @@
 
 委託人核准最小欄位授權匣，AI 代理人才能向假 MyData 擷取資料、替你送補助申請。每個機關只看得到自己那一匣。送件後授權立刻耗用。越權請求直接 403。
 
-這是週末黑客松演示，不是正式政府系統。
+GrantOnce 是一套小而通用的授權協定（與哪個助手／MCP 宿主無關）。演示 UI 只是 harness。
 
 ## 怎麼跑
 
@@ -59,7 +59,24 @@
 | 金庫 | 假 MyData；所得留在這裡，不進任何匣 |
 | 機關 | 甲／乙收件、403 芯片、稽核時間線 |
 
-## 授權怎麼檢查
+## 授權協定
+
+每個 Grant 都是：
+
+| 欄位 | 意思 |
+| --- | --- |
+| `id` | 匣編號 |
+| `issuer` | 誰核准（人／法院／機構的 principal id，不可硬編姓名） |
+| `subject` | 金庫列是誰的資料 |
+| `audience` | 誰可以使用這張匣（擷取／送件） |
+| `purpose` | 用途 |
+| `fields[]` | 白名單，沒有 `*` |
+| `source` | `mydata` \| `wallet` \| `user` |
+| `expiresAt` | 過期時間 |
+| `status` | `pending` \| `active` \| `consumed` \| `revoked` |
+| `revokeOn` | `submitted` \| `user` \| `expired` |
+
+`fetch_field` 與 `submit_application` **必須**帶 `actor`，且 `actor === audience`。呼叫端不能自己宣稱 audience。甲拿乙的匣 → 403 + 稽核。執法故事：issuer 是法院／搜索票，不是機關甲。
 
 `POST /api/mydata/fetch`
 
@@ -68,7 +85,7 @@ Authorization: Bearer Grant G-yi
 { "fields": ["household.householdId"], "actor": "agency-yi" }
 ```
 
-HTTP 標頭必須是 ASCII，所以匣 G-甲／G-乙 在線上是 `G-jia`／`G-yi`。畫面與稽核仍顯示 G-甲、G-乙。匣 G-乙 只允許台電欄位，所以上面這包會 403。
+HTTP 標頭必須是 ASCII，所以匣 G-甲／G-乙 在線上是 `G-jia`／`G-yi`。畫面與稽核仍顯示 G-甲、G-乙。匣 G-乙 只允許台電欄位，所以上面這包會 403。甲帶 `actor: agency-jia` 用乙匣也會 403（audience）。
 
 ## MCP（Grok Bot / Cursor 用 stdio）
 
@@ -105,10 +122,10 @@ Cursor / Grok Bot `mcp.json`（`cwd` 設成 repo 根目錄）：
 
 | 工具 | 做什麼 |
 | --- | --- |
-| `plan_applications` | 規則引擎列出 G-甲／G-乙，不讀金庫 |
-| `approve_grant` | 核准一匣；值進收件匣，不回給模型 |
-| `fetch_field` | 依匣擷取。乙要戶籍 → 403 + 稽核 |
-| `submit_application` | 送件即耗用；重放擷取 403 |
+| `plan_applications` | 規則引擎列出 G-甲／G-乙；建議匣帶 issuer + audience |
+| `approve_grant` | 核准一匣（可覆寫 issuer）；值進收件匣，不回給模型 |
+| `fetch_field` | 依匣擷取。`actor` 必須 = audience。乙要戶籍或甲用乙匣 → 403 + 稽核 |
+| `submit_application` | `actor` 必須 = audience。送件即耗用；重放擷取 403 |
 | `revoke_grant` | 撤銷未耗用的匣 |
 | `get_audit` | 時間線；所得從未進入任何匣 |
 

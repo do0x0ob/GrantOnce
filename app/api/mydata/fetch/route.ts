@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { fetchWithGrant, parseGrantBearer } from "@/lib/authz";
+import { actorLabel, fetchWithGrant, parseActorId, parseGrantBearer } from "@/lib/authz";
 
 export const dynamic = "force-dynamic";
 
@@ -14,20 +14,18 @@ export async function POST(request: Request) {
 
   const body = (await request.json().catch(() => ({}))) as {
     fields?: string[];
-    actor?: "agent" | "agency-jia" | "agency-yi";
+    actor?: string;
     actorName?: string;
   };
   const fields = Array.isArray(body.fields) ? body.fields : [];
-  const role = body.actor ?? "agent";
-  const name =
-    body.actorName ??
-    (role === "agency-jia"
-      ? "甲｜新北市社會局"
-      : role === "agency-yi"
-        ? "乙｜經濟部能源署 × 台電"
-        : "補助代理人");
+  const actorId = parseActorId(body.actor);
+  const name = body.actorName ?? (actorId ? actorLabel(actorId) : undefined);
 
-  const { state, result } = fetchWithGrant(grantId, fields, { name, role });
+  const { state, result } = fetchWithGrant(
+    grantId,
+    fields,
+    actorId ? { id: actorId, name } : null,
+  );
   if (!result.ok) {
     return NextResponse.json({ ...result, state }, { status: 403 });
   }

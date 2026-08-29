@@ -53,7 +53,11 @@ export function PrincipalPane({
             <GrantCard
               key={grant.id}
               grant={grant}
-              issuer={state.principal.name}
+              issuer={
+                grant.issuer === state.principal.id
+                  ? `${state.principal.name}（${grant.issuer}）`
+                  : grant.issuer
+              }
               busy={busy}
               onApprove={() => onApprove(grant.id)}
               onRevoke={() => onRevoke(grant.id)}

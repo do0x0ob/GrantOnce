@@ -15,7 +15,7 @@ export function formatClock(iso: string): string {
 }
 
 export const GRANT_STATUS_LABEL: Record<GrantStatus, string> = {
-  proposed: "待核准",
+  pending: "待核准",
   active: "有效",
   revoked: "已撤銷",
   consumed: "已耗用",

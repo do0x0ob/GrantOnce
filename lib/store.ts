@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { FIELD_META, GRANT_FIELDS } from "./fields";
+import { audienceOfAgency, expiresAtFrom } from "./grant";
 import { HAPPY_PATH_UTTERANCE } from "./rules";
 import type {
   AgencyId,
@@ -9,6 +10,7 @@ import type {
   ChatMessage,
   DemoState,
   FieldId,
+  Grant,
   GrantId,
   VaultHolding,
 } from "./types";
@@ -100,19 +102,38 @@ function persist(state: DemoState) {
   }
 }
 
+function normalizeGrant(grant: Grant): Grant {
+  const incoming = grant as unknown as { status: string };
+  const status = (
+    incoming.status === "proposed" ? "pending" : incoming.status
+  ) as Grant["status"];
+  return {
+    ...grant,
+    issuer: grant.issuer || "P-lin-demo",
+    subject: grant.subject || "P-lin-demo",
+    audience: grant.audience || audienceOfAgency(grant.agencyId),
+    source: grant.source || "mydata",
+    expiresAt: grant.expiresAt || expiresAtFrom(grant.proposedAt),
+    status,
+    revokeOn: grant.revokeOn || "submitted",
+  };
+}
+
+function hydrateState(state: DemoState): DemoState {
+  if (!state.vaultHoldings?.length) {
+    state.vaultHoldings = buildVaultHoldings();
+  }
+  state.grants = (state.grants ?? []).map(normalizeGrant);
+  return state;
+}
+
 export function getState(): DemoState {
   if (memory) {
-    if (!memory.vaultHoldings?.length) {
-      memory.vaultHoldings = buildVaultHoldings();
-    }
-    return memory;
+    return hydrateState(memory);
   }
   try {
     if (existsSync(STORE_PATH)) {
-      memory = JSON.parse(readFileSync(STORE_PATH, "utf8")) as DemoState;
-      if (!memory.vaultHoldings?.length) {
-        memory.vaultHoldings = buildVaultHoldings();
-      }
+      memory = hydrateState(JSON.parse(readFileSync(STORE_PATH, "utf8")) as DemoState);
       return memory;
     }
   } catch {

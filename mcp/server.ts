@@ -44,9 +44,14 @@ export function createGrantOnceServer(): McpServer {
         utterance: z
           .string()
           .describe("委託人原話。快樂路徑：我剛搬家，看我能申請什麼。"),
+        issuer: z
+          .string()
+          .optional()
+          .describe("核准此匣的 principal id（人／法院／機構）。省略則用委託人 id，不得硬編姓名。"),
       },
     },
-    async ({ utterance }) => runTool("plan_applications", { utterance }),
+    async ({ utterance, issuer }) =>
+      runTool("plan_applications", { utterance, issuer }),
   );
 
   server.registerTool(
@@ -57,9 +62,13 @@ export function createGrantOnceServer(): McpServer {
         "委託人核准一張最小欄位授權匣。授權層會把白名單欄位寫入機關收件匣；回傳只含欄位 ID，不含金庫值。",
       inputSchema: {
         grantId: z.string().describe("匣編號：G-甲 / G-jia 或 G-乙 / G-yi"),
+        issuer: z
+          .string()
+          .optional()
+          .describe("實際核准的 principal id。執法故事可換成法院／搜索票，不是機關。"),
       },
     },
-    async ({ grantId }) => runTool("approve_grant", { grantId }),
+    async ({ grantId, issuer }) => runTool("approve_grant", { grantId, issuer }),
   );
 
   server.registerTool(
@@ -67,7 +76,7 @@ export function createGrantOnceServer(): McpServer {
     {
       title: "依匣擷取欄位",
       description:
-        "用 Bearer Grant 向假 MyData 擷取。越權（例如機關乙要戶籍）fail closed：403 並寫稽核。成功時欄位值只進機關收件匣，不回傳給模型。",
+        "用授權匣向假 MyData 擷取。actor 必須等於 grant.audience，否則 403 + 稽核。越權（例如機關乙要戶籍）fail closed。成功時欄位值只進機關收件匣，不回傳給模型。",
       inputSchema: {
         grantId: z.string().describe("匣編號：G-甲 / G-jia 或 G-乙 / G-yi"),
         fields: z
@@ -77,7 +86,7 @@ export function createGrantOnceServer(): McpServer {
         actor: z
           .string()
           .optional()
-          .describe("agent | agency-jia | agency-yi"),
+          .describe("呼叫端 id，必須等於該匣 audience（甲=agency-jia，乙=agency-yi）。省略或錯誤 → 403 + 稽核。不得自填 audience。"),
       },
     },
     async ({ grantId, fields, actor }) =>
@@ -88,12 +97,17 @@ export function createGrantOnceServer(): McpServer {
     "submit_application",
     {
       title: "送出申請",
-      description: "用有效匣送件。送件後匣立即耗用；之後 fetch_field 重放會 403。",
+      description:
+        "用有效匣送件。actor 必須等於 grant.audience，否則 403 + 稽核。送件後匣立即耗用；之後 fetch_field 重放會 403。",
       inputSchema: {
         grantId: z.string().describe("匣編號：G-甲 / G-jia 或 G-乙 / G-yi"),
+        actor: z
+          .string()
+          .optional()
+          .describe("呼叫端 id，必須等於該匣 audience。省略或錯誤 → 403 + 稽核。"),
       },
     },
-    async ({ grantId }) => runTool("submit_application", { grantId }),
+    async ({ grantId, actor }) => runTool("submit_application", { grantId, actor }),
   );
 
   server.registerTool(

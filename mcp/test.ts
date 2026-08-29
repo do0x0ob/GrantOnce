@@ -10,13 +10,21 @@ async function main() {
   const { InMemoryTransport } = await import(
     "@modelcontextprotocol/sdk/inMemory.js"
   );
-  const { HOUSEHOLD_FIELDS, JIA_FIELDS } = await import("../lib/fields");
+  const { HOUSEHOLD_FIELDS, JIA_FIELDS, YI_FIELDS } = await import("../lib/fields");
   const { HAPPY_PATH_UTTERANCE } = await import("../lib/rules");
   const { resetState } = await import("../lib/store");
   const { createGrantOnceServer } = await import("./server");
   const { TOOL_NAMES, vaultLeakIn } = await import("./tools");
 
   type Json = Record<string, unknown>;
+  type PublicGrant = {
+    id: string;
+    issuer: string;
+    subject: string;
+    audience: string;
+    status: string;
+    fields: string[];
+  };
 
   let failed = 0;
   let passed = 0;
@@ -75,15 +83,43 @@ async function main() {
   assert(programs.some((p) => p.grantId === "G-甲"), "plan proposes G-甲");
   assert(programs.some((p) => p.grantId === "G-乙"), "plan proposes G-乙");
 
-  const approveJia = await call(client, "approve_grant", { grantId: "G-jia" });
-  assert(approveJia.data.ok === true, "approve_grant G-甲");
+  const planned = plan.data.grants as PublicGrant[];
+  const plannedJia = planned.find((g) => g.id === "G-甲");
+  const plannedYi = planned.find((g) => g.id === "G-乙");
+  assert(Boolean(plannedJia && plannedYi), "plan returns both grant objects");
+  assert(plannedJia?.issuer === "P-lin-demo", "G-甲 issuer is principal id");
+  assert(plannedYi?.issuer === "P-lin-demo", "G-乙 issuer is principal id");
   assert(
-    (approveJia.data.grant as { status: string }).status === "active",
-    "G-甲 is active",
+    planned.every((g) => g.issuer && g.issuer !== "林曉晴"),
+    "issuer is not hardcoded 林曉晴",
   );
+  assert(plannedJia?.audience === "agency-jia", "G-甲 audience is agency-jia");
+  assert(plannedYi?.audience === "agency-yi", "G-乙 audience is agency-yi");
+  assert(plannedJia?.subject === "P-lin-demo", "G-甲 subject is vault principal");
+  assert(
+    planned.every((g) => !g.fields.some((id) => id.startsWith("income."))),
+    "income never enters a proposed grant",
+  );
+
+  const approveJia = await call(client, "approve_grant", {
+    grantId: "G-jia",
+    issuer: "court:warrant-2026-0812",
+  });
+  assert(approveJia.data.ok === true, "approve_grant G-甲");
+  const approvedJia = approveJia.data.grant as PublicGrant;
+  assert(approvedJia.status === "active", "G-甲 is active");
+  assert(
+    approvedJia.issuer === "court:warrant-2026-0812",
+    "issuer can be a court / warrant, not a hardcoded persona",
+  );
+  assert(approvedJia.audience === "agency-jia", "approved G-甲 keeps audience");
 
   const approveYi = await call(client, "approve_grant", { grantId: "G-乙" });
   assert(approveYi.data.ok === true, "approve_grant G-乙");
+  assert(
+    (approveYi.data.grant as PublicGrant).issuer === "P-lin-demo",
+    "G-乙 issuer stays principal id when not overridden",
+  );
 
   const overscope = await call(client, "fetch_field", {
     grantId: "G-yi",
@@ -96,7 +132,42 @@ async function main() {
   assert(overscope.data.audited === true, "deny is audited");
   assert(overscope.result.isError === true, "MCP marks 403 as isError");
 
-  const submit = await call(client, "submit_application", { grantId: "G-甲" });
+  const stealFetch = await call(client, "fetch_field", {
+    grantId: "G-乙",
+    fields: YI_FIELDS,
+    actor: "agency-jia",
+  });
+  assert(stealFetch.data.ok === false, "甲 using 乙's grant is denied");
+  assert(stealFetch.data.status === 403, "audience mismatch is 403");
+  assert(
+    stealFetch.data.code === "AUDIENCE_MISMATCH",
+    "甲/乙 audience mismatch code",
+  );
+  assert(stealFetch.data.audited === true, "audience mismatch is audited");
+
+  const stealSubmit = await call(client, "submit_application", {
+    grantId: "G-乙",
+    actor: "agency-jia",
+  });
+  assert(stealSubmit.data.ok === false, "甲 submit on 乙's grant is denied");
+  assert(stealSubmit.data.status === 403, "submit audience mismatch is 403");
+  assert(
+    stealSubmit.data.code === "AUDIENCE_MISMATCH",
+    "submit audience mismatch code",
+  );
+  assert(stealSubmit.data.audited === true, "submit audience mismatch audited");
+
+  const missingActor = await call(client, "fetch_field", {
+    grantId: "G-甲",
+    fields: JIA_FIELDS,
+  });
+  assert(missingActor.data.ok === false, "fetch_field without actor denied");
+  assert(missingActor.data.code === "MISSING_ACTOR", "missing actor code");
+
+  const submit = await call(client, "submit_application", {
+    grantId: "G-甲",
+    actor: "agency-jia",
+  });
   assert(submit.data.ok === true, "submit_application consumes G-甲");
   assert(
     (submit.data.grant as { status: string }).status === "consumed",
@@ -106,7 +177,7 @@ async function main() {
   const replay = await call(client, "fetch_field", {
     grantId: "G-甲",
     fields: JIA_FIELDS,
-    actor: "agent",
+    actor: "agency-jia",
   });
   assert(replay.data.ok === false, "replay fetch after submit denied");
   assert(replay.data.status === 403, "replay is 403");
@@ -128,9 +199,19 @@ async function main() {
     audit.data.incomeNeverEnteredGrant === true,
     "income never entered a grant",
   );
+  const auditGrants = audit.data.grants as PublicGrant[];
+  assert(
+    auditGrants.every((g) => g.issuer && g.issuer !== "林曉晴"),
+    "audit grants keep explicit issuer ids",
+  );
+  assert(
+    auditGrants.some((g) => g.issuer === "court:warrant-2026-0812"),
+    "audit records court issuer on G-甲",
+  );
   const entries = audit.data.audit as {
     action: string;
     grantId: string | null;
+    detail: string;
   }[];
   const actions = new Set(entries.map((e) => e.action));
   for (const action of ["approve", "fetch", "submit", "revoke", "deny"] as const) {
@@ -139,6 +220,10 @@ async function main() {
   assert(
     entries.some((e) => e.action === "deny" && e.grantId === "G-乙"),
     "audit has 乙 household deny",
+  );
+  assert(
+    entries.some((e) => e.action === "deny" && e.detail.includes("audience")),
+    "audit has audience mismatch",
   );
 
   await client.close();
