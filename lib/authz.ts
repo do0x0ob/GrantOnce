@@ -29,11 +29,36 @@ export function parseGrantBearer(header: string | null): GrantId | null {
   if (!match?.[1]) return null;
   const raw = match[1].trim();
   const recovered = Buffer.from(raw, "latin1").toString("utf8");
-  return normalizeGrantId(raw) ?? normalizeGrantId(recovered);
+  return recovered || raw;
 }
 
 export function asGrantId(value: string): GrantId | null {
   return normalizeGrantId(value);
+}
+
+export function resolveGrant(state: DemoState, token: string): Grant | null {
+  const trimmed = token.trim();
+  const candidates = [trimmed];
+  try {
+    candidates.push(decodeURIComponent(trimmed));
+  } catch {
+    // ignore malformed percent-encoding
+  }
+  try {
+    candidates.push(Buffer.from(trimmed, "latin1").toString("utf8"));
+  } catch {
+    // ignore
+  }
+  for (const value of candidates) {
+    const byJti = state.grants.find((grant) => grant.claims?.jti === value);
+    if (byJti) return byJti;
+    const slot = normalizeGrantId(value);
+    if (slot) {
+      const bySlot = grantById(state, slot);
+      if (bySlot) return bySlot;
+    }
+  }
+  return null;
 }
 
 function inactiveMessage(grant: Grant): string {
@@ -84,18 +109,14 @@ function denyFetch(
  * - any requested field outside the allowlist
  * - wildcard fields:*
  * Never returns a partial payload on overscope.
+ * HTTP must pass presenter via X-GrantOnce-Presenter, not body.actor.
  */
 export function fetchWithGrant(
-  grantIdRaw: string,
+  tokenRaw: string,
   requestedFields: string[],
   caller: GrantCaller | null,
 ): { state: DemoState; result: FetchResult } {
-  let result: FetchResult = {
-    ok: false,
-    status: 403,
-    code: "BAD_BEARER",
-    error: "缺少有效的 Bearer Grant <id>",
-  };
+  let result: FetchResult = denial("BAD_BEARER", "缺少有效的 Bearer Grant <jti>");
 
   const state = mutate((s) => {
     const grantId = normalizeGrantId(grantIdRaw);
@@ -210,11 +231,13 @@ export function fetchWithGrant(
     }
 
     const payload = readVaultFields(typed);
+    const previous = s.envelopes[grant.id] ?? emptyEnvelope(grant.id, grant.agencyId);
     s.envelopes[grant.id] = {
       grantId: grant.id,
       agencyId: grant.agencyId,
-      fields: { ...s.envelopes[grant.id]?.fields, ...payload },
+      fields: { ...previous.fields, ...payload },
       fetchedAt: nowIso(),
+      receipt: null,
     };
     appendAudit(s, {
       actor: callerName(caller),
@@ -223,10 +246,68 @@ export function fetchWithGrant(
       grantId: grant.id,
       detail: `依匣 ${grant.id} 擷取 ${typed.length} 欄：${typed.join("、")}`,
     });
-    result = { ok: true, grantId: grant.id, fields: payload };
+    result = { ok: true, grantId: grant.id, fieldIds: typed };
+    stampProtocol(s, { token: grant.claims.jti, caller, fields: requestedFields, path: "/api/mydata/fetch", result });
   });
 
   return { state, result };
+}
+
+/** 甲讀乙收件匣：不回傳欄位值，audience 不合就 403。 */
+export function peekEnvelope(
+  tokenRaw: string,
+  caller: GrantCaller | null,
+): { state: DemoState; result: FetchResult } {
+  let result: FetchResult = denial("BAD_BEARER", "缺少有效的匣");
+
+  const state = mutate((s) => {
+    const grant = resolveGrant(s, tokenRaw);
+    if (!grant) {
+      result = denyFetch(s, caller, denial("UNKNOWN_GRANT", `未知授權匣：${tokenRaw}`));
+      stampProtocol(s, { token: tokenRaw, caller, fields: [], path: "/api/envelopes/peek", result });
+      return;
+    }
+
+    if (!caller?.id || caller.id !== grant.claims.aud) {
+      result = denyFetch(
+        s,
+        caller,
+        denial(
+          "AUDIENCE_MISMATCH",
+          `收件匣 ${grant.id} 只給 ${grant.claims.aud} 讀。${caller?.id ?? "缺少 presenter"} 看不到這一匣。`,
+        ),
+        grant.id,
+      );
+      stampProtocol(s, { token: tokenRaw, caller, fields: [], path: "/api/envelopes/peek", result });
+      return;
+    }
+
+    const envelope = s.envelopes[grant.id];
+    const fieldIds = envelope?.receipt?.fieldIds
+      ?? (Object.keys(envelope?.fields ?? {}) as FieldId[]);
+    result = { ok: true, grantId: grant.id, fieldIds };
+    stampProtocol(s, { token: grant.claims.jti, caller, fields: fieldIds, path: "/api/envelopes/peek", result });
+  });
+
+  return { state, result };
+}
+
+function deliverAllowlist(state: DemoState, grant: Grant) {
+  const payload = readVaultFields(grant.fields);
+  state.envelopes[grant.id] = {
+    grantId: grant.id,
+    agencyId: grant.agencyId,
+    fields: payload,
+    fetchedAt: nowIso(),
+    receipt: null,
+  };
+  appendAudit(state, {
+    actor: "授權層",
+    actorRole: "system",
+    action: "fetch",
+    grantId: grant.id,
+    detail: `依匣 ${grant.id} 寫入${presenterLabel(grant.claims.aud)}收件匣 ${grant.fields.length} 欄。模型看不到值。`,
+  });
 }
 
 export function proposeGrantsFromPlan(
@@ -238,6 +319,15 @@ export function proposeGrantsFromPlan(
   const subject = state.principal.id;
   for (const program of programs) {
     if (grantById(state, program.grantId)) continue;
+    const purpose = `僅供「${program.title}」一次申請`;
+    const fields = [...GRANT_FIELDS[program.grantId]];
+    const claims = buildClaims({
+      iss: state.principal.id,
+      aud: audienceOfAgency(program.agencyId),
+      purpose,
+      fields,
+      nbf: at,
+    });
     state.grants.push({
       id: program.grantId,
       issuer,
@@ -284,6 +374,7 @@ export function approveGrantAndFetch(grantId: GrantId): { state: DemoState; erro
       grantId,
       detail: `核准匣 ${grantId}（${grant.programTitle}），issuer=${issuer}，audience=${grant.audience}，允許 ${grant.fields.join("、")}。所得不在此匣。`,
     });
+    deliverAllowlist(s, grant);
   });
   if (error) {
     return { state: mutate(() => {}), error };
@@ -457,16 +548,30 @@ export function submitApplication(
     }
 
     grant.status = "consumed";
-    grant.consumedAt = nowIso();
-    grant.revokedAt = nowIso();
+    grant.consumedAt = submittedAt;
+    grant.revokedAt = submittedAt;
     const agencyId = agencyOf(grantId);
-    s.agencies[agencyId].submittedAt = nowIso();
+    s.agencies[agencyId].submittedAt = submittedAt;
+    s.envelopes[grantId] = {
+      grantId: grant.id,
+      agencyId: grant.agencyId,
+      fields: {},
+      fetchedAt: envelope.fetchedAt,
+      receipt,
+    };
     appendAudit(s, {
       actor: callerName(caller),
       actorRole: actorRole(caller.id),
       action: "submit",
       grantId,
       detail: `送出「${grant.programTitle}」申請（演示，未連真實機關）`,
+    });
+    appendAudit(s, {
+      actor: "系統",
+      actorRole: "system",
+      action: "receipt",
+      grantId,
+      detail: `收件匣改為收據 ${receipt.fieldIds.length} 欄 sha256:${receipt.hash.slice(0, 12)}… 明文已刪。`,
     });
     appendAudit(s, {
       actor: "系統",

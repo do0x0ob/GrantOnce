@@ -52,11 +52,36 @@ export type Grant = {
   consumedAt: string | null;
 };
 
+export type EnvelopeReceipt = {
+  grantJti: string;
+  fieldIds: FieldId[];
+  hash: string;
+  submittedAt: string;
+};
+
 export type Envelope = {
   grantId: GrantId;
   agencyId: AgencyId;
   fields: Partial<Record<FieldId, string>>;
   fetchedAt: string | null;
+  receipt: EnvelopeReceipt | null;
+};
+
+export type ProtocolEvent = {
+  at: string;
+  request: {
+    authorization: string;
+    presenter: string | null;
+    fields: string[];
+    path: "/api/mydata/fetch" | "/api/envelopes/peek";
+  };
+  response: {
+    ok: boolean;
+    status: number;
+    code?: string;
+    error?: string;
+    fieldIds?: FieldId[];
+  };
 };
 
 export type AuditEntry = {
@@ -136,6 +161,20 @@ export type DemoState = {
   chat: ChatMessage[];
   plan: AgentPlan | null;
   agencies: Record<AgencyId, AgencyView>;
+  lastProtocol: ProtocolEvent | null;
+};
+
+export type AuthzDenialCode =
+  | "OVERSCOPED"
+  | "GRANT_INACTIVE"
+  | "UNKNOWN_GRANT"
+  | "BAD_BEARER"
+  | "WILDCARD_FORBIDDEN"
+  | "AUDIENCE_MISMATCH";
+
+export type GrantCaller = {
+  id: PresenterId;
+  name?: string;
 };
 
 export type AuthzDenialCode =
@@ -153,7 +192,7 @@ export type FetchResult =
   | {
       ok: true;
       grantId: GrantId;
-      fields: Partial<Record<FieldId, string>>;
+      fieldIds: FieldId[];
     }
   | {
       ok: false;

@@ -1,10 +1,10 @@
 import {
-  approveGrantAndFetch,
   asGrantId,
   fetchWithGrant,
   householdOverscopeFields,
   parseActorId,
   proposeGrantsFromPlan,
+  resolveGrant,
   revokeGrant,
   submitApplication,
 } from "../lib/authz";
@@ -185,16 +185,15 @@ export function planApplications(utterance: string) {
 
 export function approveGrant(grantIdRaw: string) {
   const grantId = requireGrantId(grantIdRaw);
-  const { error } = approveGrantAndFetch(grantId);
   const grant = grantPublic(grantId);
-  const payload = error
-    ? { ok: false, error, grant }
-    : {
-        ok: true,
-        grant,
-        fetchedFieldIds: grant?.fields ?? [],
-        note: "核准後授權層已把白名單欄位送入機關收件匣。模型看不到金庫值。所得不在此匣。",
-      };
+  const payload = {
+    ok: false as const,
+    code: "CONSENT_REQUIRED",
+    error:
+      "模型不能核准授權匣。請在畫面由委託人核准；claims 留給 passkey 隊友簽。",
+    grant,
+    claims: grant?.claims ?? null,
+  };
   assertNoVaultLeak(payload, "approve_grant");
   return payload;
 }
@@ -223,7 +222,7 @@ export function fetchField(input: {
       status: 403 as const,
       code: result.code,
       error: result.error,
-      grantId,
+      grantId: grant?.id ?? slot,
       deniedFields: result.deniedFields ?? [],
       deniedFieldLabels: fieldLabels(result.deniedFields ?? []),
       actor: actorId,
@@ -233,13 +232,12 @@ export function fetchField(input: {
     return payload;
   }
 
-  const fetchedFieldIds = Object.keys(result.fields);
   const payload = {
     ok: true,
     status: 200 as const,
     grantId: result.grantId,
-    fetchedFieldIds,
-    fetchedFieldLabels: fieldLabels(fetchedFieldIds),
+    fetchedFieldIds: result.fieldIds,
+    fetchedFieldLabels: fieldLabels(result.fieldIds),
     deliveredTo: "agency-envelope",
     note: "欄位值已送入機關收件匣，未回傳給模型。",
   };
@@ -315,7 +313,15 @@ export function getAudit() {
       audience: g.audience,
       status: g.status,
       fieldIds: g.fields,
+      aud: g.claims.aud,
+      jti: g.claims.jti,
+      signature: g.signature.alg,
       containsIncome: false,
+    })),
+    envelopes: (Object.keys(state.envelopes) as GrantId[]).map((id) => ({
+      grantId: id,
+      liveFieldIds: Object.keys(state.envelopes[id].fields),
+      receipt: state.envelopes[id].receipt,
     })),
     audit: state.audit.map((entry) => ({
       id: entry.id,
@@ -327,7 +333,7 @@ export function getAudit() {
       detail: entry.detail,
       deniedFields: entry.deniedFields ?? [],
     })),
-    note: "所得從未進入任何授權匣。稽核只記動作，不含金庫值。",
+    note: "所得從未進入任何授權匣。稽核只記動作，不含金庫值。送件後收件匣只留雜湊。",
   };
   assertNoVaultLeak(payload, "get_audit");
   return payload;

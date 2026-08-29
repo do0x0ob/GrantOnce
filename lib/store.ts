@@ -57,8 +57,8 @@ export function createInitialState(): DemoState {
     vaultHoldings: buildVaultHoldings(),
     grants: [],
     envelopes: {
-      "G-甲": { grantId: "G-甲", agencyId: "jia", fields: {}, fetchedAt: null },
-      "G-乙": { grantId: "G-乙", agencyId: "yi", fields: {}, fetchedAt: null },
+      "G-甲": emptyEnvelope("G-甲", "jia"),
+      "G-乙": emptyEnvelope("G-乙", "yi"),
     },
     audit: [],
     chat: [
@@ -70,6 +70,7 @@ export function createInitialState(): DemoState {
       },
     ],
     plan: null,
+    lastProtocol: null,
     agencies: {
       jia: {
         id: "jia",

@@ -58,8 +58,9 @@ export function GrantCard({
           </p>
         ))}
         <p className="text-stone-400">
-          {grantExpiry(grant.status)} · 排除所得、健保
+          aud {grant.claims.aud} · {grantExpiry(grant.status)} · 排除所得、健保
         </p>
+        <p className="text-stone-400">簽章 {grant.signature.alg} · 待 passkey</p>
       </div>
 
       {grant.status === "pending" || grant.status === "revoked" ? (

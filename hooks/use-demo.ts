@@ -1,8 +1,7 @@
 "use client";
 
 import { useCallback, useState } from "react";
-import { GRANT_HTTP_TOKEN } from "@/lib/fields";
-import type { DemoState, GrantId } from "@/lib/types";
+import type { DemoState, GrantId, PresenterId } from "@/lib/types";
 
 type ActionResult = {
   ok: boolean;
@@ -18,8 +17,12 @@ async function readPayload(res: Response): Promise<{ state?: DemoState; error?: 
   return { state: data.state, error: data.error };
 }
 
+function jtiFor(state: DemoState, grantId: GrantId): string | null {
+  return state.grants.find((grant) => grant.id === grantId)?.claims.jti ?? null;
+}
+
 export function useDemo(initialState: DemoState) {
-  const [state, setState] = useState<DemoState>(initialState);
+  const [state, setState] = useState(initialState);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -94,15 +97,17 @@ export function useDemo(initialState: DemoState) {
     }) => {
       setBusy(true);
       try {
+        const jti = jtiFor(state, input.grantId);
+        const token = jti ?? input.grantId;
         const res = await fetch("/api/mydata/fetch", {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            Authorization: `Bearer Grant ${GRANT_HTTP_TOKEN[input.grantId]}`,
+            Authorization: `Bearer Grant ${token}`,
+            "X-GrantOnce-Presenter": input.presenter,
           },
           body: JSON.stringify({
             fields: input.fields,
-            actor: input.actor,
           }),
         });
         return await apply(res);
@@ -110,7 +115,28 @@ export function useDemo(initialState: DemoState) {
         setBusy(false);
       }
     },
-    [apply],
+    [apply, state],
+  );
+
+  const peekEnvelope = useCallback(
+    async (input: { grantId: GrantId; presenter: PresenterId }) => {
+      setBusy(true);
+      try {
+        const jti = jtiFor(state, input.grantId);
+        const res = await fetch("/api/envelopes/peek", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "X-GrantOnce-Presenter": input.presenter,
+          },
+          body: JSON.stringify({ grantId: jti ?? input.grantId }),
+        });
+        return await apply(res);
+      } finally {
+        setBusy(false);
+      }
+    },
+    [apply, state],
   );
 
   const submit = useCallback(
@@ -149,6 +175,7 @@ export function useDemo(initialState: DemoState) {
     approve,
     revoke,
     fetchMyData,
+    peekEnvelope,
     submit,
     reset,
   };

@@ -54,7 +54,7 @@ export function createGrantOnceServer(): McpServer {
     {
       title: "核准授權匣",
       description:
-        "委託人核准一張最小欄位授權匣。授權層會把白名單欄位寫入機關收件匣；回傳只含欄位 ID，不含金庫值。",
+        "不會核准。模型只能提出匣；核准由委託人在畫面完成，claims 留給 passkey 隊友簽。呼叫此工具會得到 CONSENT_REQUIRED。",
       inputSchema: {
         grantId: z.string().describe("匣編號：G-甲 / G-jia 或 G-乙 / G-yi"),
       },
@@ -69,7 +69,9 @@ export function createGrantOnceServer(): McpServer {
       description:
         "用授權匣向假 MyData 擷取。目前仍以工具參數 actor 比對 grant.audience（尚未綁定 runtime）。不符則 403 + 稽核。越權（例如機關乙要戶籍）fail closed。成功時欄位值只進機關收件匣，不回傳給模型。",
       inputSchema: {
-        grantId: z.string().describe("匣編號：G-甲 / G-jia 或 G-乙 / G-yi"),
+        grantId: z
+          .string()
+          .describe("匣編號或 jti：G-甲 / G-jia、G-乙 / G-yi，或核准後的 grn_…"),
         fields: z
           .array(z.string())
           .optional()
@@ -125,7 +127,7 @@ export function createGrantOnceServer(): McpServer {
     {
       title: "讀取稽核",
       description:
-        "回傳核准／擷取／送件／撤銷／拒絕時間線，並證明所得從未進入任何授權匣。不含金庫值。",
+        "回傳核准／擷取／送件／收據／撤銷／拒絕時間線，並證明所得從未進入任何授權匣。送件後收件匣只留雜湊。不含金庫值。",
       inputSchema: {},
     },
     async () => runTool("get_audit", {}),

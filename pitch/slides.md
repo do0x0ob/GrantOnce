@@ -46,9 +46,9 @@ GrantOnce
 
 ## 06 Fail-closed
 
-乙要戶籍。
+乙要戶籍 → **403 OVERSCOPED**
 
-**403**
+乙拿甲的匣 → **403 AUDIENCE_MISMATCH**
 
 不回傳半包欄位。
 
@@ -56,15 +56,17 @@ GrantOnce
 
 送件 → 匣耗用。
 
+收件匣改收據。明文刪。
+
 重放擷取 → 403。
 
 ## 08 架構
 
-授權層 = Grant 白名單。沒有 `fields:*`。
+授權層 = Grant claims。`aud` + 欄位白名單。沒有 `fields:*`。
 
-甲匣、乙匣分開存。
+甲匣、乙匣分開存。拿錯匣 403。
 
-規則引擎比資格。LLM 不決定授權。
+規則引擎比資格。LLM 不決定授權、不能核准。
 
 ## 09 實機
 
@@ -98,6 +100,8 @@ GrantOnce
 ## 12 下一步
 
 真 MyData 要數發部函。
+
+claims 由 passkey 簽。
 
 週末用合成資料。
 

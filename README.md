@@ -25,16 +25,18 @@ GrantOnce 是一套小而通用的授權協定（與哪個助手／MCP 宿主無
    - 會出現個人化提示：孩子滿 2 歲後，育兒津貼條件會改變
 3. 左欄出現兩張匣。分別按「核准這一匣」。**沒有「一次交出全部資料」按鈕。**
 4. 代理人立刻用 `Authorization: Bearer Grant <id>` 向假 MyData 擷取。右欄甲、乙收件匣欄位不同。所得不會出現。
-5. 右欄乙按「索取戶籍謄本」→ 乙卡與稽核出現 403 芯片，稽核多一筆拒絕。
-6. 右欄甲按「送出申請」→ 匣 `G-甲` 變成已耗用／已撤銷。
-7. 甲按「重放擷取」→ 再次 403。
-8. 看稽核時間線：核准、擷取、送件、撤銷、拒絕。
+5. 右欄乙按「索取戶籍謄本」→ 乙卡與協定檢視器出現 403 `OVERSCOPED`。
+6. 乙按「用甲的匣擷取」→ 403 `AUDIENCE_MISMATCH`。甲按「索取用電量」或「讀乙收件匣」同樣 403。
+7. 右欄甲按「送出申請」→ 匣 `G-甲` 變成已耗用；收件匣改留雜湊收據，明文消失。
+8. 甲按「重放擷取」→ 再次 403。
+9. 看稽核時間線：核准、擷取、送件、收據、撤銷、拒絕。標題列「對照胖授權」可切換 fields:* 反事實。
 
 重來：右上「重設演示」。
 
 ## 簡報與錄影
 
 - 12 頁：`pitch/GrantOnce.pptx`（大綱 `pitch/slides.md`）
+- 協定兩頁：`docs/protocol.md`
 - 3–5 分鐘畫面腳本：`pitch/demo-script.md`
 
 ## 什麼是假的
@@ -47,9 +49,10 @@ GrantOnce 是一套小而通用的授權協定（與哪個助手／MCP 宿主無
 ## 什麼是真的（在這個演示裡）
 
 - **規則引擎**決定資格：搬家 + 0–2 歲幼兒 → 育兒津貼；有住宅電表 → 冷氣補助。模型不決定授權。
-- **授權匣**才是授權層：`Bearer Grant G-甲` / `G-乙`，欄位白名單，沒有 `fields:*`
-- 越權或已耗用：fail closed，不回傳部分欄位
+- **授權匣**才是授權層：`Bearer Grant <jti>`，`aud` 綁機關，欄位白名單，沒有 `fields:*`
+- 越權、拿錯匣、或已耗用：fail closed，不回傳部分欄位
 - 所得在金庫裡，快樂路徑不會進入任何匣
+- 送件後收件匣只留雜湊收據
 
 ## 畫面三欄
 
@@ -83,8 +86,9 @@ GrantOnce 是一套小而通用的授權協定（與哪個助手／MCP 宿主無
 `POST /api/mydata/fetch`
 
 ```
-Authorization: Bearer Grant G-yi
-{ "fields": ["household.householdId"], "actor": "agency-yi" }
+Authorization: Bearer Grant <jti>
+X-GrantOnce-Presenter: agency-yi
+{ "fields": ["household.householdId"] }
 ```
 
 HTTP 標頭必須是 ASCII，所以匣 G-甲／G-乙 在線上是 `G-jia`／`G-yi`。畫面與稽核仍顯示 G-甲、G-乙。匣 G-乙 只允許台電欄位，所以上面這包會 403。甲若帶 `actor: agency-jia` 用乙匣也會 403（參數與 audience 不符）。
@@ -131,7 +135,7 @@ Cursor / Grok Bot `mcp.json`（`cwd` 設成 repo 根目錄）：
 | `revoke_grant` | 呼叫端必須是 issuer，否則 403 + 稽核 |
 | `get_audit` | 時間線；所得從未進入任何匣 |
 
-快樂路徑測試：`npm run test:mcp`
+快樂路徑測試：`npm test`（授權性質 + MCP）
 
 選用 HTTP（Streamable HTTP，預設 `127.0.0.1:43128/mcp`）：
 

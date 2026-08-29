@@ -4,14 +4,15 @@ import { actorLabel, fetchWithGrant, parseActorId, parseGrantBearer } from "@/li
 export const dynamic = "force-dynamic";
 
 export async function POST(request: Request) {
-  const grantId = parseGrantBearer(request.headers.get("authorization"));
-  if (!grantId) {
+  const token = parseGrantBearer(request.headers.get("authorization"));
+  if (!token) {
     return NextResponse.json(
-      { error: "請使用 Authorization: Bearer Grant <id>", state: null },
+      { error: "請使用 Authorization: Bearer Grant <jti>", state: null },
       { status: 403 },
     );
   }
 
+  const presenterId = parsePresenter(request.headers.get("x-grantonce-presenter"));
   const body = (await request.json().catch(() => ({}))) as {
     fields?: string[];
     actor?: string;

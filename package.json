@@ -9,6 +9,8 @@
     "lint": "eslint",
     "mcp": "tsx mcp/server.ts",
     "mcp:http": "tsx mcp/server.ts --http",
+    "test": "npm run test:authz && npm run test:mcp",
+    "test:authz": "GRANTONCE_STORE=/tmp/grantonce-authz-test.json tsx lib/authz.properties.ts",
     "test:mcp": "GRANTONCE_STORE=/tmp/grantonce-mcp-test.json tsx mcp/test.ts"
   },
   "dependencies": {

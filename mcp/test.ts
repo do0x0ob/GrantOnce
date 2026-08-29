@@ -2,6 +2,9 @@
  * Happy-path walk through GrantOnce MCP tools.
  * Uses the official MCP client + in-memory transport so the model-facing
  * tool surface is what we assert — never the vault.
+ *
+ * approve_grant is refused (CONSENT_REQUIRED). Principal approval is simulated
+ * via the library, matching the on-screen / passkey teammate path.
  */
 process.env.GRANTONCE_STORE ??= `/tmp/grantonce-mcp-test-${process.pid}.json`;
 
@@ -12,7 +15,9 @@ async function main() {
   );
   const { HOUSEHOLD_FIELDS, JIA_FIELDS, YI_FIELDS } = await import("../lib/fields");
   const { HAPPY_PATH_UTTERANCE } = await import("../lib/rules");
-  const { resetState } = await import("../lib/store");
+  const { getState, resetState } = await import("../lib/store");
+  const { approveGrantAndFetch } = await import("../lib/authz");
+  const { INCOME_FIELDS } = await import("../lib/fields");
   const { createGrantOnceServer } = await import("./server");
   const { TOOL_NAMES, vaultLeakIn } = await import("./tools");
 
@@ -171,6 +176,19 @@ async function main() {
     "G-甲 status consumed",
   );
 
+  const envelopeJia = getState().envelopes["G-甲"];
+  assert(
+    Object.keys(envelopeJia.fields).length === 0,
+    "consumed envelope has no plaintext",
+  );
+  assert(Boolean(envelopeJia.receipt?.hash), "consumed envelope has receipt hash");
+  assert(
+    !envelopeJia.receipt?.fieldIds.some((id) =>
+      (INCOME_FIELDS as readonly string[]).includes(id),
+    ),
+    "receipt does not list income",
+  );
+
   const replay = await call(client, "fetch_field", {
     grantId: "G-甲",
     fields: JIA_FIELDS,
@@ -224,7 +242,14 @@ async function main() {
     detail: string;
   }[];
   const actions = new Set(entries.map((e) => e.action));
-  for (const action of ["approve", "fetch", "submit", "revoke", "deny"] as const) {
+  for (const action of [
+    "approve",
+    "fetch",
+    "submit",
+    "revoke",
+    "deny",
+    "receipt",
+  ] as const) {
     assert(actions.has(action), `audit contains ${action}`);
   }
   assert(
