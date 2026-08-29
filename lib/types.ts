@@ -21,16 +21,31 @@ export type FieldId = (typeof FIELD_IDS)[number];
 
 export type GrantId = "G-甲" | "G-乙";
 export type AgencyId = "jia" | "yi";
-export type GrantStatus = "proposed" | "active" | "revoked" | "consumed";
+/** pending = proposed but not yet approved. Harness UI still says 待核准. */
+export type GrantStatus = "pending" | "active" | "consumed" | "revoked";
+export type GrantSource = "mydata" | "wallet" | "user";
+export type RevokeOn = "submitted" | "user" | "expired";
 export type AuditAction = "approve" | "fetch" | "submit" | "revoke" | "deny";
 
+/**
+ * GrantOnce authorization instrument. Harness-agnostic protocol object.
+ * issuer = who authorized (person / court / institution id — never implied).
+ * audience = who may fetch/submit. Callers cannot self-claim this field.
+ */
 export type Grant = {
   id: GrantId;
-  agencyId: AgencyId;
+  issuer: string;
+  subject: string;
+  audience: string;
   purpose: string;
-  programTitle: string;
   fields: FieldId[];
+  source: GrantSource;
+  expiresAt: string;
   status: GrantStatus;
+  revokeOn: RevokeOn;
+  /** Demo harness: which agency card this grant feeds. Not the protocol audience. */
+  agencyId: AgencyId;
+  programTitle: string;
   proposedAt: string;
   approvedAt: string | null;
   revokedAt: string | null;
@@ -123,6 +138,17 @@ export type DemoState = {
   agencies: Record<AgencyId, AgencyView>;
 };
 
+export type AuthzDenialCode =
+  | "OVERSCOPED"
+  | "GRANT_INACTIVE"
+  | "UNKNOWN_GRANT"
+  | "BAD_BEARER"
+  | "WILDCARD_FORBIDDEN"
+  | "AUDIENCE_MISMATCH"
+  | "MISSING_ACTOR"
+  | "ISSUER_MISMATCH"
+  | "NO_ENVELOPE";
+
 export type FetchResult =
   | {
       ok: true;
@@ -132,7 +158,17 @@ export type FetchResult =
   | {
       ok: false;
       status: 403;
-      code: "OVERSCOPED" | "GRANT_INACTIVE" | "UNKNOWN_GRANT" | "BAD_BEARER" | "WILDCARD_FORBIDDEN";
+      code: AuthzDenialCode;
       error: string;
       deniedFields?: FieldId[];
     };
+
+export type SubmitResult =
+  | { ok: true; grantId: GrantId }
+  | { ok: false; status: 403; code: AuthzDenialCode; error: string };
+
+/** Caller of fetch_field / submit_application. `id` must equal grant.audience. */
+export type GrantCaller = {
+  id: string;
+  name?: string;
+};

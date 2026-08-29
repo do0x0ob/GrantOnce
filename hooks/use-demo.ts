@@ -90,7 +90,7 @@ export function useDemo(initialState: DemoState) {
     async (input: {
       grantId: GrantId;
       fields: string[];
-      actor: "agent" | "agency-jia" | "agency-yi";
+      actor: string;
     }) => {
       setBusy(true);
       try {
@@ -114,13 +114,13 @@ export function useDemo(initialState: DemoState) {
   );
 
   const submit = useCallback(
-    async (grantId: GrantId) => {
+    async (grantId: GrantId, actor: string) => {
       setBusy(true);
       try {
         const res = await fetch("/api/applications/submit", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ grantId }),
+          body: JSON.stringify({ grantId, actor }),
         });
         return await apply(res);
       } finally {

@@ -67,7 +67,7 @@ export function createGrantOnceServer(): McpServer {
     {
       title: "依匣擷取欄位",
       description:
-        "用 Bearer Grant 向假 MyData 擷取。越權（例如機關乙要戶籍）fail closed：403 並寫稽核。成功時欄位值只進機關收件匣，不回傳給模型。",
+        "用授權匣向假 MyData 擷取。目前仍以工具參數 actor 比對 grant.audience（尚未綁定 runtime）。不符則 403 + 稽核。越權（例如機關乙要戶籍）fail closed。成功時欄位值只進機關收件匣，不回傳給模型。",
       inputSchema: {
         grantId: z.string().describe("匣編號：G-甲 / G-jia 或 G-乙 / G-yi"),
         fields: z
@@ -77,7 +77,7 @@ export function createGrantOnceServer(): McpServer {
         actor: z
           .string()
           .optional()
-          .describe("agent | agency-jia | agency-yi"),
+          .describe("工具參數：宣告的呼叫端 id，用來比對 audience。尚未從 runtime 綁定。"),
       },
     },
     async ({ grantId, fields, actor }) =>
@@ -88,25 +88,36 @@ export function createGrantOnceServer(): McpServer {
     "submit_application",
     {
       title: "送出申請",
-      description: "用有效匣送件。送件後匣立即耗用；之後 fetch_field 重放會 403。",
+      description:
+        "用有效匣送件。目前仍以工具參數 actor 比對 grant.audience。不符則 403 + 稽核。送件後匣立即耗用；之後 fetch_field 重放會 403。",
       inputSchema: {
         grantId: z.string().describe("匣編號：G-甲 / G-jia 或 G-乙 / G-yi"),
+        actor: z
+          .string()
+          .optional()
+          .describe("工具參數：宣告的呼叫端 id，用來比對 audience。尚未從 runtime 綁定。"),
       },
     },
-    async ({ grantId }) => runTool("submit_application", { grantId }),
+    async ({ grantId, actor }) => runTool("submit_application", { grantId, actor }),
   );
 
   server.registerTool(
     "revoke_grant",
     {
       title: "撤銷授權匣",
-      description: "委託人撤銷尚未耗用的匣。已耗用的匣不能再撤銷。",
+      description:
+        "撤銷尚未耗用的匣。呼叫端必須是 grant.issuer，否則 403 + 稽核。省略 caller 時用目前 session 的 principal。",
       inputSchema: {
         grantId: z.string().describe("匣編號：G-甲 / G-jia 或 G-乙 / G-yi"),
         reason: z.string().optional().describe("撤銷原因"),
+        caller: z
+          .string()
+          .optional()
+          .describe("宣告的呼叫端 id，必須等於 grant.issuer。省略則用 session principal。"),
       },
     },
-    async ({ grantId, reason }) => runTool("revoke_grant", { grantId, reason }),
+    async ({ grantId, reason, caller }) =>
+      runTool("revoke_grant", { grantId, reason, caller }),
   );
 
   server.registerTool(

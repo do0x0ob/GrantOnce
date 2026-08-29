@@ -8,7 +8,7 @@ import { cn } from "@/lib/utils";
 import { agencyTitle, GRANT_STATUS_LABEL, grantExpiry, groupedFields } from "@/lib/view";
 
 const CHIP: Record<Grant["status"], "stone" | "rose" | "mint" | "amber"> = {
-  proposed: "amber",
+  pending: "amber",
   active: "mint",
   revoked: "stone",
   consumed: "stone",
@@ -62,7 +62,7 @@ export function GrantCard({
         </p>
       </div>
 
-      {grant.status === "proposed" || grant.status === "revoked" ? (
+      {grant.status === "pending" || grant.status === "revoked" ? (
         <div className="mt-3">
           <Button size="sm" className="rounded-full" disabled={busy} onClick={onApprove}>
             核准這一匣

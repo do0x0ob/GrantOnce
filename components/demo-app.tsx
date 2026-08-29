@@ -88,7 +88,7 @@ export function DemoApp({ initialState }: { initialState: DemoState }) {
                 actor: "agency-yi",
               })
             }
-            onSubmitJia={() => demo.submit("G-甲")}
+            onSubmitJia={() => demo.submit("G-甲", "agency-jia")}
             onReplayJia={() =>
               demo.fetchMyData({
                 grantId: "G-甲",
