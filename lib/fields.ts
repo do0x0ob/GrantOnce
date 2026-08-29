@@ -111,6 +111,27 @@ export const GRANT_FIELDS: Record<GrantId, FieldId[]> = {
   "G-乙": YI_FIELDS,
 };
 
+/** HTTP Authorization must be ASCII. UI / audit still show G-甲 and G-乙. */
+export const GRANT_HTTP_TOKEN: Record<GrantId, string> = {
+  "G-甲": "G-jia",
+  "G-乙": "G-yi",
+};
+
+export function normalizeGrantId(raw: string): GrantId | null {
+  const trimmed = raw.trim();
+  const candidates = [trimmed];
+  try {
+    candidates.push(decodeURIComponent(trimmed));
+  } catch {
+    // ignore malformed percent-encoding
+  }
+  for (const value of candidates) {
+    if (value === "G-甲" || value === "G-jia" || value === "G-A") return "G-甲";
+    if (value === "G-乙" || value === "G-yi" || value === "G-B") return "G-乙";
+  }
+  return null;
+}
+
 export const INCOME_FIELDS: FieldId[] = ["income.annualIncome", "income.taxYear"];
 export const NHI_FIELDS: FieldId[] = ["nhi.cardId", "nhi.status"];
 

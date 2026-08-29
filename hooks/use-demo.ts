@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useState } from "react";
+import { GRANT_HTTP_TOKEN } from "@/lib/fields";
 import type { DemoState, GrantId } from "@/lib/types";
 
 type ActionResult = {
@@ -97,7 +98,7 @@ export function useDemo(initialState: DemoState) {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            Authorization: `Bearer Grant ${input.grantId}`,
+            Authorization: `Bearer Grant ${GRANT_HTTP_TOKEN[input.grantId]}`,
           },
           body: JSON.stringify({
             fields: input.fields,

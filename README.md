@@ -59,8 +59,8 @@
 `POST /api/mydata/fetch`
 
 ```
-Authorization: Bearer Grant G-乙
+Authorization: Bearer Grant G-yi
 { "fields": ["household.householdId"], "actor": "agency-yi" }
 ```
 
-匣 G-乙 只允許台電欄位，所以上面這包會 403。
+HTTP 標頭必須是 ASCII，所以匣 G-甲／G-乙 在線上是 `G-jia`／`G-yi`。畫面與稽核仍顯示 G-甲、G-乙。匣 G-乙 只允許台電欄位，所以上面這包會 403。

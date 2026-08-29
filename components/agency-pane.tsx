@@ -156,7 +156,7 @@ function AgencyCard({
 
       {grantId === "G-乙" ? (
         <p className="text-[11px] text-stone-500">
-          「索取戶籍謄本」會用匣 G-乙 去要 {HOUSEHOLD_FIELDS.length} 個戶籍欄，預期 403。
+          「索取戶籍謄本」會用 `Bearer Grant G-yi`（匣 G-乙）去要 {HOUSEHOLD_FIELDS.length} 個戶籍欄，預期 403。
         </p>
       ) : (
         <p className="text-[11px] text-stone-500">

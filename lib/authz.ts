@@ -1,18 +1,21 @@
-import { GRANT_FIELDS, HOUSEHOLD_FIELDS, isFieldId } from "./fields";
+import { GRANT_FIELDS, HOUSEHOLD_FIELDS, isFieldId, normalizeGrantId } from "./fields";
 import { agencyOf, appendAudit, grantById, mutate, nowIso } from "./store";
 import type { DemoState, FetchResult, FieldId, Grant, GrantId } from "./types";
 import { readVaultFields } from "./vault";
 
 const GRANT_BEARER = /^Bearer Grant (.+)$/;
 
-export function parseGrantBearer(header: string | null): string | null {
+export function parseGrantBearer(header: string | null): GrantId | null {
   if (!header) return null;
   const match = header.match(GRANT_BEARER);
-  return match?.[1]?.trim() ?? null;
+  if (!match?.[1]) return null;
+  const raw = match[1].trim();
+  const recovered = Buffer.from(raw, "latin1").toString("utf8");
+  return normalizeGrantId(raw) ?? normalizeGrantId(recovered);
 }
 
-export function isGrantId(value: string): value is GrantId {
-  return value === "G-甲" || value === "G-乙";
+export function asGrantId(value: string): GrantId | null {
+  return normalizeGrantId(value);
 }
 
 function inactiveMessage(grant: Grant): string {
@@ -54,7 +57,8 @@ export function fetchWithGrant(
   };
 
   const state = mutate((s) => {
-    if (!isGrantId(grantIdRaw)) {
+    const grantId = normalizeGrantId(grantIdRaw);
+    if (!grantId) {
       result = {
         ok: false,
         status: 403,
@@ -82,7 +86,7 @@ export function fetchWithGrant(
         actor: actor.name,
         actorRole: actor.role,
         action: "deny",
-        grantId: grantIdRaw,
+        grantId,
         detail: result.error,
       });
       stampAgencyDenial(s, actor.role, result.error);
@@ -91,20 +95,20 @@ export function fetchWithGrant(
 
     const unknown = requestedFields.filter((f) => !isFieldId(f));
     const typed = requestedFields.filter(isFieldId);
-    const grant = grantById(s, grantIdRaw);
+    const grant = grantById(s, grantId);
 
     if (!grant) {
       result = {
         ok: false,
         status: 403,
         code: "UNKNOWN_GRANT",
-        error: `授權匣 ${grantIdRaw} 不存在`,
+        error: `授權匣 ${grantId} 不存在`,
       };
       appendAudit(s, {
         actor: actor.name,
         actorRole: actor.role,
         action: "deny",
-        grantId: grantIdRaw,
+        grantId,
         detail: result.error,
       });
       stampAgencyDenial(s, actor.role, result.error);
