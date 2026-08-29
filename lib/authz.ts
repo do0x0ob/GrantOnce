@@ -1,582 +1,690 @@
-import { FIELD_META, GRANT_FIELDS, HOUSEHOLD_FIELDS, isFieldId, normalizeGrantId } from "./fields";
-import {
-  actorLabel,
-  actorRole,
-  audienceOfAgency,
-  buildReceipt,
-  emptyEnvelope,
-  expiresAtFrom,
-  isGrantExpired,
-  newTicketJti,
-  parseTicketRef,
-  parseTicketToken,
-  signTicket,
-  verifyTicketMac,
-} from "./grant";
-import { agencyOf, appendAudit, grantById, mutate, nowIso } from "./store";
+import { CLAIM_DEFS, isClaimId, type ClaimId } from "./claims";
+import { digest, randomId, serializeBody, sign, thumbprint, unb64u, verify } from "./crypto";
+import { normalizeGrantId } from "./fields";
+import { AGENCY_KEYS, AGENCY_NAMES, isKnownAgency } from "./parties";
+import { claimsOutsidePurpose, PURPOSES, type PurposeId } from "./purposes";
+import { assessRisk } from "./risk";
+import { appendAudit, agencyOf, getState, grantById, mutate, notify, nowIso } from "./store";
 import type {
-  AuthzDenialCode,
+  AgencyId,
   DemoState,
-  FetchResult,
-  FieldId,
   Grant,
-  GrantCaller,
+  GrantBody,
   GrantId,
-  ProtocolEvent,
-  StoredTicket,
-  SubmitResult,
-  TicketClaims,
+  ProgramPlan,
+  RedeemProof,
+  RedeemResult,
 } from "./types";
-import { readVaultFields } from "./vault";
+import { GRANT_STATUS_LABEL } from "./view";
+import { ensureCredentials, findValidCredential, verifyCredential } from "./wallet";
 
-const GRANT_BEARER = /^Bearer Grant (.+)$/;
-
-export { audienceOfAgency, actorLabel };
-
-export function parseGrantBearer(header: string | null): string | null {
-  if (!header) return null;
-  const match = GRANT_BEARER.exec(header);
-  if (!match?.[1]) return null;
-  return match[1].trim();
-}
-
-export function asGrantId(value: string): GrantId | null {
-  return normalizeGrantId(value);
-}
-
-function inactiveMessage(grant: Grant): string {
-  if (isGrantExpired(grant)) return `匣 ${grant.id} 已過期，拒絕擷取。`;
-  if (grant.status === "pending") return `匣 ${grant.id} 尚未核准，拒絕擷取。`;
-  if (grant.status === "revoked") return `匣 ${grant.id} 已撤銷，拒絕擷取。`;
-  if (grant.status === "consumed") return `匣 ${grant.id} 已耗用，拒絕重放擷取。`;
-  return `匣 ${grant.id} 不可用。`;
-}
-
-function stampAgencyDenial(state: DemoState, audience: string | null, error: string) {
-  const agencyId =
-    audience === "agency-jia" ? "jia" : audience === "agency-yi" ? "yi" : null;
-  if (!agencyId) return;
-  state.agencies[agencyId].lastDenial = error;
-  state.agencies[agencyId].lastDeniedAt = nowIso();
-}
-
-function denial(
-  code: AuthzDenialCode,
-  error: string,
-  deniedFields?: FieldId[],
-): Extract<FetchResult, { ok: false }> {
-  return { ok: false, status: 403, code, error, deniedFields };
-}
-
-function stampProtocol(
-  state: DemoState,
-  input: {
-    token: string;
-    fields: string[];
-    path: ProtocolEvent["request"]["path"];
-    result: FetchResult | SubmitResult;
-  },
-) {
-  const ref = parseTicketRef(input.token);
-  const shown = ref?.jti ?? input.token;
-  state.lastProtocol = {
-    at: nowIso(),
-    request: {
-      authorization: `Bearer Grant ${shown}`,
-      fields: input.fields,
-      path: input.path,
-    },
-    response: input.result.ok
-      ? {
-          ok: true,
-          status: 200,
-          fieldIds: "fieldIds" in input.result ? input.result.fieldIds : undefined,
-        }
-      : {
-          ok: false,
-          status: input.result.status,
-          code: input.result.code,
-          error: input.result.error,
-        },
+function actorFor(agency: AgencyId): { name: string; role: "agency-jia" | "agency-yi" } {
+  return {
+    name: AGENCY_NAMES[agency],
+    role: agency === "jia" ? "agency-jia" : "agency-yi",
   };
 }
 
-function lookupTicket(
+function stampDenial(state: DemoState, agency: AgencyId | null, error: string) {
+  if (!agency) return;
+  state.inboxes[agency].lastDenial = error;
+  state.inboxes[agency].lastDeniedAt = nowIso();
+}
+
+/** The consent wording, signed alongside everything else so the record proves
+ *  what was displayed, not merely that the principal tapped. */
+export function buildDisplayText(
+  purpose: PurposeId,
+  claims: ClaimId[],
+  expIso: string,
+): string {
+  const def = PURPOSES[purpose];
+  const lines = [
+    `${def.agencyName} 將取得以下關於你的資訊，用於「${def.title}」：`,
+    ...claims.map((c) => `• ${CLAIM_DEFS[c].label}（${CLAIM_DEFS[c].shape}）`),
+    "",
+    def.necessity,
+    "",
+    `法定依據：${def.legalBasis.join("；")}`,
+    `有效至 ${new Date(expIso).toLocaleString("zh-TW", { hour12: false, timeZone: "Asia/Taipei" })}，僅能使用一次，且只有「${def.agencyName}」能兌現。`,
+  ];
+  return lines.join("\n");
+}
+
+function buildGrant(
   state: DemoState,
-  raw: string,
-): { ok: true; stored: StoredTicket } | { ok: false; result: Extract<FetchResult, { ok: false }> } {
-  const parsed = parseTicketRef(raw);
-  if (!parsed) {
-    return {
-      ok: false,
-      result: denial(
-        "BAD_TICKET",
-        "需要有效的 HMAC ticket（ticket id 或 Bearer grn_…）。匣號本身不是能力憑證。",
-      ),
-    };
-  }
-  const stored = state.tickets?.[parsed.jti];
-  if (!stored) {
-    return {
-      ok: false,
-      result: denial("BAD_TICKET", `未知 ticket：${parsed.jti}`),
-    };
-  }
-  const claims: TicketClaims = {
-    jti: stored.jti,
-    grantId: stored.grantId,
-    iss: stored.iss,
-    aud: stored.aud,
-    fields: stored.fields,
-    exp: stored.exp,
+  input: { grantId: GrantId; purpose: PurposeId; claims: ClaimId[] },
+  now: Date,
+): Grant {
+  const def = PURPOSES[input.purpose];
+  const ttl = Math.min(state.delegation.grantTtlSeconds, def.maxTtlSeconds);
+  const exp = new Date(now.getTime() + ttl * 1000).toISOString();
+  const displayText = buildDisplayText(input.purpose, input.claims, exp);
+
+  const body: GrantBody = {
+    aud: def.agency,
+    claims: input.claims,
+    cnf: { jkt: AGENCY_KEYS[def.agency].jkt },
+    displayText,
+    exp,
+    iat: now.toISOString(),
+    iss: state.principal.id,
+    jti: randomId("jti"),
+    purpose: input.purpose,
   };
-  const mac = parsed.mac ?? parseTicketToken(stored.token)?.mac;
-  if (!mac || !verifyTicketMac(claims, mac)) {
-    return {
-      ok: false,
-      result: denial("BAD_TICKET", "ticket HMAC 驗證失敗，請求關閉。"),
-    };
+  const serialized = serializeBody(body);
+
+  const risk = assessRisk({
+    purpose: input.purpose,
+    claims: input.claims,
+    delegation: state.delegation,
+    recentAudit: state.audit,
+    now,
+  });
+
+  return {
+    id: input.grantId,
+    body,
+    serialized,
+    digest: digest(serialized),
+    signature: null,
+    signedByKey: null,
+    signMethod: null,
+    status: "proposed",
+    risk: risk.level,
+    riskNotes: risk.notes,
+    proposedAt: now.toISOString(),
+    signedAt: null,
+    redeemedAt: null,
+    revokedAt: null,
+  };
+}
+
+export function proposeGrantsFromPlan(state: DemoState, programs: ProgramPlan[]) {
+  const now = new Date();
+  for (const program of programs) {
+    const fresh = buildGrant(
+      state,
+      { grantId: program.grantId, purpose: program.purpose, claims: program.claims },
+      now,
+    );
+    const idx = state.grants.findIndex((g) => g.id === program.grantId);
+    // A proposal always replaces a stale one: a new jti, a new expiry, a new
+    // signature. Grants are never reactivated in place.
+    if (idx >= 0) state.grants[idx] = fresh;
+    else state.grants.push(fresh);
+
+    if (fresh.risk === "blocked") {
+      appendAudit(state, {
+        actor: "目的登記表",
+        actorRole: "system",
+        action: "deny",
+        grantId: fresh.id,
+        detail: `提案即攔截：${fresh.riskNotes.join(" ")}`,
+        risk: "blocked",
+      });
+    }
   }
-  if (Date.parse(stored.exp) <= Date.now()) {
-    return {
-      ok: false,
-      result: denial("GRANT_INACTIVE", `ticket ${stored.jti} 已過期。`),
-    };
-  }
-  return { ok: true, stored };
 }
 
 /**
- * Authorization layer. Fail closed.
- * Fetch/submit take an HMAC ticket — never a self-asserted actor.
+ * An agency asking for something on its own initiative. Runs the full risk
+ * engine at proposal time, so an over-broad request is refused before the
+ * principal is ever shown a button to approve it.
  */
-export function fetchWithGrant(
-  ticketRaw: string,
-  requestedFields: string[],
-): { state: DemoState; result: FetchResult } {
-  let result: FetchResult = denial("BAD_TICKET", "缺少有效的 HMAC ticket");
+export function requestClaims(
+  agency: AgencyId,
+  purpose: PurposeId,
+  claims: string[],
+): { state: DemoState; blocked: boolean; notes: string[] } {
+  let blocked = false;
+  let notes: string[] = [];
+  const now = new Date();
 
   const state = mutate((s) => {
-    if (requestedFields.includes("*") || requestedFields.includes("fields:*")) {
-      result = denial("WILDCARD_FORBIDDEN", "禁止 fields:* 萬用授權，請求已關閉");
-      const looked = lookupTicket(s, ticketRaw);
-      appendAudit(s, {
-        actor: looked.ok ? actorLabel(looked.stored.aud) : "未知",
-        actorRole: looked.ok ? actorRole(looked.stored.aud) : "system",
-        action: "deny",
-        grantId: looked.ok ? looked.stored.grantId : null,
-        detail: result.error,
-      });
-      if (looked.ok) stampAgencyDenial(s, looked.stored.aud, result.error);
-      stampProtocol(s, { token: ticketRaw, fields: requestedFields, path: "/api/mydata/fetch", result });
-      return;
+    const risk = assessRisk({
+      purpose,
+      claims,
+      delegation: s.delegation,
+      recentAudit: s.audit,
+      now,
+    });
+    notes = risk.notes;
+    blocked = risk.level === "blocked";
+
+    // The requester must be the agency the purpose belongs to. Without this,
+    // 乙 could ask for childcare claims and be told the request is fine.
+    if (PURPOSES[purpose].agency !== agency) {
+      notes = [
+        `「${PURPOSES[purpose].title}」是 ${AGENCY_NAMES[PURPOSES[purpose].agency]} 的法定職務，${AGENCY_NAMES[agency]} 不能以此目的索取資料。`,
+        ...notes,
+      ];
+      blocked = true;
     }
 
-    const looked = lookupTicket(s, ticketRaw);
-    if (!looked.ok) {
-      result = looked.result;
+    const actor = actorFor(agency);
+    if (blocked) {
       appendAudit(s, {
-        actor: "未知",
-        actorRole: "system",
+        actor: actor.name,
+        actorRole: actor.role,
         action: "deny",
-        detail: result.error,
+        grantId: null,
+        detail: `逾越請求遭攔截：${risk.notes.join(" ")}`,
+        deniedClaims: risk.blockedClaims,
+        risk: "blocked",
       });
-      stampProtocol(s, { token: ticketRaw, fields: requestedFields, path: "/api/mydata/fetch", result });
+      stampDenial(s, agency, risk.notes.join(" ") || "請求遭攔截。");
+      notify(s, {
+        kind: "risk",
+        title: `攔截了 ${AGENCY_NAMES[agency]} 的逾越請求`,
+        body: risk.notes.join("\n"),
+        grantId: null,
+      });
+    }
+  });
+
+  return { state, blocked, notes };
+}
+
+export function registerPrincipalKey(input: {
+  publicKey: string;
+  method: "passkey" | "software";
+  credentialId?: string | null;
+}): { state: DemoState; error?: string } {
+  let error: string | undefined;
+  const state = mutate((s) => {
+    try {
+      if (unb64u(input.publicKey).length !== 32) {
+        error = "公鑰長度不正確，應為 32 bytes 的 ed25519 公鑰";
+        return;
+      }
+    } catch {
+      error = "公鑰不是合法的 base64url";
       return;
     }
-
-    const { stored } = looked;
-    const grant = grantById(s, stored.grantId);
-    if (!grant) {
-      result = denial("UNKNOWN_GRANT", `授權匣 ${stored.grantId} 不存在`);
-      appendAudit(s, {
-        actor: actorLabel(stored.aud),
-        actorRole: actorRole(stored.aud),
-        action: "deny",
-        grantId: stored.grantId,
-        detail: result.error,
-      });
-      stampProtocol(s, { token: ticketRaw, fields: requestedFields, path: "/api/mydata/fetch", result });
-      return;
-    }
-
-    if (grant.status !== "active" || isGrantExpired(grant)) {
-      result = denial("GRANT_INACTIVE", inactiveMessage(grant));
-      appendAudit(s, {
-        actor: actorLabel(stored.aud),
-        actorRole: actorRole(stored.aud),
-        action: "deny",
-        grantId: grant.id,
-        detail: result.error,
-      });
-      stampAgencyDenial(s, stored.aud, result.error);
-      stampProtocol(s, { token: stored.token, fields: requestedFields, path: "/api/mydata/fetch", result });
-      return;
-    }
-
-    if (stored.aud !== grant.audience || stored.iss !== grant.issuer) {
-      result = denial(
-        "AUDIENCE_MISMATCH",
-        `ticket 綁定 iss=${stored.iss} aud=${stored.aud}，與匣 ${grant.id} 不符。`,
-      );
-      appendAudit(s, {
-        actor: actorLabel(stored.aud),
-        actorRole: actorRole(stored.aud),
-        action: "deny",
-        grantId: grant.id,
-        detail: result.error,
-      });
-      stampAgencyDenial(s, stored.aud, result.error);
-      stampProtocol(s, { token: stored.token, fields: requestedFields, path: "/api/mydata/fetch", result });
-      return;
-    }
-
-    const unknown = requestedFields.filter((f) => !isFieldId(f));
-    const typed = requestedFields.filter(isFieldId);
-    const allow = new Set(stored.fields);
-    const extra = typed.filter((f) => !allow.has(f));
-    if (unknown.length || extra.length) {
-      const names =
-        extra.map((f) => FIELD_META[f].label).join("、") || unknown.join("、");
-      result = denial("OVERSCOPED", `匣 ${grant.id} 未授權${names}，請求關閉。`, extra);
-      appendAudit(s, {
-        actor: actorLabel(stored.aud),
-        actorRole: actorRole(stored.aud),
-        action: "deny",
-        grantId: grant.id,
-        detail: result.error,
-        deniedFields: extra,
-      });
-      stampAgencyDenial(s, stored.aud, result.error);
-      stampProtocol(s, { token: stored.token, fields: requestedFields, path: "/api/mydata/fetch", result });
-      return;
-    }
-
-    const payload = readVaultFields(typed);
-    const previous = s.envelopes[grant.id] ?? emptyEnvelope(grant.id, grant.agencyId);
-    s.envelopes[grant.id] = {
-      grantId: grant.id,
-      agencyId: grant.agencyId,
-      fields: { ...previous.fields, ...payload },
-      fetchedAt: nowIso(),
-      receipt: previous.receipt,
+    s.principal.key = {
+      publicKey: input.publicKey,
+      method: input.method,
+      registeredAt: nowIso(),
+      credentialId: input.credentialId ?? null,
     };
     appendAudit(s, {
-      actor: actorLabel(stored.aud),
-      actorRole: actorRole(stored.aud),
-      action: "fetch",
-      grantId: grant.id,
-      detail: `依 ticket ${stored.jti} 擷取 ${typed.length} 欄：${typed.join("、")}`,
+      actor: s.principal.name,
+      actorRole: "principal",
+      action: "register",
+      detail:
+        input.method === "passkey"
+          ? "以 passkey（生物辨識）派生的簽章金鑰註冊皮夾。私鑰不離開裝置，伺服器只存公鑰。"
+          : "以軟體金鑰註冊皮夾（demo 備援，安全性弱於 passkey）。",
     });
-    result = { ok: true, grantId: grant.id, fieldIds: typed };
-    stampProtocol(s, { token: stored.token, fields: requestedFields, path: "/api/mydata/fetch", result });
+  });
+  return { state, error };
+}
+
+/** Verifies the principal's signature over the exact serialized grant. */
+export function signGrant(input: {
+  grantId: GrantId;
+  signature: string;
+  publicKey: string;
+}): { state: DemoState; error?: string } {
+  let error: string | undefined;
+  const state = mutate((s) => {
+    const grant = grantById(s, input.grantId);
+    if (!grant) {
+      error = `找不到匣 ${input.grantId}。`;
+      return;
+    }
+    if (grant.status !== "proposed") {
+      error = `匣 ${input.grantId} 目前是「${GRANT_STATUS_LABEL[grant.status]}」，不能簽署。`;
+      return;
+    }
+    if (grant.risk === "blocked") {
+      error = `匣 ${input.grantId} 已被攔截，不可簽署：${grant.riskNotes.join(" ")}`;
+      return;
+    }
+    if (new Date(grant.body.exp).getTime() < Date.now()) {
+      grant.status = "expired";
+      error = `匣 ${input.grantId} 已逾效期，請重新比對後簽署新的一張。`;
+      return;
+    }
+    const registered = s.principal.key.publicKey;
+    if (!registered) {
+      error = "尚未註冊簽章金鑰，請先在皮夾註冊。";
+      return;
+    }
+    if (registered !== input.publicKey) {
+      error = "簽章公鑰與皮夾註冊的金鑰不符。";
+      return;
+    }
+    if (!bodyMatchesSignedBytes(grant)) {
+      error = "匣的欄位與待簽內容不一致，拒絕簽署。";
+      return;
+    }
+    if (!verify(input.signature, grant.serialized, unb64u(input.publicKey))) {
+      error = "簽章驗證失敗，匣內容可能已被竄改。";
+      appendAudit(s, {
+        actor: s.principal.name,
+        actorRole: "principal",
+        action: "deny",
+        grantId: grant.id,
+        detail: "簽章驗證失敗，拒絕標記為已簽署。",
+        risk: "blocked",
+      });
+      return;
+    }
+
+    grant.signature = input.signature;
+    grant.signedByKey = input.publicKey;
+    grant.signMethod = s.principal.key.method;
+    grant.status = "signed";
+    grant.signedAt = nowIso();
+
+    appendAudit(s, {
+      actor: s.principal.name,
+      actorRole: "principal",
+      action: "sign",
+      grantId: grant.id,
+      detail: `以${grant.signMethod === "passkey" ? " passkey 生物辨識" : "軟體金鑰"}簽署匣 ${grant.id}（${PURPOSES[grant.body.purpose].title}）。簽章涵蓋 aud／cnf／jti／exp／述詞／同意畫面文字，摘要 ${grant.digest.slice(0, 12)}。`,
+      risk: grant.risk,
+    });
+  });
+  return { state, error };
+}
+
+/**
+ * Demo helper standing in for the agency's own signing infrastructure. In
+ * production this private key would never exist in this process.
+ *
+ * The proof commits to the capsule's digest, not merely its id: ids are reused
+ * across proposals, so a proof captured from an earlier G-甲 would otherwise
+ * replay against the next one.
+ */
+export function makeAgencyProof(agency: AgencyId, grantId: GrantId): RedeemProof {
+  const body = {
+    agency,
+    digest: grantById(getState(), grantId)?.digest ?? "",
+    grantId,
+    iat: nowIso(),
+    nonce: randomId("n"),
+  };
+  return { ...body, signature: sign(serializeBody(body), AGENCY_KEYS[agency].secret) };
+}
+
+/**
+ * The signature covers `serialized`, but every check downstream reads
+ * `grant.body`. If those two ever disagree, the signature is decorative: an
+ * attacker with write access to the store could repoint `aud`, `cnf` or
+ * `claims` while leaving the signed bytes untouched. Re-deriving the bytes and
+ * comparing is what actually binds the decisions to the signature.
+ */
+function bodyMatchesSignedBytes(grant: Grant): boolean {
+  return serializeBody(grant.body) === grant.serialized;
+}
+
+const PROOF_SKEW_MS = 120_000;
+
+function verifyAgencyProof(proof: RedeemProof, grant: Grant): boolean {
+  if (!isKnownAgency(proof.agency)) return false;
+  if (proof.digest !== grant.digest) return false;
+  const age = Date.now() - new Date(proof.iat).getTime();
+  if (!Number.isFinite(age) || Math.abs(age) > PROOF_SKEW_MS) return false;
+  const body = {
+    agency: proof.agency,
+    digest: proof.digest,
+    grantId: proof.grantId,
+    iat: proof.iat,
+    nonce: proof.nonce,
+  };
+  return verify(proof.signature, serializeBody(body), AGENCY_KEYS[proof.agency].publicKey);
+}
+
+/**
+ * Both keys must turn.
+ *
+ * Key one is the principal's signature over the grant. Key two is the agency
+ * proving possession of the key the grant is bound to, plus the purpose registry
+ * confirming the agency has statutory grounds to receive these claims. Neither
+ * alone releases anything, and nothing partial is ever returned.
+ */
+export function redeemGrant(
+  grantIdRaw: string,
+  proof: RedeemProof,
+): { state: DemoState; result: RedeemResult } {
+  let result: RedeemResult = {
+    ok: false,
+    status: 403,
+    code: "UNKNOWN_GRANT",
+    error: "未知的匣。",
+  };
+  const now = new Date();
+
+  const state = mutate((s) => {
+    const claimer = isKnownAgency(proof.agency) ? proof.agency : null;
+    const actor = claimer ? actorFor(claimer) : { name: "未知請求方", role: "system" as const };
+
+    const fail = (
+      code: Extract<RedeemResult, { ok: false }>["code"],
+      error: string,
+      extra?: { deniedClaims?: string[]; failedKey?: "principal" | "agency" },
+    ) => {
+      result = { ok: false, status: 403, code, error, ...extra };
+      appendAudit(s, {
+        actor: actor.name,
+        actorRole: actor.role,
+        action: "deny",
+        grantId: normalizeGrantId(grantIdRaw),
+        detail: `${code}：${error}`,
+        deniedClaims: extra?.deniedClaims,
+        risk: "blocked",
+      });
+      stampDenial(s, claimer, error);
+    };
+
+    const grantId = normalizeGrantId(grantIdRaw);
+    if (!grantId) return fail("UNKNOWN_GRANT", `未知的匣：${grantIdRaw}。`);
+
+    const grant = grantById(s, grantId);
+    if (!grant) return fail("UNKNOWN_GRANT", `匣 ${grantId} 不存在。`);
+
+    // --- standing delegation -------------------------------------------------
+    if (!s.delegation.active) {
+      return fail("NO_DELEGATION", "委託已撤銷，所有兌現一律停止。", {
+        failedKey: "principal",
+      });
+    }
+    if (new Date(s.delegation.validUntil).getTime() < now.getTime()) {
+      return fail("NO_DELEGATION", "委託已逾期。", { failedKey: "principal" });
+    }
+
+    // --- key one: the principal ---------------------------------------------
+    if (grant.status === "revoked") {
+      return fail("REVOKED", `匣 ${grantId} 已撤銷。`, { failedKey: "principal" });
+    }
+    if (grant.status === "redeemed" || s.usedJti.includes(grant.body.jti)) {
+      return fail("REPLAYED", `匣 ${grantId} 已兌現，一次性授權不可重放。`, {
+        failedKey: "principal",
+      });
+    }
+    if (grant.status === "expired") {
+      return fail("EXPIRED", `匣 ${grantId} 已逾效期（${grant.body.exp}）。`, {
+        failedKey: "principal",
+      });
+    }
+    if (grant.status !== "signed" || !grant.signature || !grant.signedByKey) {
+      return fail("UNSIGNED", `匣 ${grantId} 尚未經委託人簽署。`, {
+        failedKey: "principal",
+      });
+    }
+    if (s.principal.key.publicKey !== grant.signedByKey) {
+      return fail("BAD_SIGNATURE", "簽署金鑰已不是皮夾目前註冊的金鑰。", {
+        failedKey: "principal",
+      });
+    }
+    if (!verify(grant.signature, grant.serialized, unb64u(grant.signedByKey))) {
+      return fail("BAD_SIGNATURE", "委託人簽章驗證失敗，匣內容遭竄改。", {
+        failedKey: "principal",
+      });
+    }
+    if (!bodyMatchesSignedBytes(grant)) {
+      return fail("BAD_SIGNATURE", "匣的欄位與已簽署的內容不一致，拒絕兌現。", {
+        failedKey: "principal",
+      });
+    }
+    if (new Date(grant.body.exp).getTime() < now.getTime()) {
+      grant.status = "expired";
+      return fail("EXPIRED", `匣 ${grantId} 已逾效期（${grant.body.exp}）。`, {
+        failedKey: "principal",
+      });
+    }
+
+    // --- key two: the agency -------------------------------------------------
+    if (!claimer) {
+      return fail("BAD_AGENCY_PROOF", "請求方不是登記在案的機關。", {
+        failedKey: "agency",
+      });
+    }
+    if (grant.body.aud !== claimer) {
+      return fail(
+        "WRONG_AUDIENCE",
+        `匣 ${grantId} 的受眾是 ${AGENCY_NAMES[grant.body.aud]}，${AGENCY_NAMES[claimer]} 不能兌現。`,
+        { failedKey: "agency" },
+      );
+    }
+    if (proof.grantId !== grantId) {
+      return fail("BAD_AGENCY_PROOF", "機關持有證明所指的匣與請求不符。", {
+        failedKey: "agency",
+      });
+    }
+    if (!verifyAgencyProof(proof, grant)) {
+      return fail("BAD_AGENCY_PROOF", "機關持有證明無效、過期，或不是為這一張匣簽的。", {
+        failedKey: "agency",
+      });
+    }
+    if (thumbprint(AGENCY_KEYS[claimer].publicKey) !== grant.body.cnf.jkt) {
+      return fail(
+        "KEY_NOT_BOUND",
+        "請求方金鑰與匣內 cnf 綁定的指紋不符，此匣不是 bearer token。",
+        { failedKey: "agency" },
+      );
+    }
+
+    // --- key two, part two: statutory purpose --------------------------------
+    // assessRisk below repeats this, but a dedicated code says *which* rule
+    // refused; RISK_BLOCKED alone reads as a generic denial.
+    const outside = claimsOutsidePurpose(grant.body.purpose, grant.body.claims);
+    if (outside.length) {
+      return fail(
+        "OUTSIDE_PURPOSE",
+        `${outside.map((c) => (isClaimId(c) ? CLAIM_DEFS[c].label : c)).join("、")} 逾越「${PURPOSES[grant.body.purpose].title}」的法定職務必要範圍，即使委託人已簽署仍拒絕。`,
+        { deniedClaims: outside, failedKey: "agency" },
+      );
+    }
+    if (PURPOSES[grant.body.purpose].agency !== claimer) {
+      return fail("OUTSIDE_PURPOSE", "該目的不屬於此機關的法定職務。", {
+        failedKey: "agency",
+      });
+    }
+
+    const risk = assessRisk({
+      purpose: grant.body.purpose,
+      claims: grant.body.claims,
+      delegation: s.delegation,
+      recentAudit: s.audit,
+      now,
+    });
+    if (risk.level === "blocked") {
+      return fail("RISK_BLOCKED", risk.notes.join(" "), {
+        deniedClaims: risk.blockedClaims,
+      });
+    }
+
+    // --- present credentials -------------------------------------------------
+    const claims = grant.body.claims.filter(isClaimId);
+    // Verify what the wallet already holds *before* issuing anything. Issuing
+    // first and validating afterwards left new credentials — and a vault read —
+    // behind on a failed redemption, with no issuance recorded in the audit.
+    const staleCredential = claims
+      .map((claimId) => findValidCredential(s, claimId, claimer, now))
+      .find((cred) => cred && !verifyCredential(cred));
+    if (staleCredential) {
+      return fail("MISSING_CREDENTIAL", `憑證「${staleCredential.label}」的發證機構簽章無效。`);
+    }
+
+    const { issued, reused, credentials } = ensureCredentials(s, claims, claimer, now);
+    const bad = credentials.find((c) => !verifyCredential(c));
+    if (bad) {
+      return fail("MISSING_CREDENTIAL", `憑證「${bad.label}」的發證機構簽章無效。`);
+    }
+    if (credentials.length !== claims.length) {
+      return fail("MISSING_CREDENTIAL", "皮夾缺少本匣所需的憑證。");
+    }
+
+    for (const cred of credentials) cred.presentedCount += 1;
+
+    s.inboxes[claimer] = {
+      ...s.inboxes[claimer],
+      purpose: grant.body.purpose,
+      programTitle: PURPOSES[grant.body.purpose].title,
+      claims: credentials.map((c) => ({
+        claimId: c.claimId,
+        label: c.label,
+        value: c.value,
+        sensitivity: c.sensitivity,
+        issuer: c.issuer,
+        issuerName: c.issuerName,
+        issuerSignatureValid: verifyCredential(c),
+      })),
+      grantDigest: grant.digest,
+      receivedAt: nowIso(),
+      // A fresh redemption is a fresh application. Carrying the old timestamp
+      // over made the second run refuse to submit.
+      submittedAt: null,
+      lastDenial: null,
+      lastDeniedAt: null,
+    };
+
+    grant.status = "redeemed";
+    grant.redeemedAt = nowIso();
+    s.usedJti.push(grant.body.jti);
+
+    if (issued.length) {
+      appendAudit(s, {
+        actor: "發證機構",
+        actorRole: "issuer",
+        action: "issue",
+        grantId: grant.id,
+        detail: `自金庫派生並簽發 ${issued.length} 張憑證：${issued.map((c) => CLAIM_DEFS[c].label).join("、")}。這是本流程唯一讀取金庫的一步。`,
+      });
+    }
+
+    appendAudit(s, {
+      actor: actor.name,
+      actorRole: actor.role,
+      action: "redeem",
+      grantId: grant.id,
+      detail: `雙鑰匙通過（委託人簽章 ✓ 機關持有證明 ✓ 法定目的 ✓），交付 ${claims.length} 項述詞至「${PURPOSES[grant.body.purpose].title}」收件匣${reused.length ? `；其中 ${reused.length} 項沿用皮夾既有憑證，未再調閱` : ""}。匣 ${grant.id} 就此耗用。`,
+      risk: risk.level,
+    });
+
+    result = { ok: true, grantId: grant.id, claimIds: claims, deliveredTo: claimer };
   });
 
   return { state, result };
-}
-
-function issueTicket(state: DemoState, grant: Grant): StoredTicket {
-  const claims: TicketClaims = {
-    jti: newTicketJti(),
-    grantId: grant.id,
-    iss: grant.issuer,
-    aud: grant.audience,
-    fields: [...grant.fields],
-    exp: grant.expiresAt,
-  };
-  const token = signTicket(claims);
-  const stored: StoredTicket = { ...claims, token };
-  if (!state.tickets) state.tickets = {};
-  state.tickets[claims.jti] = stored;
-  grant.ticketId = claims.jti;
-  grant.ticket = token;
-  return stored;
-}
-
-function deliverAllowlist(state: DemoState, grant: Grant) {
-  const payload = readVaultFields(grant.fields);
-  state.envelopes[grant.id] = {
-    grantId: grant.id,
-    agencyId: grant.agencyId,
-    fields: payload,
-    fetchedAt: nowIso(),
-    receipt: null,
-  };
-  appendAudit(state, {
-    actor: "授權層",
-    actorRole: "system",
-    action: "fetch",
-    grantId: grant.id,
-    detail: `依匣 ${grant.id} 寫入${actorLabel(grant.audience)}收件匣 ${grant.fields.length} 欄。模型看不到值。`,
-  });
-}
-
-export function proposeGrantsFromPlan(
-  state: DemoState,
-  programs: { grantId: GrantId; title: string; agencyId: "jia" | "yi" }[],
-) {
-  const at = nowIso();
-  const issuer = state.principal.id;
-  const subject = state.principal.id;
-  for (const program of programs) {
-    if (grantById(state, program.grantId)) continue;
-    state.grants.push({
-      id: program.grantId,
-      issuer,
-      subject,
-      audience: audienceOfAgency(program.agencyId),
-      purpose: `僅供「${program.title}」一次申請`,
-      fields: [...GRANT_FIELDS[program.grantId]],
-      source: "mydata",
-      expiresAt: expiresAtFrom(at),
-      status: "pending",
-      revokeOn: "submitted",
-      agencyId: program.agencyId,
-      programTitle: program.title,
-      proposedAt: at,
-      approvedAt: null,
-      revokedAt: null,
-      consumedAt: null,
-      ticketId: null,
-      ticket: null,
-    });
-  }
-}
-
-export function approveGrantAndFetch(
-  grantId: GrantId,
-): { state: DemoState; error?: string; ticket?: string } {
-  let error: string | undefined;
-  let ticket: string | undefined;
-  const state = mutate((s) => {
-    const grant = grantById(s, grantId);
-    if (!grant) {
-      error = `找不到匣 ${grantId}`;
-      return;
-    }
-    if (grant.status !== "pending" && grant.status !== "revoked") {
-      error = `匣 ${grantId} 目前是 ${grant.status}，不能核准`;
-      return;
-    }
-    const issuer = grant.issuer || s.principal.id;
-    grant.status = "active";
-    grant.approvedAt = nowIso();
-    grant.revokedAt = null;
-    const stored = issueTicket(s, grant);
-    ticket = stored.token;
-    appendAudit(s, {
-      actor: issuer,
-      actorRole: "principal",
-      action: "approve",
-      grantId,
-      detail: `核准匣 ${grantId}（${grant.programTitle}），issuer=${issuer}，audience=${grant.audience}，發出 ticket ${stored.jti}。所得不在此匣。`,
-    });
-    deliverAllowlist(s, grant);
-  });
-  return { state, error, ticket };
 }
 
 export function revokeGrant(
   grantId: GrantId,
   reason: string,
-  caller: GrantCaller | null,
-): { state: DemoState; result: SubmitResult } {
-  let result: SubmitResult = {
-    ok: false,
-    status: 403,
-    code: "UNKNOWN_GRANT",
-    error: `找不到匣 ${grantId}`,
-  };
+): { state: DemoState; error?: string } {
+  let error: string | undefined;
   const state = mutate((s) => {
     const grant = grantById(s, grantId);
     if (!grant) {
-      result = {
-        ok: false,
-        status: 403,
-        code: "UNKNOWN_GRANT",
-        error: `找不到匣 ${grantId}`,
-      };
-      appendAudit(s, {
-        actor: caller?.id ?? "未知",
-        actorRole: caller?.id ? actorRole(caller.id) : "system",
-        action: "deny",
-        grantId,
-        detail: result.error,
-      });
+      error = `找不到匣 ${grantId}。`;
       return;
     }
-
-    const callerId = caller?.id?.trim() || s.principal.id;
-    if (callerId !== grant.issuer) {
-      result = {
-        ok: false,
-        status: 403,
-        code: "ISSUER_MISMATCH",
-        error: `匣 ${grant.id} 的 issuer 是 ${grant.issuer}，呼叫端 ${callerId} 不得撤銷。`,
-      };
-      appendAudit(s, {
-        actor: callerId,
-        actorRole: actorRole(callerId),
-        action: "deny",
-        grantId: grant.id,
-        detail: result.error,
-      });
+    if (grant.status === "redeemed") {
+      error = `匣 ${grantId} 已兌現。已交付的資料收不回來，只能停止後續取用。`;
+      // Still burn the jti so nothing further can be done with it.
+      if (!s.usedJti.includes(grant.body.jti)) s.usedJti.push(grant.body.jti);
       return;
     }
-
-    if (grant.status === "consumed") {
-      result = {
-        ok: false,
-        status: 403,
-        code: "GRANT_INACTIVE",
-        error: `匣 ${grantId} 已耗用，無法再撤銷`,
-      };
-      return;
-    }
-    if (grant.status === "revoked") {
-      result = {
-        ok: false,
-        status: 403,
-        code: "GRANT_INACTIVE",
-        error: `匣 ${grantId} 已撤銷`,
-      };
+    if (grant.status !== "proposed" && grant.status !== "signed") {
+      error = `匣 ${grantId} 目前是「${GRANT_STATUS_LABEL[grant.status]}」，不需要再撤銷。`;
       return;
     }
     grant.status = "revoked";
     grant.revokedAt = nowIso();
-    grant.ticket = null;
-    if (grant.ticketId && s.tickets) delete s.tickets[grant.ticketId];
+    if (!s.usedJti.includes(grant.body.jti)) s.usedJti.push(grant.body.jti);
     appendAudit(s, {
-      actor: grant.issuer,
+      actor: s.principal.name,
       actorRole: "principal",
       action: "revoke",
       grantId,
       detail: reason,
     });
-    result = { ok: true, grantId };
   });
-  return { state, result };
+  return { state, error };
 }
 
-export function submitApplication(ticketRaw: string): { state: DemoState; result: SubmitResult } {
-  let result: SubmitResult = {
-    ok: false,
-    status: 403,
-    code: "BAD_TICKET",
-    error: "送件需要 HMAC ticket",
-  };
-  const state = mutate((s) => {
-    const looked = lookupTicket(s, ticketRaw);
-    if (!looked.ok) {
-      result = looked.result;
-      appendAudit(s, {
-        actor: "未知",
-        actorRole: "system",
-        action: "deny",
-        detail: result.error,
-      });
-      stampProtocol(s, { token: ticketRaw, fields: [], path: "/api/applications/submit", result });
-      return;
+/** The revocation that always works: stop the agent signing anything new. */
+export function revokeDelegation(reason: string): DemoState {
+  return mutate((s) => {
+    s.delegation.active = false;
+    s.delegation.revokedAt = nowIso();
+    s.delegation.revokedReason = reason;
+    for (const grant of s.grants) {
+      if (grant.status === "proposed" || grant.status === "signed") {
+        grant.status = "revoked";
+        grant.revokedAt = nowIso();
+        if (!s.usedJti.includes(grant.body.jti)) s.usedJti.push(grant.body.jti);
+      }
     }
-
-    const { stored } = looked;
-    const grant = grantById(s, stored.grantId);
-    if (!grant) {
-      result = {
-        ok: false,
-        status: 403,
-        code: "UNKNOWN_GRANT",
-        error: `找不到匣 ${stored.grantId}`,
-      };
-      stampProtocol(s, { token: ticketRaw, fields: [], path: "/api/applications/submit", result });
-      return;
-    }
-
-    if (grant.status !== "active" || isGrantExpired(grant)) {
-      result = {
-        ok: false,
-        status: 403,
-        code: "GRANT_INACTIVE",
-        error: `匣 ${grant.id} 非有效授權，不能送件`,
-      };
-      appendAudit(s, {
-        actor: actorLabel(stored.aud),
-        actorRole: actorRole(stored.aud),
-        action: "deny",
-        grantId: grant.id,
-        detail: result.error,
-      });
-      stampAgencyDenial(s, stored.aud, result.error);
-      stampProtocol(s, { token: stored.token, fields: [], path: "/api/applications/submit", result });
-      return;
-    }
-
-    const envelope = s.envelopes[grant.id];
-    if (!envelope?.fetchedAt || Object.keys(envelope.fields).length === 0) {
-      result = {
-        ok: false,
-        status: 403,
-        code: "NO_ENVELOPE",
-        error: "收件匣還沒有資料，無法送件",
-      };
-      appendAudit(s, {
-        actor: actorLabel(stored.aud),
-        actorRole: actorRole(stored.aud),
-        action: "deny",
-        grantId: grant.id,
-        detail: result.error,
-      });
-      stampProtocol(s, { token: stored.token, fields: [], path: "/api/applications/submit", result });
-      return;
-    }
-
-    const submittedAt = nowIso();
-    const receipt = buildReceipt(stored.jti, envelope.fields, submittedAt);
-    grant.status = "consumed";
-    grant.consumedAt = submittedAt;
-    grant.revokedAt = submittedAt;
-    grant.ticket = null;
-    const agencyId = agencyOf(grant.id);
-    s.agencies[agencyId].submittedAt = submittedAt;
-    s.envelopes[grant.id] = {
-      grantId: grant.id,
-      agencyId: grant.agencyId,
-      fields: {},
-      fetchedAt: envelope.fetchedAt,
-      receipt,
-    };
-    if (s.tickets) delete s.tickets[stored.jti];
     appendAudit(s, {
-      actor: actorLabel(stored.aud),
-      actorRole: actorRole(stored.aud),
-      action: "submit",
-      grantId: grant.id,
-      detail: `送出「${grant.programTitle}」申請（演示，未連真實機關）`,
-    });
-    appendAudit(s, {
-      actor: "系統",
-      actorRole: "system",
-      action: "receipt",
-      grantId: grant.id,
-      detail: `收件匣改為收據 ${receipt.fieldIds.length} 欄 sha256:${receipt.hash.slice(0, 12)}… 明文已刪。`,
-    });
-    appendAudit(s, {
-      actor: "系統",
-      actorRole: "system",
+      actor: s.principal.name,
+      actorRole: "principal",
       action: "revoke",
-      grantId: grant.id,
-      detail: `送件完成，匣 ${grant.id} 立即耗用並撤銷。重放擷取將失敗。`,
+      detail: `${reason}　委託停用，尚未兌現的匣一併作廢；已交付機關的資料無法收回，這是本設計誠實的邊界。`,
     });
-    result = { ok: true, grantId: grant.id };
-    stampProtocol(s, { token: stored.token, fields: receipt.fieldIds, path: "/api/applications/submit", result });
   });
-  return { state, result };
 }
 
-export function householdOverscopeFields(): FieldId[] {
-  return [...HOUSEHOLD_FIELDS];
+export function restoreDelegation(): DemoState {
+  return mutate((s) => {
+    s.delegation.active = true;
+    s.delegation.revokedAt = null;
+    s.delegation.revokedReason = null;
+    s.delegation.validUntil = new Date(Date.now() + 7 * 86_400_000).toISOString();
+    appendAudit(s, {
+      actor: s.principal.name,
+      actorRole: "principal",
+      action: "register",
+      detail: "重新啟用委託。既有已作廢的匣不會復活，需要重新比對與簽署。",
+    });
+  });
 }
 
-export function ticketFor(state: DemoState, grantId: GrantId): string | null {
-  return grantById(state, grantId)?.ticket ?? null;
+export function updateDelegation(
+  patch: Partial<Pick<DemoState["delegation"], "maxSensitivity" | "agencies" | "purposes" | "grantTtlSeconds">>,
+): DemoState {
+  return mutate((s) => {
+    Object.assign(s.delegation, patch);
+    appendAudit(s, {
+      actor: s.principal.name,
+      actorRole: "principal",
+      action: "register",
+      detail: `更新委託範圍：${JSON.stringify(patch)}`,
+    });
+  });
+}
+
+export function submitApplication(grantId: GrantId): { state: DemoState; error?: string } {
+  let error: string | undefined;
+  const state = mutate((s) => {
+    const grant = grantById(s, grantId);
+    if (!grant) {
+      error = `找不到匣 ${grantId}。`;
+      return;
+    }
+    const agency = agencyOf(grantId);
+    const who = actorFor(agency);
+    const inbox = s.inboxes[agency];
+    if (grant.status !== "redeemed" || !inbox.receivedAt) {
+      error = "收件匣還沒有已兌現的述詞，無法送件。";
+      return;
+    }
+    if (inbox.submittedAt) {
+      error = "此申請已送出。";
+      return;
+    }
+    inbox.submittedAt = nowIso();
+    appendAudit(s, {
+      actor: who.name,
+      actorRole: who.role,
+      action: "submit",
+      grantId,
+      detail: `以已交付的述詞送出「${inbox.programTitle}」申請（演示，未連真實機關）。`,
+    });
+  });
+  return { state, error };
 }

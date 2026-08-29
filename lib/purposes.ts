@@ -1,0 +1,76 @@
+import type { ClaimId } from "./claims";
+import type { AgencyId } from "./types";
+
+export const PURPOSE_IDS = ["childcare-allowance", "aircon-subsidy"] as const;
+export type PurposeId = (typeof PURPOSE_IDS)[number];
+
+export type PurposeDef = {
+  id: PurposeId;
+  title: string;
+  agency: AgencyId;
+  agencyName: string;
+  /** Statutory basis the agency relies on, shown on the consent screen. */
+  legalBasis: string[];
+  /** Ceiling on what this purpose may ever carry. */
+  allowedClaims: ClaimId[];
+  /** Grants for this purpose may not outlive this. */
+  maxTtlSeconds: number;
+  /** Plain-language reason, rendered verbatim into the signed displayText. */
+  necessity: string;
+};
+
+/**
+ * The second key: 個資法 §15/§16 as a lookup table. Each purpose's statutory
+ * ceiling on claims, enforced independently of what the principal signed — a
+ * principal phished into approving 所得 is still refused here, because the
+ * agency has no statutory basis to receive it.
+ */
+export const PURPOSES: Record<PurposeId, PurposeDef> = {
+  "childcare-allowance": {
+    id: "childcare-allowance",
+    title: "育兒津貼",
+    agency: "jia",
+    agencyName: "新北市政府社會局",
+    legalBasis: [
+      "個人資料保護法 §15 第 1 款：執行法定職務必要範圍內蒐集、處理",
+      "個人資料保護法 §16 第 1 款：於執行法定職務必要範圍內利用",
+      "個人資料保護法 §5：不得逾越特定目的之必要範圍",
+      "兒童及少年福利與權益保障法 §23：直轄市主管機關辦理托育與育兒補助",
+    ],
+    allowedClaims: [
+      "resident.inNewTaipei",
+      "resident.movedWithin12m",
+      "parentChild.verified",
+      "child.ageBand",
+    ],
+    maxTtlSeconds: 600,
+    necessity:
+      "核定育兒津貼只需確認「設籍本市」「具法定親子關係」「幼兒落在 0–2 歲」三件事，不需要姓名、地址、戶號或出生日期本身。",
+  },
+  "aircon-subsidy": {
+    id: "aircon-subsidy",
+    title: "住宅冷氣汰換補助",
+    agency: "yi",
+    agencyName: "經濟部能源署 × 台灣電力公司",
+    legalBasis: [
+      "個人資料保護法 §15 第 1 款：執行法定職務必要範圍內蒐集、處理",
+      "個人資料保護法 §16 第 1 款：於執行法定職務必要範圍內利用",
+      "個人資料保護法 §5：不得逾越特定目的之必要範圍",
+      "能源管理法 §9：主管機關辦理能源使用效率獎勵",
+    ],
+    allowedClaims: ["power.residentialMeter", "power.usageBand", "power.accountRef"],
+    maxTtlSeconds: 600,
+    necessity:
+      "核定節能補助只需確認「有住宅用電戶」與「用電級距」，並取得一個本署專屬的帳戶代號以供撥款核銷；不需要電號本身，也不需要逐月用電度數。",
+  },
+};
+
+export function isPurposeId(value: string): value is PurposeId {
+  return Object.hasOwn(PURPOSES, value);
+}
+
+/** Claims outside the statutory scope of this purpose. Empty means compliant. */
+export function claimsOutsidePurpose(purpose: PurposeId, claims: string[]): string[] {
+  const allowed = new Set<string>(PURPOSES[purpose].allowedClaims);
+  return claims.filter((c) => !allowed.has(c));
+}

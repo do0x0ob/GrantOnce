@@ -1,3 +1,7 @@
+import type { ClaimId, IssuerId, Sensitivity } from "./claims";
+import type { PurposeId } from "./purposes";
+
+/** Raw MyData vault fields. Only ever read when issuing a credential. */
 export const FIELD_IDS = [
   "household.city",
   "household.address",
@@ -21,97 +25,106 @@ export type FieldId = (typeof FIELD_IDS)[number];
 
 export type GrantId = "G-甲" | "G-乙";
 export type AgencyId = "jia" | "yi";
-/** pending = proposed but not yet approved. Harness UI still says 待核准. */
-export type GrantStatus = "pending" | "active" | "consumed" | "revoked";
-export type GrantSource = "mydata" | "wallet" | "user";
-export type RevokeOn = "submitted" | "user" | "expired";
-export type AuditAction = "approve" | "fetch" | "submit" | "revoke" | "deny" | "receipt";
 
-export type TicketClaims = {
-  jti: string;
-  grantId: GrantId;
-  iss: string;
-  aud: string;
-  fields: FieldId[];
+export type GrantStatus = "proposed" | "signed" | "redeemed" | "revoked" | "expired";
+
+export type AuditAction =
+  | "register"
+  | "issue"
+  | "sign"
+  | "redeem"
+  | "submit"
+  | "revoke"
+  | "deny"
+  | "notify";
+
+export type RiskLevel = "low" | "elevated" | "blocked";
+
+/** Issued once by the authority holding the record, presented while still
+ *  valid — so a slow lookup is paid for once, not once per application. */
+export type Credential = {
+  id: string;
+  claimId: ClaimId;
+  label: string;
+  value: string;
+  sensitivity: Sensitivity;
+  issuer: IssuerId;
+  issuerName: string;
+  subject: string;
+  /** Pairwise claims are bound to one agency and are useless to any other. */
+  audience: AgencyId | null;
+  issuedAt: string;
+  expiresAt: string;
+  serialized: string;
+  signature: string;
+  revoked: boolean;
+  presentedCount: number;
+};
+
+/** Exactly the bytes the principal signs. */
+export type GrantBody = {
+  aud: AgencyId;
+  claims: ClaimId[];
+  cnf: { jkt: string };
+  displayText: string;
   exp: string;
+  iat: string;
+  iss: string;
+  jti: string;
+  purpose: PurposeId;
 };
 
-export type StoredTicket = TicketClaims & {
-  token: string;
-};
-
-/**
- * GrantOnce authorization instrument. Harness-agnostic protocol object.
- * issuer = who authorized (person / court / institution id — never implied).
- * audience = who may fetch/submit. Bound into the HMAC ticket at approve time.
- */
 export type Grant = {
   id: GrantId;
-  issuer: string;
-  subject: string;
-  audience: string;
-  purpose: string;
-  fields: FieldId[];
-  source: GrantSource;
-  expiresAt: string;
+  body: GrantBody;
+  /** Serialised once at proposal time and carried verbatim; never re-serialised. */
+  serialized: string;
+  digest: string;
+  signature: string | null;
+  signedByKey: string | null;
+  signMethod: "passkey" | "software" | null;
   status: GrantStatus;
-  revokeOn: RevokeOn;
-  /** Demo harness: which agency card this grant feeds. Not the protocol audience. */
-  agencyId: AgencyId;
-  programTitle: string;
+  risk: RiskLevel;
+  riskNotes: string[];
   proposedAt: string;
-  approvedAt: string | null;
+  signedAt: string | null;
+  redeemedAt: string | null;
   revokedAt: string | null;
-  consumedAt: string | null;
-  /** Opaque ticket id `grn_…`. Null until approve. */
-  ticketId: string | null;
-  /**
-   * Full HMAC ticket for the agency desk harness. Not the HMAC key.
-   * Grant cards must not draw this.
-   */
-  ticket: string | null;
 };
 
-export type EnvelopeReceipt = {
-  grantJti: string;
-  fieldIds: FieldId[];
-  hash: string;
-  submittedAt: string;
+export type DeliveredClaim = {
+  claimId: ClaimId;
+  label: string;
+  value: string;
+  sensitivity: Sensitivity;
+  issuer: IssuerId;
+  issuerName: string;
+  issuerSignatureValid: boolean;
 };
 
-export type Envelope = {
-  grantId: GrantId;
+export type AgencyInbox = {
   agencyId: AgencyId;
-  fields: Partial<Record<FieldId, string>>;
-  fetchedAt: string | null;
-  receipt: EnvelopeReceipt | null;
-};
-
-export type ProtocolEvent = {
-  at: string;
-  request: {
-    authorization: string;
-    fields: string[];
-    path: "/api/mydata/fetch" | "/api/applications/submit";
-  };
-  response: {
-    ok: boolean;
-    status: number;
-    code?: string;
-    error?: string;
-    fieldIds?: FieldId[];
-  };
+  name: string;
+  programTitle: string;
+  purpose: PurposeId;
+  claims: DeliveredClaim[];
+  grantDigest: string | null;
+  receivedAt: string | null;
+  submittedAt: string | null;
+  lastDenial: string | null;
+  lastDeniedAt: string | null;
 };
 
 export type AuditEntry = {
   id: string;
   at: string;
   actor: string;
-  actorRole: "principal" | "agent" | "agency-jia" | "agency-yi" | "system";
+  actorRole: "principal" | "agent" | "agency-jia" | "agency-yi" | "issuer" | "system";
   action: AuditAction;
   grantId: GrantId | null;
   detail: string;
-  deniedFields?: FieldId[];
+  deniedClaims?: string[];
+  risk?: RiskLevel;
 };
 
 export type ChatMessage = {
@@ -123,98 +136,123 @@ export type ChatMessage = {
 
 export type ProgramPlan = {
   grantId: GrantId;
+  purpose: PurposeId;
   title: string;
   agencyId: AgencyId;
   agencyName: string;
   reasons: string[];
-  requiredFields: FieldId[];
+  claims: ClaimId[];
   hint?: string;
 };
 
+/** Only the utterance is read back, to re-match when the demo clock moves. */
 export type AgentPlan = {
   utterance: string;
   matchedAt: string;
-  programs: ProgramPlan[];
-  ageHint: string;
-  notes: string[];
 };
 
-export type AgencyView = {
-  id: AgencyId;
-  name: string;
-  programTitle: string;
-  lastDenial: string | null;
-  lastDeniedAt: string | null;
-  submittedAt: string | null;
+/**
+ * The delegation the principal configures once: which agencies, which purposes,
+ * how sensitive, until when. Revoking this is instant and stops the agent from
+ * signing anything new — the one revocation that always works.
+ */
+export type Delegation = {
+  active: boolean;
+  agencies: AgencyId[];
+  purposes: PurposeId[];
+  maxSensitivity: Sensitivity;
+  grantTtlSeconds: number;
+  validUntil: string;
+  revokedAt: string | null;
+  revokedReason: string | null;
+};
+
+export type Notification = {
+  id: string;
+  at: string;
+  kind: "eligibility-change" | "credential-expiry" | "risk" | "info";
+  title: string;
+  body: string;
+  grantId: GrantId | null;
+  acknowledged: boolean;
 };
 
 export type VaultCatalogEntry = {
   fieldId: FieldId;
   label: string;
   group: string;
-  inVault: true;
   sealed: boolean;
   note: string;
 };
 
-export type VaultHolding = {
-  fieldId: FieldId;
-  label: string;
-  group: string;
-  value: string;
-  sealed: boolean;
+export type PrincipalKey = {
+  publicKey: string | null;
+  method: "passkey" | "software" | null;
+  registeredAt: string | null;
+  credentialId: string | null;
 };
 
 export type DemoState = {
+  /** Bumped whenever the persisted shape changes; older files are discarded. */
+  version: number;
   principal: {
     id: string;
     name: string;
     summary: string;
     synthetic: true;
+    key: PrincipalKey;
   };
   vaultCatalog: VaultCatalogEntry[];
-  vaultHoldings: VaultHolding[];
+  wallet: Credential[];
   grants: Grant[];
-  envelopes: Record<GrantId, Envelope>;
-  tickets: Record<string, StoredTicket>;
+  inboxes: Record<AgencyId, AgencyInbox>;
+  usedJti: string[];
+  delegation: Delegation;
+  notifications: Notification[];
   audit: AuditEntry[];
   chat: ChatMessage[];
   plan: AgentPlan | null;
-  agencies: Record<AgencyId, AgencyView>;
-  lastProtocol: ProtocolEvent | null;
+  /** Demo-only clock shift, so the 0–2 age band can be aged out on stage. */
+  clockOffsetDays: number;
 };
 
-export type AuthzDenialCode =
-  | "OVERSCOPED"
-  | "GRANT_INACTIVE"
-  | "UNKNOWN_GRANT"
-  | "BAD_BEARER"
-  | "BAD_TICKET"
-  | "WILDCARD_FORBIDDEN"
-  | "AUDIENCE_MISMATCH"
-  | "ISSUER_MISMATCH"
-  | "NO_ENVELOPE";
+export type RedeemProof = {
+  agency: AgencyId;
+  /** Binds the proof to this exact capsule, not just to a reused grant id. */
+  digest: string;
+  grantId: GrantId;
+  nonce: string;
+  iat: string;
+  signature: string;
+};
 
-export type FetchResult =
+export type DenyCode =
+  | "NO_DELEGATION"
+  | "UNKNOWN_GRANT"
+  | "UNSIGNED"
+  | "BAD_SIGNATURE"
+  | "EXPIRED"
+  | "REPLAYED"
+  | "WRONG_AUDIENCE"
+  | "KEY_NOT_BOUND"
+  | "BAD_AGENCY_PROOF"
+  | "OUTSIDE_PURPOSE"
+  | "RISK_BLOCKED"
+  | "MISSING_CREDENTIAL"
+  | "REVOKED";
+
+export type RedeemResult =
   | {
       ok: true;
       grantId: GrantId;
-      fieldIds: FieldId[];
+      claimIds: ClaimId[];
+      deliveredTo: AgencyId;
     }
   | {
       ok: false;
       status: 403;
-      code: AuthzDenialCode;
+      code: DenyCode;
       error: string;
-      deniedFields?: FieldId[];
+      deniedClaims?: string[];
+      failedKey?: "principal" | "agency";
     };
-
-export type SubmitResult =
-  | { ok: true; grantId: GrantId }
-  | { ok: false; status: 403; code: AuthzDenialCode; error: string };
-
-/** Library-only caller for revoke issuer checks. MCP does not take this. */
-export type GrantCaller = {
-  id: string;
-  name?: string;
-};

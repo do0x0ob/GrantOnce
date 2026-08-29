@@ -39,7 +39,7 @@ export function createGrantOnceServer(): McpServer {
     {
       title: "規劃申請",
       description:
-        "用規則引擎比對委託人原話，提出分匣申請（G-甲 育兒津貼、G-乙 冷氣補助）。不讀金庫，不授權欄位值。",
+        "用規則引擎比對委託人原話，提出分匣申請（G-甲 育兒津貼、G-乙 冷氣補助）。匣裡放的是述詞，不是原始欄位。不讀金庫，也不能簽署。",
       inputSchema: {
         utterance: z
           .string()
@@ -50,60 +50,65 @@ export function createGrantOnceServer(): McpServer {
   );
 
   server.registerTool(
-    "approve_grant",
+    "get_grant_for_signature",
     {
-      title: "核准授權匣",
+      title: "取得待簽內容",
       description:
-        "委託人核准一張最小欄位授權匣。runtime 發出 HMAC ticket（綁 issuer、audience、fields、exp）。回傳 ticket 與欄位 ID，不含金庫值。",
+        "回傳一張匣的同意畫面文字與待簽 bytes。模型不能代簽——私鑰只存在委託人的認證器後面，簽署必須由委託人以生物辨識完成。",
       inputSchema: {
         grantId: z.string().describe("匣編號：G-甲 / G-jia 或 G-乙 / G-yi"),
       },
     },
-    async ({ grantId }) => runTool("approve_grant", { grantId }),
+    async ({ grantId }) => runTool("get_grant_for_signature", { grantId }),
   );
 
   server.registerTool(
-    "fetch_field",
+    "redeem_grant",
     {
-      title: "依 ticket 擷取欄位",
+      title: "兌現授權匣",
       description:
-        "只用 HMAC ticket 向假 MyData 擷取。沒有 actor。匣號 G-jia／G-yi 不是憑證。越權 fail closed。成功時欄位值只進機關收件匣，不回傳給模型。",
+        "機關以自己的金鑰兌現一張已簽署的匣。兩把鑰匙都要通過：委託人簽章，以及機關持有證明＋法定職務範圍。述詞值只進機關收件匣，不回傳給模型。",
       inputSchema: {
-        ticket: z
-          .string()
-          .optional()
-          .describe("approve_grant 回傳的 HMAC ticket（ticket id 或 grn_….<mac>）。匣號無效。"),
-        fields: z
-          .array(z.string())
-          .optional()
-          .describe("要擷取的欄位 ID。省略時預設戶籍欄位（乙匣 ticket 會 403）。"),
+        grantId: z.string().describe("匣編號：G-甲 / G-jia 或 G-乙 / G-yi"),
+        agency: z.string().describe("兌現的機關：jia / yi"),
       },
     },
-    async ({ ticket, fields }) => runTool("fetch_field", { ticket, fields }),
+    async ({ grantId, agency }) => runTool("redeem_grant", { grantId, agency }),
+  );
+
+  server.registerTool(
+    "request_claims",
+    {
+      title: "機關索取述詞",
+      description:
+        "機關主動索取一組述詞。逾越該目的法定職務範圍、或涉及特種個資，在提案階段就攔截，委託人不會看到同意按鈕。",
+      inputSchema: {
+        agency: z.string().describe("jia / yi"),
+        purpose: z.string().describe("childcare-allowance / aircon-subsidy"),
+        claims: z.array(z.string()).describe("述詞 ID 清單"),
+      },
+    },
+    async ({ agency, purpose, claims }) =>
+      runTool("request_claims", { agency, purpose, claims }),
   );
 
   server.registerTool(
     "submit_application",
     {
       title: "送出申請",
-      description:
-        "用 HMAC ticket 送件。沒有 actor。送件後匣耗用、ticket 失效、收件匣改收據；重放 fetch_field 會 403。",
+      description: "以已兌現的述詞送件。",
       inputSchema: {
-        ticket: z
-          .string()
-          .optional()
-          .describe("approve_grant 回傳的 HMAC ticket（ticket id 或 grn_….<mac>）。匣號無效。"),
+        grantId: z.string().describe("匣編號：G-甲 / G-jia 或 G-乙 / G-yi"),
       },
     },
-    async ({ ticket }) => runTool("submit_application", { ticket }),
+    async ({ grantId }) => runTool("submit_application", { grantId }),
   );
 
   server.registerTool(
     "revoke_grant",
     {
       title: "撤銷授權匣",
-      description:
-        "撤銷尚未耗用的匣。issuer 固定為 runtime session principal，工具不能自報身分。",
+      description: "撤銷尚未兌現的匣。已兌現的匣無法撤銷交付出去的資料。",
       inputSchema: {
         grantId: z.string().describe("匣編號：G-甲 / G-jia 或 G-乙 / G-yi"),
         reason: z.string().optional().describe("撤銷原因"),
@@ -113,11 +118,24 @@ export function createGrantOnceServer(): McpServer {
   );
 
   server.registerTool(
+    "stop_delegation",
+    {
+      title: "停止委託",
+      description:
+        "委託人停止整個委託。未兌現的匣全部作廢，之後任何兌現都會被擋。這是唯一一定有效的撤銷。",
+      inputSchema: {
+        reason: z.string().optional().describe("停止原因"),
+      },
+    },
+    async ({ reason }) => runTool("stop_delegation", { reason }),
+  );
+
+  server.registerTool(
     "get_audit",
     {
       title: "讀取稽核",
       description:
-        "回傳核准／擷取／送件／收據／撤銷／拒絕時間線，並證明所得從未進入任何授權匣。送件後收件匣只留雜湊。不含金庫值。",
+        "回傳設定／發證／簽署／兌現／送件／撤銷／拒絕／推送的時間線，以及從未被使用過的金庫欄位。不含金庫值，也不含述詞的值。",
       inputSchema: {},
     },
     async () => runTool("get_audit", {}),

@@ -1,0 +1,106 @@
+"use client";
+
+import { StatusChip } from "@/components/status-chip";
+import { SURFACE } from "@/components/surface";
+import { Button } from "@/components/ui/button";
+import type { Sensitivity } from "@/lib/claims";
+import { AGENCY_NAMES } from "@/lib/parties";
+import { PURPOSES } from "@/lib/purposes";
+import { cn } from "@/lib/utils";
+import type { PrincipalView } from "@/lib/view";
+
+const LEVELS: { id: Sensitivity; label: string }[] = [
+  { id: "predicate", label: "只給述詞" },
+  { id: "pseudonym", label: "可含假名" },
+  { id: "personal", label: "可含原始個資" },
+];
+
+/**
+ * The standing delegation: which agencies, which purposes, how sensitive, until
+ * when. Stopping it is the one revocation that always works.
+ */
+export function DelegationCard({
+  delegation,
+  busy,
+  onStop,
+  onRestore,
+  onSetMax,
+}: {
+  delegation: PrincipalView["delegation"];
+  busy: boolean;
+  onStop: () => void;
+  onRestore: () => void;
+  onSetMax: (level: Sensitivity) => void;
+}) {
+  return (
+    <div className={cn(SURFACE, "space-y-3 p-4")}>
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-[13px] leading-5 text-stone-700">我的委託設定</p>
+        <StatusChip tone={delegation.active ? "mint" : "rose"}>
+          {delegation.active ? "生效中" : "已停止"}
+        </StatusChip>
+      </div>
+
+      <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-[12px] leading-5">
+        <dt className="text-stone-400">機關</dt>
+        <dd className="text-stone-600">
+          {delegation.agencies.map((a) => AGENCY_NAMES[a]).join("、") || "無"}
+        </dd>
+        <dt className="text-stone-400">目的</dt>
+        <dd className="text-stone-600">
+          {delegation.purposes.map((p) => PURPOSES[p].title).join("、") || "無"}
+        </dd>
+        <dt className="text-stone-400">單匣效期</dt>
+        <dd className="text-stone-600">{delegation.grantTtlSeconds} 秒，一次性</dd>
+        <dt className="text-stone-400">委託到期</dt>
+        <dd className="text-stone-600">
+          {new Date(delegation.validUntil).toLocaleDateString("zh-TW")}
+        </dd>
+      </dl>
+
+      <div className="space-y-1.5">
+        <p className="text-[12px] leading-4 text-stone-400">最高可授權等級</p>
+        <div className="flex flex-wrap gap-1.5">
+          {LEVELS.map((level) => (
+            <button
+              key={level.id}
+              type="button"
+              disabled={busy || !delegation.active}
+              onClick={() => onSetMax(level.id)}
+              className={cn(
+                "rounded-full border px-2.5 py-1 text-[12px] leading-4 disabled:opacity-40",
+                delegation.maxSensitivity === level.id
+                  ? "border-stone-800 bg-stone-800 text-white"
+                  : "border-stone-200 bg-white text-stone-600 hover:bg-stone-50",
+              )}
+            >
+              {level.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {delegation.active ? (
+        <Button
+          size="sm"
+          variant="ghost"
+          className="rounded-full text-rose-500 hover:bg-rose-50 hover:text-rose-600"
+          disabled={busy}
+          onClick={onStop}
+        >
+          停止委託
+        </Button>
+      ) : (
+        <div className="space-y-2">
+          <p className="text-[12px] leading-5 text-stone-500">
+            {delegation.revokedReason}　尚未兌現的匣已全部作廢。已交付給機關的述詞收不回來——
+            這是這個設計誠實的邊界，也是為什麼一開始就只給述詞。
+          </p>
+          <Button size="sm" className="rounded-full" disabled={busy} onClick={onRestore}>
+            重新啟用委託
+          </Button>
+        </div>
+      )}
+    </div>
+  );
+}

@@ -1,212 +1,154 @@
 /**
- * Happy-path walk through GrantOnce MCP tools.
- * Fetch/submit take HMAC tickets only — never an actor parameter.
+ * MCP smoke test. Asserts the two invariants the tools must never break:
+ * the model never sees a vault value, and the model can never sign a grant.
  */
-process.env.GRANTONCE_STORE ??= `/tmp/grantonce-mcp-test-${process.pid}.json`;
+import { keyPairFromSeed, sign, b64u } from "../lib/crypto";
+import { registerPrincipalKey, signGrant } from "../lib/authz";
+import { getState, resetState } from "../lib/store";
+import { callTool, TOOL_NAMES, vaultLeakIn, type ToolName } from "./tools";
 
-async function main() {
-  const { Client } = await import("@modelcontextprotocol/sdk/client/index.js");
-  const { InMemoryTransport } = await import(
-    "@modelcontextprotocol/sdk/inMemory.js"
-  );
-  const { HOUSEHOLD_FIELDS, JIA_FIELDS, INCOME_FIELDS } = await import("../lib/fields");
-  const { HAPPY_PATH_UTTERANCE } = await import("../lib/rules");
-  const { getState, resetState } = await import("../lib/store");
-  const { revokeGrant } = await import("../lib/authz");
-  const { createGrantOnceServer } = await import("./server");
-  const { TOOL_NAMES, vaultLeakIn } = await import("./tools");
-
-  type Json = Record<string, unknown>;
-  type PublicGrant = {
-    id: string;
-    issuer: string;
-    subject: string;
-    audience: string;
-    status: string;
-    fields: string[];
-    ticketId: string | null;
-  };
-
-  let failed = 0;
-  let passed = 0;
-
-  function assert(cond: unknown, message: string): asserts cond {
-    if (!cond) {
-      failed += 1;
-      console.error(`FAIL  ${message}`);
-      throw new Error(message);
-    }
-    passed += 1;
-    console.log(`ok    ${message}`);
+let pass = 0;
+const failures: string[] = [];
+function check(name: string, cond: boolean, extra = "") {
+  if (cond) {
+    pass++;
+    console.log(`  ok   ${name}`);
+  } else {
+    failures.push(name);
+    console.log(`  FAIL ${name} ${extra}`);
   }
-
-  async function call(
-    client: InstanceType<typeof Client>,
-    name: string,
-    args: Record<string, unknown> = {},
-  ) {
-    const result = await client.callTool({ name, arguments: args });
-    const content = (result.content ?? []) as Array<{
-      type?: string;
-      text?: string;
-    }>;
-    const text = content
-      .map((part) => (part.type === "text" ? (part.text ?? "") : ""))
-      .join("\n");
-    const leak = vaultLeakIn(text) ?? vaultLeakIn(result);
-    if (leak) {
-      throw new Error(`tool ${name} leaked vault (${leak})`);
-    }
-    const data = JSON.parse(text) as Json;
-    return { result, data, text };
-  }
-
-  resetState();
-
-  const mcp = createGrantOnceServer();
-  const client = new Client({ name: "grantonce-test", version: "0.1.0" });
-  const [clientTransport, serverTransport] =
-    InMemoryTransport.createLinkedPair();
-  await Promise.all([mcp.connect(serverTransport), client.connect(clientTransport)]);
-
-  const listed = await client.listTools();
-  const names = listed.tools.map((t) => t.name);
-  assert(
-    TOOL_NAMES.every((name) => names.includes(name)),
-    `lists tools: ${TOOL_NAMES.join(", ")}`,
-  );
-  const fetchTool = listed.tools.find((t) => t.name === "fetch_field");
-  const fetchProps = (fetchTool?.inputSchema as { properties?: Record<string, unknown> })
-    ?.properties;
-  const submitTool = listed.tools.find((t) => t.name === "submit_application");
-  const submitProps = (submitTool?.inputSchema as { properties?: Record<string, unknown> })
-    ?.properties;
-  const approveTool = listed.tools.find((t) => t.name === "approve_grant");
-  const approveProps = (approveTool?.inputSchema as { properties?: Record<string, unknown> })
-    ?.properties;
-  assert(approveProps && !("actor" in approveProps), "approve_grant has no actor param");
-  assert(fetchProps && "ticket" in fetchProps, "fetch_field takes ticket");
-  assert(submitProps && "ticket" in submitProps, "submit_application takes ticket");
-  for (const tool of listed.tools) {
-    const props = (tool.inputSchema as { properties?: Record<string, unknown> })?.properties ?? {};
-    assert(!("actor" in props), `${tool.name} has no actor param`);
-    assert(!("caller" in props), `${tool.name} has no caller param`);
-  }
-
-  const plan = await call(client, "plan_applications", {
-    utterance: HAPPY_PATH_UTTERANCE,
-  });
-  assert(plan.data.ok === true, "plan_applications matches 搬家 utterance");
-  const programs = plan.data.programs as { grantId: string }[];
-  assert(programs.some((p) => p.grantId === "G-甲"), "plan proposes G-甲");
-  assert(programs.some((p) => p.grantId === "G-乙"), "plan proposes G-乙");
-
-  const planned = plan.data.grants as PublicGrant[];
-  const plannedJia = planned.find((g) => g.id === "G-甲");
-  const plannedYi = planned.find((g) => g.id === "G-乙");
-  assert(Boolean(plannedJia && plannedYi), "plan returns both grant objects");
-  assert(plannedJia?.issuer === "P-lin-demo", "G-甲 issuer is principal id");
-  assert(plannedYi?.audience === "agency-yi", "G-乙 audience is agency-yi");
-  assert(
-    planned.every((g) => !g.fields.some((id) => id.startsWith("income."))),
-    "income never enters a proposed grant",
-  );
-
-  const noTicket = await call(client, "fetch_field", {
-    ticket: "G-yi",
-    fields: HOUSEHOLD_FIELDS,
-  });
-  assert(noTicket.data.ok === false, "slot id G-yi is not a ticket");
-  assert(noTicket.data.code === "BAD_TICKET", "guessable slot is BAD_TICKET");
-
-  const missingTicket = await call(client, "fetch_field", { fields: HOUSEHOLD_FIELDS });
-  assert(missingTicket.data.ok === false, "fetch without ticket denied");
-  assert(missingTicket.data.code === "BAD_TICKET", "missing ticket is BAD_TICKET");
-
-  const approveJia = await call(client, "approve_grant", { grantId: "G-jia" });
-  assert(approveJia.data.ok === true, "approve_grant G-甲");
-  const ticketJia = approveJia.data.ticket as string;
-  assert(typeof ticketJia === "string" && ticketJia.startsWith("grn_"), "approve returns ticket");
-  assert(ticketJia.includes("."), "ticket includes HMAC mac");
-  const approvedJia = approveJia.data.grant as PublicGrant;
-  assert(approvedJia.status === "active", "G-甲 is active");
-  assert(approvedJia.issuer === "P-lin-demo", "approve does not override issuer");
-  assert(approvedJia.audience === "agency-jia", "approved G-甲 keeps audience");
-
-  const approveYi = await call(client, "approve_grant", { grantId: "G-乙" });
-  assert(approveYi.data.ok === true, "approve_grant G-乙");
-  const ticketYi = approveYi.data.ticket as string;
-  assert(ticketYi.startsWith("grn_"), "G-乙 ticket issued");
-
-  const overscope = await call(client, "fetch_field", {
-    ticket: ticketYi,
-    fields: HOUSEHOLD_FIELDS,
-  });
-  assert(overscope.data.ok === false, "fetch_field household on 乙 ticket is denied");
-  assert(overscope.data.status === 403, "deny is HTTP 403");
-  assert(overscope.data.code === "OVERSCOPED", "deny code OVERSCOPED");
-  assert(overscope.result.isError === true, "MCP marks 403 as isError");
-
-  const submitNoTicket = await call(client, "submit_application", {});
-  assert(submitNoTicket.data.ok === false, "submit without ticket denied");
-  assert(submitNoTicket.data.code === "BAD_TICKET", "submit missing ticket is BAD_TICKET");
-
-  const submit = await call(client, "submit_application", { ticket: ticketJia });
-  assert(submit.data.ok === true, "submit_application consumes G-甲");
-  assert(
-    (submit.data.grant as { status: string }).status === "consumed",
-    "G-甲 status consumed",
-  );
-
-  const envelopeJia = getState().envelopes["G-甲"];
-  assert(Object.keys(envelopeJia.fields).length === 0, "consumed envelope has no plaintext");
-  assert(Boolean(envelopeJia.receipt?.hash), "consumed envelope has receipt hash");
-  assert(
-    !envelopeJia.receipt?.fieldIds.some((id) =>
-      (INCOME_FIELDS as readonly string[]).includes(id),
-    ),
-    "receipt does not list income",
-  );
-
-  const replay = await call(client, "fetch_field", {
-    ticket: ticketJia,
-    fields: JIA_FIELDS,
-  });
-  assert(replay.data.ok === false, "replay fetch after submit denied");
-  assert(replay.data.code === "GRANT_INACTIVE" || replay.data.code === "BAD_TICKET", "replay denied");
-
-  const revokeSpoof = revokeGrant("G-乙", "假冒撤銷", { id: "agency-jia" });
-  assert(!revokeSpoof.result.ok, "non-issuer cannot revoke");
-  assert(revokeSpoof.result.ok === false && revokeSpoof.result.code === "ISSUER_MISMATCH", "ISSUER_MISMATCH");
-
-  const revoke = await call(client, "revoke_grant", {
-    grantId: "G-乙",
-    reason: "演示撤銷乙匣",
-  });
-  assert(revoke.data.ok === true, "revoke_grant G-乙 by session issuer");
-  assert(
-    (revoke.data.grant as { status: string }).status === "revoked",
-    "G-乙 status revoked",
-  );
-
-  const audit = await call(client, "get_audit", {});
-  assert(audit.data.ok === true, "get_audit ok");
-  assert(audit.data.incomeNeverEnteredGrant === true, "income never entered a grant");
-  const entries = audit.data.audit as { action: string; grantId: string | null }[];
-  const actions = new Set(entries.map((e) => e.action));
-  for (const action of ["approve", "fetch", "submit", "revoke", "deny", "receipt"] as const) {
-    assert(actions.has(action), `audit contains ${action}`);
-  }
-
-  await client.close();
-  await mcp.close();
-
-  console.log("");
-  console.log(`MCP happy path: ${passed} passed, ${failed} failed`);
-  if (failed) process.exit(1);
 }
 
-main().catch((error) => {
-  console.error(error);
+function call(name: ToolName, args: Record<string, unknown> = {}) {
+  const { data, isError } = callTool(name, args);
+  const leak = vaultLeakIn(data);
+  if (leak) throw new Error(`${name} leaked ${leak}`);
+  return { data: data as Record<string, unknown>, isError };
+}
+
+resetState();
+const principal = keyPairFromSeed("mcp-test-principal");
+const pk = b64u(principal.publicKey);
+registerPrincipalKey({ publicKey: pk, method: "software" });
+
+console.log("工具清單與實作一致");
+{
+  // Catches a tool registered on the server but not wired into callTool, and
+  // vice versa — a mismatch that would surface only at runtime in a client.
+  const unhandled = TOOL_NAMES.filter((name) => {
+    try {
+      const { data } = callTool(name, {});
+      const error = (data as { error?: string }).error;
+      return typeof error === "string" && error.startsWith("未知工具");
+    } catch {
+      // A tool that rejects empty arguments is wired up; only the default
+      // branch of callTool reports an unknown tool.
+      return false;
+    }
+  });
+  check("每個工具都有實作", unhandled.length === 0, unhandled.join(","));
+}
+
+console.log("\nplan_applications");
+{
+  const { data } = call("plan_applications", { utterance: "我剛搬家，看我能申請什麼。" });
+  check("回傳兩個申請案", Array.isArray(data.programs) && (data.programs as unknown[]).length === 2);
+  check("只回述詞 ID 與標籤，無金庫值", !vaultLeakIn(data));
+}
+
+console.log("\nget_grant_for_signature");
+{
+  const { data } = call("get_grant_for_signature", { grantId: "G-甲" });
+  check("提供待簽 bytes", typeof data.bytesToSign === "string");
+  check("提供同意畫面文字", String(data.consentText).includes("法定依據"));
+  check("明講模型不能代簽", String(data.note).includes("不能代簽"));
+}
+
+console.log("\n模型無法簽署");
+{
+  // The invariant is behavioural, not a name check. Each tool is tried from a
+  // clean, signable state and handed a signature that would be accepted, so a
+  // destructive tool earlier in the list cannot mask a signing tool later in it.
+  const couldSign: string[] = [];
+  for (const name of TOOL_NAMES) {
+    resetState();
+    registerPrincipalKey({ publicKey: pk, method: "software" });
+    call("plan_applications", { utterance: "我剛搬家，看我能申請什麼。" });
+    const bytes = getState().grants.find((g) => g.id === "G-甲")!.serialized;
+    try {
+      callTool(name, {
+        utterance: "我剛搬家，看我能申請什麼。",
+        grantId: "G-甲",
+        agency: "jia",
+        purpose: "childcare-allowance",
+        claims: ["resident.inNewTaipei"],
+        reason: "test",
+        signature: sign(bytes, principal.secret),
+        publicKey: pk,
+        bytesToSign: bytes,
+      });
+    } catch {
+      // a tool that rejects these arguments is still a tool that did not sign
+    }
+    if (getState().grants.some((g) => g.signature !== null)) couldSign.push(name);
+  }
+  check("沒有任何工具能讓匣變成已簽署", couldSign.length === 0, couldSign.join(","));
+
+  resetState();
+  registerPrincipalKey({ publicKey: pk, method: "software" });
+  call("plan_applications", { utterance: "我剛搬家，看我能申請什麼。" });
+  const { data } = call("redeem_grant", { grantId: "G-甲", agency: "jia" });
+  check("未簽的匣兌現失敗", data.ok === false && data.code === "UNSIGNED", JSON.stringify(data));
+}
+
+console.log("\n兌現（委託人簽署後）");
+{
+  const grant = getState().grants.find((g) => g.id === "G-甲")!;
+  signGrant({ grantId: "G-甲", signature: sign(grant.serialized, principal.secret), publicKey: pk });
+  const { data } = call("redeem_grant", { grantId: "G-甲", agency: "jia" });
+  check("兌現成功", data.ok === true, JSON.stringify(data));
+  check("只回述詞 ID，不回值", !("values" in data) && Array.isArray(data.claimIds));
+}
+
+console.log("\n跨機關與重放");
+{
+  const grant = getState().grants.find((g) => g.id === "G-乙")!;
+  signGrant({ grantId: "G-乙", signature: sign(grant.serialized, principal.secret), publicKey: pk });
+  const wrong = call("redeem_grant", { grantId: "G-乙", agency: "jia" });
+  check("甲兌現乙的匣 → WRONG_AUDIENCE", wrong.data.code === "WRONG_AUDIENCE", JSON.stringify(wrong.data));
+  const replay = call("redeem_grant", { grantId: "G-甲", agency: "jia" });
+  check("重放 → REPLAYED", replay.data.code === "REPLAYED", JSON.stringify(replay.data));
+}
+
+console.log("\nrequest_claims 攔截");
+{
+  const { data } = call("request_claims", {
+    agency: "jia",
+    purpose: "childcare-allowance",
+    claims: ["raw.income.annual"],
+  });
+  check("索取所得被攔截", data.blocked === true);
+  check("理由含法定職務範圍", JSON.stringify(data.notes).includes("§15"));
+}
+
+console.log("\nget_audit");
+{
+  const { data } = call("get_audit");
+  check("稽核有紀錄", Array.isArray(data.audit) && (data.audit as unknown[]).length > 0);
+  check("皮夾只回 metadata 不回值", JSON.stringify(data.wallet).indexOf('"value"') === -1);
+  check("列出從未使用的金庫欄位", Array.isArray(data.vaultFieldsNeverUsed));
+}
+
+console.log("\nstop_delegation");
+{
+  const { data } = call("stop_delegation", {});
+  check("委託停用", data.delegationActive === false);
+  const after = call("redeem_grant", { grantId: "G-乙", agency: "yi" });
+  check("停用後兌現被擋", after.data.ok === false, JSON.stringify(after.data));
+}
+
+console.log(`\n${pass} passed, ${failures.length} failed`);
+if (failures.length) {
+  console.log("failed:", failures.join(", "));
   process.exit(1);
-});
+}

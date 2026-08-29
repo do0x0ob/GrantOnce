@@ -1,232 +1,179 @@
 "use client";
 
-import type { ReactNode } from "react";
 import { AuditTimeline } from "@/components/audit-timeline";
-import { DenialBanner, StatusChip } from "@/components/denial-banner";
+import { DenialBanner } from "@/components/denial-banner";
+import { StatusChip } from "@/components/status-chip";
 import { IdentityDot } from "@/components/identity-dot";
-import { ProtocolInspector } from "@/components/protocol-inspector";
 import { SURFACE } from "@/components/surface";
+import { SENSITIVITY_TEXT } from "@/components/tone";
 import { Button } from "@/components/ui/button";
-import { FIELD_META } from "@/lib/fields";
-import type { DemoState, Envelope, FieldId, GrantId } from "@/lib/types";
-import { envelopeHasIncome, GRANT_STATUS_LABEL, groupedFields, shortHash } from "@/lib/view";
+import { cn } from "@/lib/utils";
+import type { Demo } from "@/hooks/use-demo";
+import type { AgencyId, GrantId } from "@/lib/types";
 
-export function AgencyPane({
-  state,
-  busy,
-  contrast,
-  fatFields,
-  onOverscopeYi,
-  onSlotAsTicketYi,
-  onOverscopeJia,
-  onSlotAsTicketJia,
-  onSubmitJia,
-  onReplayJia,
-}: {
-  state: DemoState;
-  busy: boolean;
-  contrast: boolean;
-  fatFields: Partial<Record<FieldId, string>>;
-  onOverscopeYi: () => Promise<unknown>;
-  onSlotAsTicketYi: () => Promise<unknown>;
-  onOverscopeJia: () => Promise<unknown>;
-  onSlotAsTicketJia: () => Promise<unknown>;
-  onSubmitJia: () => Promise<unknown>;
-  onReplayJia: () => Promise<unknown>;
-}) {
-  const jia = state.grants.find((g) => g.id === "G-甲");
-  const yi = state.grants.find((g) => g.id === "G-乙");
-  const jiaActive = jia?.status === "active";
-  const yiActive = yi?.status === "active";
-  const jiaSubmitted = Boolean(state.agencies.jia.submittedAt);
-  const jiaFetched = Boolean(state.envelopes["G-甲"].fetchedAt);
-
-  return (
-    <div className="flex h-full min-h-0 flex-col gap-4">
-      <div className="grid shrink-0 grid-cols-2 gap-3">
-        <AgencyCard
-          title="甲｜新北市社會局"
-          grantId="G-甲"
-          tone="jia"
-          state={state}
-          envelope={state.envelopes["G-甲"]}
-          contrast={contrast}
-          fatFields={fatFields}
-        >
-          <Button
-            size="sm"
-            className="rounded-full"
-            disabled={busy || !jiaFetched || jiaSubmitted}
-            onClick={() => void onSubmitJia()}
-          >
-            送出申請
-          </Button>
-          <Button
-            size="sm"
-            variant="ghost"
-            className="rounded-full text-stone-400"
-            disabled={busy || !jiaSubmitted}
-            onClick={() => void onReplayJia()}
-          >
-            重放擷取
-          </Button>
-          <Button
-            size="sm"
-            variant="ghost"
-            className="rounded-full text-stone-400"
-            disabled={busy || !jiaActive}
-            onClick={() => void onOverscopeJia()}
-          >
-            索取用電量
-          </Button>
-          <Button
-            size="sm"
-            variant="ghost"
-            className="rounded-full text-stone-400"
-            disabled={busy || !yi}
-            onClick={() => void onSlotAsTicketJia()}
-          >
-            用匣號 G-乙
-          </Button>
-        </AgencyCard>
-
-        <AgencyCard
-          title="乙｜經濟部 × 台電"
-          grantId="G-乙"
-          tone="yi"
-          state={state}
-          envelope={state.envelopes["G-乙"]}
-          contrast={contrast}
-          fatFields={fatFields}
-        >
-          <Button
-            size="sm"
-            variant="ghost"
-            className="rounded-full text-stone-400"
-            disabled={busy || !yiActive}
-            onClick={() => void onOverscopeYi()}
-          >
-            索取戶籍謄本
-          </Button>
-          <Button
-            size="sm"
-            variant="ghost"
-            className="rounded-full text-stone-400"
-            disabled={busy || !jia}
-            onClick={() => void onSlotAsTicketYi()}
-          >
-            用匣號 G-甲
-          </Button>
-        </AgencyCard>
-      </div>
-
-      <ProtocolInspector event={state.lastProtocol} />
-
-      <section className={`${SURFACE} min-h-0 flex-1 overflow-auto px-5 py-4`}>
-        <p className="mb-3 text-[13px] leading-5 text-stone-400">稽核</p>
-        <AuditTimeline entries={state.audit} state={state} />
-      </section>
-    </div>
-  );
-}
-
-function AgencyCard({
-  title,
+function InboxCard({
+  demo,
+  agency,
   grantId,
-  tone,
-  state,
-  envelope,
-  contrast,
-  fatFields,
-  children,
+  overscope,
 }: {
-  title: string;
+  demo: Demo;
+  agency: AgencyId;
   grantId: GrantId;
-  tone: "jia" | "yi";
-  state: DemoState;
-  envelope: Envelope;
-  contrast: boolean;
-  fatFields: Partial<Record<FieldId, string>>;
-  children: ReactNode;
+  overscope: { purpose: string; claims: string[]; label: string };
 }) {
-  const grant = state.grants.find((g) => g.id === grantId);
-  const agency = grantId === "G-甲" ? state.agencies.jia : state.agencies.yi;
-  const leakedIncome = !contrast && envelopeHasIncome(state, grantId);
-  const idColor = tone === "jia" ? "text-emerald-700" : "text-amber-700";
-  const chipTone =
-    grant?.status === "consumed" || grant?.status === "revoked"
-      ? "stone"
-      : grant?.status === "active"
-        ? "mint"
-        : "amber";
+  const inbox = demo.view.inboxes[agency];
+  const grant = demo.view.grants.find((g) => g.id === grantId);
+  const otherGrant: GrantId = agency === "jia" ? "G-乙" : "G-甲";
+  const otherLabel = agency === "jia" ? "乙" : "甲";
 
   return (
-    <article className={`${SURFACE} flex flex-col gap-2.5 px-4 py-4`}>
-      <div className="flex items-start justify-between gap-2">
-        <div className="flex items-center gap-2">
-          <IdentityDot tone={tone} />
-          <div>
-            <p className={`text-[14px] leading-5 ${idColor}`}>{grantId}</p>
-            <p className="text-[12px] leading-5 text-stone-400">{title}</p>
+    <article className={cn(SURFACE, "space-y-3 p-4")}>
+      <header className="flex items-start justify-between gap-3">
+        <div className="min-w-0 space-y-0.5">
+          <div className="flex items-center gap-2">
+            <IdentityDot tone={agency} />
+            <p className="truncate text-[14px] leading-5 text-stone-800">{inbox.name}</p>
           </div>
+          <p className="truncate text-[12px] leading-4 text-stone-400">{inbox.programTitle}</p>
         </div>
-        <StatusChip tone={grant ? chipTone : "stone"}>
-          {contrast ? "fields:*" : grant ? GRANT_STATUS_LABEL[grant.status] : "尚無匣"}
-        </StatusChip>
-      </div>
+        {inbox.submittedAt ? (
+          <StatusChip tone="mint">已送件</StatusChip>
+        ) : inbox.receivedAt ? (
+          <StatusChip tone="mint">已收件</StatusChip>
+        ) : (
+          <StatusChip tone="stone">空</StatusChip>
+        )}
+      </header>
 
-      {agency.lastDenial && !contrast ? <DenialBanner reason={agency.lastDenial} /> : null}
-
-      {leakedIncome ? (
-        <p className="text-[13px] leading-5 text-rose-600">錯誤：所得出現在此匣。</p>
-      ) : null}
-
-      {contrast ? (
-        <FatFields fields={fatFields} />
-      ) : envelope.receipt ? (
-        <p className="text-[13px] leading-6 text-stone-600">
-          已送件 · {envelope.receipt.fieldIds.length} 欄雜湊 · {shortHash(envelope.receipt.hash)} ·
-          無法再讀
-        </p>
-      ) : Object.keys(envelope.fields).length === 0 ? (
-        <p className="text-[13px] leading-6 text-stone-400">尚未收到匣內資料。</p>
+      {inbox.claims.length ? (
+        <ul className="space-y-1">
+          {inbox.claims.map((claim) => (
+            <li key={claim.claimId} className="flex items-baseline justify-between gap-2">
+              <span className="text-[13px] leading-5 text-stone-600">{claim.label}</span>
+              <span className="flex shrink-0 items-baseline gap-2">
+                <span
+                  className={cn(
+                    "font-mono text-[12px] leading-5",
+                    SENSITIVITY_TEXT[claim.sensitivity],
+                  )}
+                >
+                  {claim.value}
+                </span>
+                <span
+                  className="text-[11px] leading-4 text-stone-400"
+                  title={`由 ${claim.issuerName} 簽發`}
+                >
+                  {claim.issuerSignatureValid ? "簽章 ✓" : "簽章 ✗"}
+                </span>
+              </span>
+            </li>
+          ))}
+        </ul>
       ) : (
-        <FieldLines fields={envelope.fields} />
+        <p className="text-[12px] leading-5 text-stone-400">
+          尚未收到任何述詞。需要委託人簽章與本機關的持有證明同時成立。
+        </p>
       )}
 
-      {contrast ? null : <div className="mt-auto flex flex-wrap gap-1 pt-1">{children}</div>}
+      {inbox.grantDigest ? (
+        <p className="font-mono text-[10px] leading-4 text-stone-400 break-all">
+          憑匣摘要 {inbox.grantDigest}
+        </p>
+      ) : null}
+
+      {inbox.lastDenial ? <DenialBanner reason={inbox.lastDenial} /> : null}
+
+      <div className="flex flex-wrap gap-2">
+        <Button
+          size="sm"
+          className="rounded-full"
+          disabled={demo.busy || grant?.status !== "signed"}
+          onClick={() => void demo.redeem(grantId, agency)}
+          title={grant?.status !== "signed" ? "需要一張已簽署且未兌現的匣" : undefined}
+        >
+          兌現本匣
+        </Button>
+        <Button
+          size="sm"
+          variant="ghost"
+          className="rounded-full text-stone-400 hover:text-stone-600"
+          disabled={demo.busy || !inbox.receivedAt || Boolean(inbox.submittedAt)}
+          onClick={() => void demo.submit(grantId)}
+        >
+          送出申請
+        </Button>
+      </div>
+
+      <div className="space-y-1.5 border-t border-stone-100 pt-2.5">
+        <p className="text-[11px] leading-4 text-stone-400">試著越界</p>
+        <div className="flex flex-wrap gap-2">
+          <Button
+            size="sm"
+            variant="ghost"
+            className="rounded-full text-[12px] text-rose-500 hover:bg-rose-50 hover:text-rose-600"
+            disabled={demo.busy}
+            onClick={() => void demo.redeem(otherGrant, agency)}
+          >
+            拿{otherLabel}的匣來兌現
+          </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            className="rounded-full text-[12px] text-rose-500 hover:bg-rose-50 hover:text-rose-600"
+            disabled={demo.busy}
+            onClick={() => void demo.redeem(grantId, agency)}
+          >
+            重放已兌現的匣
+          </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            className="rounded-full text-[12px] text-rose-500 hover:bg-rose-50 hover:text-rose-600"
+            disabled={demo.busy}
+            onClick={() => void demo.requestClaims(agency, overscope.purpose, overscope.claims)}
+          >
+            {overscope.label}
+          </Button>
+        </div>
+      </div>
     </article>
   );
 }
 
-function FieldLines({ fields }: { fields: Partial<Record<FieldId, string>> }) {
-  const ids = Object.keys(fields) as FieldId[];
+export function AgencyPane({ demo }: { demo: Demo }) {
   return (
-    <div className="space-y-1">
-      {groupedFields(ids).map(([group, groupIds]) => (
-        <p key={group} className="text-[13px] leading-6 text-stone-600">
-          <span className="text-stone-400">{group} </span>
-          {groupIds.map((id) => `${FIELD_META[id].label} ${fields[id]}`).join(" · ")}
+    <div className="flex h-full min-h-0 flex-col gap-4">
+      <div className="shrink-0 space-y-1">
+        <p className="text-[14px] leading-5 text-stone-800">機關收件匣</p>
+        <p className="text-[12px] leading-5 text-stone-400">
+          機關要拿到東西，必須自己出示金鑰證明身分，而且該目的要在法定職務範圍內。
         </p>
-      ))}
-    </div>
-  );
-}
+      </div>
 
-function FatFields({ fields }: { fields: Partial<Record<FieldId, string>> }) {
-  const ids = Object.keys(fields) as FieldId[];
-  return (
-    <div className="space-y-1">
-      <p className="text-[12px] leading-5 text-rose-600">錯的解法：每個機關都看到全部</p>
-      {groupedFields(ids).map(([group, groupIds]) => (
-        <p
-          key={group}
-          className={`text-[13px] leading-6 ${group === "所得" ? "text-rose-700" : "text-stone-600"}`}
-        >
-          <span className="text-stone-400">{group} </span>
-          {groupIds.map((id) => `${FIELD_META[id].label} ${fields[id]}`).join(" · ")}
-        </p>
-      ))}
+      <div className="min-h-0 flex-1 space-y-3 overflow-y-auto pr-1">
+        <InboxCard
+          demo={demo}
+          agency="jia"
+          grantId="G-甲"
+          overscope={{
+            purpose: "childcare-allowance",
+            claims: ["raw.income.annual", "raw.household.address"],
+            label: "索取所得與地址",
+          }}
+        />
+        <InboxCard
+          demo={demo}
+          agency="yi"
+          grantId="G-乙"
+          overscope={{
+            purpose: "aircon-subsidy",
+            claims: ["raw.household.householdId"],
+            label: "索取戶號",
+          }}
+        />
+        <AuditTimeline view={demo.view} />
+      </div>
     </div>
   );
 }
