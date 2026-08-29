@@ -44,7 +44,7 @@ export function DemoApp({ initialState }: { initialState: DemoState }) {
         <p className="px-6 pb-2 text-[13px] leading-5 text-rose-600">{demo.error}</p>
       ) : null}
 
-      <nav className="flex shrink-0 gap-1 px-5 pb-2 xl:hidden">
+      <nav className="flex shrink-0 gap-1 px-5 pb-2 lg:hidden">
         {PANES.map((item) => (
           <Button
             key={item.id}
@@ -58,9 +58,9 @@ export function DemoApp({ initialState }: { initialState: DemoState }) {
         ))}
       </nav>
 
-      <div className="grid min-h-0 flex-1 grid-cols-1 gap-5 px-5 pb-5 xl:grid-cols-[minmax(20rem,1.1fr)_minmax(17rem,0.9fr)_minmax(24rem,1.25fr)]">
+      <div className="grid min-h-0 flex-1 grid-cols-1 gap-6 px-6 pb-6 lg:grid-cols-[minmax(18rem,1.05fr)_minmax(16rem,0.85fr)_minmax(22rem,1.2fr)]">
         <section
-          className={`min-h-0 overflow-hidden ${pane === "principal" ? "flex flex-col" : "hidden"} xl:flex xl:flex-col`}
+          className={`min-h-0 overflow-hidden ${pane === "principal" ? "flex flex-col" : "hidden"} lg:flex lg:flex-col`}
         >
           <PrincipalPane
             state={demo.state}
@@ -71,12 +71,12 @@ export function DemoApp({ initialState }: { initialState: DemoState }) {
           />
         </section>
         <section
-          className={`min-h-0 overflow-hidden ${pane === "agent" ? "flex flex-col" : "hidden"} xl:flex xl:flex-col`}
+          className={`min-h-0 overflow-hidden ${pane === "agent" ? "flex flex-col" : "hidden"} lg:flex lg:flex-col`}
         >
           <AgentPane state={demo.state} />
         </section>
         <section
-          className={`min-h-0 overflow-hidden ${pane === "agency" ? "flex flex-col" : "hidden"} xl:flex xl:flex-col`}
+          className={`min-h-0 overflow-hidden ${pane === "agency" ? "flex flex-col" : "hidden"} lg:flex lg:flex-col`}
         >
           <AgencyPane
             state={demo.state}

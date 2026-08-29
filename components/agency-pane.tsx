@@ -29,10 +29,9 @@ export function AgencyPane({
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-4">
-      <div className="grid shrink-0 gap-3 sm:grid-cols-2">
+      <div className="grid shrink-0 grid-cols-2 gap-3">
         <AgencyCard
           title="甲｜新北市社會局"
-          program="育兒津貼"
           grantId="G-甲"
           tone="jia"
           state={state}
@@ -59,7 +58,6 @@ export function AgencyPane({
 
         <AgencyCard
           title="乙｜經濟部 × 台電"
-          program="冷氣汰換補助"
           grantId="G-乙"
           tone="yi"
           state={state}
@@ -87,7 +85,6 @@ export function AgencyPane({
 
 function AgencyCard({
   title,
-  program,
   grantId,
   tone,
   state,
@@ -95,7 +92,6 @@ function AgencyCard({
   children,
 }: {
   title: string;
-  program: string;
   grantId: GrantId;
   tone: "jia" | "yi";
   state: DemoState;
@@ -121,9 +117,7 @@ function AgencyCard({
           <IdentityDot tone={tone} />
           <div>
             <p className={`text-[14px] leading-5 ${idColor}`}>{grantId}</p>
-            <p className="text-[12px] leading-5 text-stone-400">
-              {title} · {program}
-            </p>
+            <p className="text-[12px] leading-5 text-stone-400">{title}</p>
           </div>
         </div>
         <StatusChip tone={grant ? chipTone : "stone"}>
@@ -140,14 +134,11 @@ function AgencyCard({
       {entries.length === 0 ? (
         <p className="text-[13px] leading-6 text-stone-400">尚未收到匣內資料。</p>
       ) : (
-        <dl className="space-y-0.5">
-          {entries.map(([key, value]) => (
-            <div key={key} className="grid grid-cols-[5.5rem_1fr] gap-2 text-[13px] leading-6">
-              <dt className="text-stone-400">{FIELD_META[key as keyof typeof FIELD_META].label}</dt>
-              <dd className="text-stone-800">{value}</dd>
-            </div>
-          ))}
-        </dl>
+        <p className="text-[13px] leading-6 text-stone-600">
+          {entries
+            .map(([key, value]) => `${FIELD_META[key as keyof typeof FIELD_META].label} ${value}`)
+            .join(" · ")}
+        </p>
       )}
 
       <div className="mt-auto flex flex-wrap gap-1 pt-1">{children}</div>
