@@ -32,6 +32,11 @@
 
 重來：右上「重設演示」。
 
+## 簡報與錄影
+
+- 12 頁：`pitch/GrantOnce.pptx`（大綱 `pitch/slides.md`）
+- 3–5 分鐘畫面腳本：`pitch/demo-script.md`
+
 ## 什麼是假的
 
 - 林曉晴、子女、地址、戶號、所得、健保、電表、用電量：全部合成
