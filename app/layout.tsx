@@ -1,18 +1,16 @@
 import type { Metadata } from "next";
-import { Geist_Mono, Noto_Sans_TC, Noto_Serif_TC } from "next/font/google";
+import { Geist, Geist_Mono, Noto_Sans_TC } from "next/font/google";
 import "./globals.css";
 
-const sans = Noto_Sans_TC({
-  variable: "--font-sans",
+const geist = Geist({
+  variable: "--font-geist-sans",
   subsets: ["latin"],
-  weight: ["400", "500", "700"],
-  display: "swap",
 });
 
-const serif = Noto_Serif_TC({
-  variable: "--font-serif",
+const noto = Noto_Sans_TC({
+  variable: "--font-noto",
   subsets: ["latin"],
-  weight: ["600", "700"],
+  weight: ["400", "500", "600"],
   display: "swap",
 });
 
@@ -30,11 +28,9 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html
       lang="zh-Hant-TW"
-      className={`${sans.variable} ${serif.variable} ${mono.variable} light h-full antialiased`}
+      className={`${geist.variable} ${noto.variable} ${mono.variable} light h-full antialiased`}
     >
-      <body className="flex min-h-full flex-col bg-background text-foreground">
-        {children}
-      </body>
+      <body className="flex min-h-full flex-col bg-white text-neutral-900">{children}</body>
     </html>
   );
 }
