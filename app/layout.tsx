@@ -21,7 +21,7 @@ const mono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: "GrantOnce 分匣授權",
-  description: "只准這一次，而且只准這一匣。用授權匣把補助申請的資料範圍鎖死。",
+  description: "兩把鑰匙才開得了：委託人的簽章，加上機關的法定職務。",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

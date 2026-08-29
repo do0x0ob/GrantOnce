@@ -27,11 +27,3 @@ export const VAULT: {
     "taipower.usage.m3": "341 kWh（2026-07）",
   },
 };
-
-export function readVaultFields(ids: FieldId[]): Partial<Record<FieldId, string>> {
-  const out: Partial<Record<FieldId, string>> = {};
-  for (const id of ids) {
-    out[id] = VAULT.records[id];
-  }
-  return out;
-}

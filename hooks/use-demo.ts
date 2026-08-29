@@ -1,53 +1,65 @@
 "use client";
 
-import { useCallback, useState } from "react";
-import type { DemoState, GrantId } from "@/lib/types";
+import { useCallback, useState, useSyncExternalStore } from "react";
+import type { Sensitivity } from "@/lib/claims";
+import {
+  localPublicKey,
+  passkeyBlocker,
+  passkeySupported,
+  registerPasskey,
+  registerSoftwareKey,
+  signGrantBytes,
+} from "@/lib/passkey";
+import type { AgencyId, GrantId } from "@/lib/types";
+import type { PrincipalView } from "@/lib/view";
 
-type ActionResult = {
-  ok: boolean;
-  error?: string;
-  denied?: boolean;
-};
+type ActionResult = { ok: boolean; error?: string };
 
-async function readPayload(res: Response): Promise<{ state?: DemoState; error?: string }> {
-  const data = (await res.json()) as DemoState & { error?: string; state?: DemoState };
-  if (data && "grants" in data && Array.isArray(data.grants)) {
-    return { state: data, error: data.error };
-  }
-  return { state: data.state, error: data.error };
+/** The platform capability never changes within a session. */
+const subscribeNever = () => () => {};
+
+function isView(data: unknown): data is PrincipalView {
+  return Boolean(data && typeof data === "object" && "grants" in data && "delegation" in data);
 }
 
-function ticketFor(state: DemoState, grantId: GrantId): string | null {
-  return state.grants.find((grant) => grant.id === grantId)?.ticket ?? null;
-}
-
-export function useDemo(initialState: DemoState) {
-  const [state, setState] = useState(initialState);
+export function useDemo(initialView: PrincipalView) {
+  const [view, setView] = useState<PrincipalView>(initialView);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // `window.PublicKeyCredential` does not exist during SSR, so this is read
+  // through a store with an explicit server snapshot rather than branched on
+  // during render, which would be a hydration mismatch.
+  const passkeyAvailable = useSyncExternalStore(subscribeNever, passkeySupported, () => false);
+  const passkeyProblem = useSyncExternalStore(subscribeNever, passkeyBlocker, () => null);
+  const browserKey = useSyncExternalStore(subscribeNever, localPublicKey, () => null);
 
   const apply = useCallback(async (res: Response): Promise<ActionResult> => {
-    const { state: next, error: message } = await readPayload(res);
-    if (next) setState(next);
+    const data = (await res.json()) as PrincipalView & { error?: string };
+    if (isView(data)) setView(data);
     if (!res.ok) {
-      const text = message ?? `請求失敗（${res.status}）`;
+      const text = data?.error ?? `請求失敗（${res.status}）`;
+      // 403 is a designed outcome here, not a crash: the pane shows the reason.
       setError(res.status === 403 ? null : text);
-      return { ok: false, error: text, denied: res.status === 403 };
+      return { ok: false, error: text };
     }
     setError(null);
     return { ok: true };
   }, []);
 
-  const sendChat = useCallback(
-    async (message: string) => {
+  const post = useCallback(
+    async (url: string, body?: unknown): Promise<ActionResult> => {
       setBusy(true);
       try {
-        const res = await fetch("/api/chat", {
+        const res = await fetch(url, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ message }),
+          body: body === undefined ? undefined : JSON.stringify(body),
         });
         return await apply(res);
+      } catch (e) {
+        const text = e instanceof Error ? e.message : String(e);
+        setError(text);
+        return { ok: false, error: text };
       } finally {
         setBusy(false);
       }
@@ -55,104 +67,89 @@ export function useDemo(initialState: DemoState) {
     [apply],
   );
 
-  const approve = useCallback(
-    async (grantId: GrantId) => {
+  const registerKey = useCallback(
+    async (mode: "passkey" | "software"): Promise<ActionResult> => {
       setBusy(true);
-      try {
-        const res = await fetch("/api/grants/approve", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ grantId }),
-        });
-        return await apply(res);
-      } finally {
-        setBusy(false);
-      }
-    },
-    [apply],
-  );
-
-  const revoke = useCallback(
-    async (grantId: GrantId) => {
-      setBusy(true);
-      try {
-        const res = await fetch("/api/grants/revoke", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ grantId }),
-        });
-        return await apply(res);
-      } finally {
-        setBusy(false);
-      }
-    },
-    [apply],
-  );
-
-  const fetchMyData = useCallback(
-    async (input: { grantId: GrantId; fields: string[]; ticket?: string }) => {
-      setBusy(true);
-      try {
-        const token = input.ticket ?? ticketFor(state, input.grantId) ?? input.grantId;
-        const res = await fetch("/api/mydata/fetch", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer Grant ${token}`,
-          },
-          body: JSON.stringify({
-            fields: input.fields,
-          }),
-        });
-        return await apply(res);
-      } finally {
-        setBusy(false);
-      }
-    },
-    [apply, state],
-  );
-
-  const submit = useCallback(
-    async (grantId: GrantId, ticketOverride?: string) => {
-      setBusy(true);
-      try {
-        const ticket = ticketOverride ?? ticketFor(state, grantId) ?? "";
-        const res = await fetch("/api/applications/submit", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            ...(ticket ? { Authorization: `Bearer Grant ${ticket}` } : {}),
-          },
-          body: JSON.stringify({ ticket }),
-        });
-        return await apply(res);
-      } finally {
-        setBusy(false);
-      }
-    },
-    [apply, state],
-  );
-
-  const reset = useCallback(async () => {
-    setBusy(true);
-    try {
-      const res = await fetch("/api/reset", { method: "POST" });
-      await apply(res);
       setError(null);
-    } finally {
-      setBusy(false);
-    }
-  }, [apply]);
+      try {
+        const key =
+          mode === "passkey" ? await registerPasskey("林曉晴（合成身分）") : registerSoftwareKey();
+        const res = await fetch("/api/wallet/register", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(key),
+        });
+        return await apply(res);
+      } catch (e) {
+        const text = e instanceof Error ? e.message : String(e);
+        setError(text);
+        return { ok: false, error: text };
+      } finally {
+        setBusy(false);
+      }
+    },
+    [apply],
+  );
+
+  /**
+   * Signing happens in the browser, over the exact serialized grant the server
+   * sent. The private key is re-derived from the authenticator for this one
+   * signature and never leaves the page.
+   */
+  const signGrant = useCallback(
+    async (grantId: GrantId): Promise<ActionResult> => {
+      const grant = view.grants.find((g) => g.id === grantId);
+      const method = view.principal.key.method;
+      const publicKey = view.principal.key.publicKey;
+      if (!grant) return { ok: false, error: "找不到這張匣" };
+      if (!method || !publicKey) return { ok: false, error: "請先註冊簽章金鑰" };
+
+      setBusy(true);
+      setError(null);
+      try {
+        const signature = await signGrantBytes(method, grant.serialized);
+        const res = await fetch("/api/grants/sign", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ grantId, signature, publicKey }),
+        });
+        return await apply(res);
+      } catch (e) {
+        const text = e instanceof Error ? e.message : String(e);
+        setError(text);
+        return { ok: false, error: text };
+      } finally {
+        setBusy(false);
+      }
+    },
+    [apply, view],
+  );
 
   return {
-    state,
+    view,
     busy,
     error,
-    sendChat,
-    approve,
-    revoke,
-    fetchMyData,
-    submit,
-    reset,
+    passkeyAvailable,
+    passkeyProblem,
+    // Registered on the server AND signable from this browser.
+    localKeyUsable: !view.principal.key.registered || browserKey === view.principal.key.publicKey,
+    registerKey,
+    signGrant,
+    sendChat: (message: string) => post("/api/chat", { message }),
+    redeem: (grantId: GrantId, agency: AgencyId) =>
+      post("/api/grants/redeem", { grantId, agency }),
+    revoke: (grantId: GrantId) => post("/api/grants/revoke", { grantId }),
+    submit: (grantId: GrantId) => post("/api/applications/submit", { grantId }),
+    requestClaims: (agency: AgencyId, purpose: string, claims: string[]) =>
+      post("/api/agency/request", { agency, purpose, claims }),
+    stopDelegation: () => post("/api/delegation", { action: "revoke", reason: "委託人在演示中停止委託" }),
+    restoreDelegation: () => post("/api/delegation", { action: "restore" }),
+    setMaxSensitivity: (maxSensitivity: Sensitivity) =>
+      post("/api/delegation", { action: "update", maxSensitivity }),
+    setClock: (offsetDays: number) => post("/api/clock", { offsetDays }),
+    scanNotifications: () => post("/api/notifications"),
+    reset: () => post("/api/reset"),
   };
 }
+
+export type Demo = ReturnType<typeof useDemo>;

@@ -1,26 +1,4 @@
-import type { ReactNode } from "react";
-
-export function StatusChip({
-  tone = "stone",
-  children,
-}: {
-  tone?: "stone" | "rose" | "mint" | "amber";
-  children: ReactNode;
-}) {
-  const tones = {
-    stone: "bg-stone-100/90 text-stone-500",
-    rose: "bg-rose-50 text-rose-600",
-    mint: "bg-emerald-50 text-emerald-700",
-    amber: "bg-amber-50 text-amber-700",
-  };
-  return (
-    <span
-      className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] leading-4 ${tones[tone]}`}
-    >
-      {children}
-    </span>
-  );
-}
+import { StatusChip } from "@/components/status-chip";
 
 export function DenialBanner({ reason }: { reason: string }) {
   return (

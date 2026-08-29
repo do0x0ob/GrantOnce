@@ -1,32 +1,42 @@
 import {
-  approveGrantAndFetch,
-  asGrantId,
-  fetchWithGrant,
-  householdOverscopeFields,
+  makeAgencyProof,
   proposeGrantsFromPlan,
+  redeemGrant,
+  requestClaims,
+  revokeDelegation,
   revokeGrant,
   submitApplication,
 } from "../lib/authz";
-import { FIELD_META } from "../lib/fields";
+import { pushChanges } from "../lib/agent";
+import { CLAIM_DEFS, isClaimId, SENSITIVITY_LABEL } from "../lib/claims";
+import { normalizeGrantId } from "../lib/fields";
+import { isKnownAgency } from "../lib/parties";
+import { isPurposeId, PURPOSES } from "../lib/purposes";
 import {
+  AGENT_NOTES,
   ageHint,
+  childAgeMonthsAt,
+  effectiveToday,
   HAPPY_PATH_UTTERANCE,
   matchPrograms,
   situationFromUtterance,
 } from "../lib/rules";
 import { appendChat, getState, mutate } from "../lib/store";
-import type { FieldId, GrantId } from "../lib/types";
+import type { AgencyId, GrantId } from "../lib/types";
 import { VAULT } from "../lib/vault";
-import { agentSight, incomeNeverGranted } from "../lib/view";
 
 export const TOOL_NAMES = [
   "plan_applications",
-  "approve_grant",
-  "fetch_field",
+  "get_grant_for_signature",
+  "redeem_grant",
+  "request_claims",
   "submit_application",
   "revoke_grant",
+  "stop_delegation",
   "get_audit",
 ] as const;
+
+export type ToolName = (typeof TOOL_NAMES)[number];
 
 /** Distinctive vault values the model must never receive. */
 export const VAULT_VALUE_MARKERS = Object.values(VAULT.records).filter(
@@ -38,32 +48,37 @@ export function vaultLeakIn(payload: unknown): string | null {
   for (const value of VAULT_VALUE_MARKERS) {
     if (blob.includes(value)) return value;
   }
-  if (blob.includes("vaultHoldings") || blob.includes('"records"')) {
-    return "vault object";
-  }
-  if (blob.includes("grantonce-demo-hmac-key")) {
-    return "hmac key";
-  }
+  if (blob.includes("vaultHoldings") || blob.includes('"records"')) return "vault object";
   return null;
 }
 
 export function assertNoVaultLeak(payload: unknown, where: string) {
   const leak = vaultLeakIn(payload);
-  if (leak) {
-    throw new Error(`${where} leaked vault to the model: ${leak}`);
-  }
+  if (leak) throw new Error(`${where} leaked vault to the model: ${leak}`);
 }
 
-function fieldLabels(ids: string[]): string[] {
-  return ids.map((id) => (id in FIELD_META ? FIELD_META[id as FieldId].label : id));
+function claimLabels(ids: readonly string[]): string[] {
+  return ids.map((id) => (isClaimId(id) ? CLAIM_DEFS[id].label : id));
 }
 
 function requireGrantId(raw: string): GrantId {
-  const grantId = asGrantId(raw);
+  const grantId = normalizeGrantId(raw);
   if (!grantId) {
-    throw new Error(`無效的匣編號：${raw}（可用 G-甲 / G-jia、G-乙 / G-yi）`);
+    throw new Error(`無效的匣編號：${raw}（可用 G-甲 / G-jia 或 G-乙 / G-yi）`);
   }
   return grantId;
+}
+
+function requireAgency(raw: string): AgencyId {
+  const t = raw.trim().toLowerCase();
+  const mapped =
+    t === "yi" || t === "agency-yi" || t === "乙" || t === "agency-b"
+      ? "yi"
+      : t === "jia" || t === "agency-jia" || t === "甲" || t === "agency-a"
+        ? "jia"
+        : null;
+  if (!mapped || !isKnownAgency(mapped)) throw new Error(`未登記的機關：${raw}`);
+  return mapped;
 }
 
 function grantPublic(grantId: GrantId) {
@@ -71,47 +86,35 @@ function grantPublic(grantId: GrantId) {
   if (!grant) return null;
   return {
     id: grant.id,
-    issuer: grant.issuer,
-    subject: grant.subject,
-    audience: grant.audience,
-    purpose: grant.purpose,
-    fields: grant.fields,
-    fieldLabels: fieldLabels(grant.fields),
-    source: grant.source,
-    expiresAt: grant.expiresAt,
     status: grant.status,
-    revokeOn: grant.revokeOn,
-    agencyId: grant.agencyId,
-    programTitle: grant.programTitle,
-    approvedAt: grant.approvedAt,
-    consumedAt: grant.consumedAt,
-    revokedAt: grant.revokedAt,
-    ticketId: grant.ticketId,
+    purpose: grant.body.purpose,
+    programTitle: PURPOSES[grant.body.purpose].title,
+    audience: grant.body.aud,
+    boundToAgencyKey: grant.body.cnf.jkt,
+    jti: grant.body.jti,
+    expiresAt: grant.body.exp,
+    claimIds: grant.body.claims,
+    claimLabels: claimLabels(grant.body.claims),
+    signed: Boolean(grant.signature),
+    signMethod: grant.signMethod,
+    risk: grant.risk,
+    riskNotes: grant.riskNotes,
+    digest: grant.digest,
   };
 }
 
 export function planApplications(utterance: string) {
   const message = utterance.trim() || HAPPY_PATH_UTTERANCE;
-  const situation = situationFromUtterance(message);
+  const today = effectiveToday(getState());
+  const situation = situationFromUtterance(message, today);
 
-  if (!situation) {
+  if (!situation || !situation.movedRecently) {
     const payload = {
       ok: false,
-      error: `這個演示只處理補助比對。請輸入：「${HAPPY_PATH_UTTERANCE}」`,
-      notes: ["資格由規則引擎決定，不會用模型來授權欄位。", "模型看不到金庫。"],
-    };
-    mutate((s) => {
-      appendChat(s, "user", message);
-      appendChat(s, "agent", payload.error);
-    });
-    assertNoVaultLeak(payload, "plan_applications");
-    return payload;
-  }
-
-  if (!situation.movedRecently) {
-    const payload = {
-      ok: false,
-      error: "規則引擎沒有偵測到「搬家／遷徙」。快樂路徑請用：「我剛搬家，看我能申請什麼。」",
+      error: situation
+        ? "規則引擎沒有偵測到「搬家／遷徙」。"
+        : `這個演示只處理補助比對。請輸入：「${HAPPY_PATH_UTTERANCE}」`,
+      notes: ["資格由規則引擎決定，模型不決定授權。", "模型看不到金庫，也不能簽署任何匣。"],
     };
     mutate((s) => {
       appendChat(s, "user", message);
@@ -122,21 +125,11 @@ export function planApplications(utterance: string) {
   }
 
   const programs = matchPrograms(situation);
-  const hint = ageHint(situation.childAgeMonths);
+  const hint = ageHint(childAgeMonthsAt(today));
 
   mutate((s) => {
     appendChat(s, "user", message);
-    s.plan = {
-      utterance: message,
-      matchedAt: new Date().toISOString(),
-      programs,
-      ageHint: hint,
-      notes: [
-        "資格比對只用規則引擎，不用語言模型決定授權。",
-        "所得資料在金庫，但不進入任何建議匣。",
-        "沒有「一次交出全部資料」的按鈕。",
-      ],
-    };
+    s.plan = { utterance: message, matchedAt: new Date().toISOString() };
     proposeGrantsFromPlan(s, programs);
     appendChat(
       s,
@@ -146,158 +139,172 @@ export function planApplications(utterance: string) {
         "",
         ...programs.flatMap((p, i) => [
           `${i + 1}. ${p.title} — ${p.agencyName}`,
-          `   原因：${p.reasons.join("；")}`,
-          `   本匣欄位：${p.requiredFields.join("、")}`,
-          p.hint ? `   提示：${p.hint}` : "",
+          `   本匣述詞：${claimLabels(p.claims).join("、")}`,
+          `   法定依據：${PURPOSES[p.purpose].legalBasis[0]}`,
         ]),
         "",
         hint,
-        "",
-        "兩張授權匣已出現。請分別核准；每一匣只給該機關看得到的欄位。所得不會進入任何匣。",
-      ]
-        .filter(Boolean)
-        .join("\n"),
+      ].join("\n"),
     );
+    pushChanges(s, new Date());
   });
 
   const payload = {
     ok: true,
-    utterance: message,
     ageHint: hint,
     programs: programs.map((p) => ({
       grantId: p.grantId,
       title: p.title,
-      agencyId: p.agencyId,
+      purpose: p.purpose,
+      agency: p.agencyId,
       agencyName: p.agencyName,
       reasons: p.reasons,
-      requiredFieldIds: p.requiredFields,
-      requiredFieldLabels: fieldLabels(p.requiredFields),
-      hint: p.hint ?? null,
+      claimIds: p.claims,
+      claimLabels: claimLabels(p.claims),
+      sensitivities: p.claims.map((c) => SENSITIVITY_LABEL[CLAIM_DEFS[c].sensitivity]),
+      legalBasis: PURPOSES[p.purpose].legalBasis,
+      hint: p.hint,
     })),
-    grants: programs.map((p) => grantPublic(p.grantId)),
-    notes: [
-      "資格由規則引擎決定，模型不決定授權。",
-      "欄位值仍在金庫；核准後才由授權層寫入機關收件匣。",
-      "所得不會進入任何建議匣。",
-    ],
+    notes: [...AGENT_NOTES, "模型無法簽署。請委託人在皮夾用生物辨識簽署後才能兌現。"],
   };
   assertNoVaultLeak(payload, "plan_applications");
   return payload;
 }
 
-export function approveGrant(grantIdRaw: string) {
+/**
+ * The model can propose, and can show the principal what they would be signing.
+ * It cannot sign: the private key only exists behind the authenticator.
+ */
+export function getGrantForSignature(grantIdRaw: string) {
   const grantId = requireGrantId(grantIdRaw);
-  const { error, ticket } = approveGrantAndFetch(grantId);
-  const grant = grantPublic(grantId);
-  const payload = error
-    ? { ok: false as const, error, grant }
-    : {
-        ok: true as const,
-        grant,
-        ticket,
-        note: "核准後 runtime 發出 HMAC ticket。後續 fetch / submit 只認 ticket，不認 actor。",
-      };
-  assertNoVaultLeak(payload, "approve_grant");
+  const grant = getState().grants.find((g) => g.id === grantId);
+  if (!grant) {
+    const payload = { ok: false, error: `找不到匣 ${grantId}` };
+    assertNoVaultLeak(payload, "get_grant_for_signature");
+    return payload;
+  }
+  const payload = {
+    ok: true,
+    grant: grantPublic(grantId),
+    consentText: grant.body.displayText,
+    bytesToSign: grant.serialized,
+    digest: grant.digest,
+    note: "模型不能代簽。請委託人在皮夾以 passkey 生物辨識簽署這串 bytes。同意畫面文字已包含在簽署內容裡。",
+  };
+  assertNoVaultLeak(payload, "get_grant_for_signature");
   return payload;
 }
 
-export function fetchField(input: { ticket?: string; fields?: string[] }) {
-  const ticket = (input.ticket ?? "").trim();
-  const fields =
-    input.fields && input.fields.length > 0
-      ? input.fields
-      : householdOverscopeFields();
+export function redeem(grantIdRaw: string, agencyRaw: string) {
+  const grantId = requireGrantId(grantIdRaw);
+  const agency = requireAgency(agencyRaw);
+  const { result } = redeemGrant(grantId, makeAgencyProof(agency, grantId));
 
-  const { result } = fetchWithGrant(ticket, fields);
-
-  if (!result.ok) {
+  if (result.ok) {
     const payload = {
-      ok: false,
-      status: 403 as const,
-      code: result.code,
-      error: result.error,
-      deniedFields: result.deniedFields ?? [],
-      deniedFieldLabels: fieldLabels(result.deniedFields ?? []),
-      audited: true,
+      ok: true as const,
+      grantId: result.grantId,
+      deliveredTo: result.deliveredTo,
+      claimIds: result.claimIds,
+      claimLabels: claimLabels(result.claimIds),
+      note: "兩把鑰匙都通過。述詞值直接進入機關收件匣，不回傳給模型。",
     };
-    assertNoVaultLeak(payload, "fetch_field");
+    assertNoVaultLeak(payload, "redeem_grant");
     return payload;
   }
 
   const payload = {
-    ok: true,
-    status: 200 as const,
-    grantId: result.grantId,
-    fetchedFieldIds: result.fieldIds,
-    fetchedFieldLabels: fieldLabels(result.fieldIds),
-    deliveredTo: "agency-envelope",
-    note: "欄位值已送入機關收件匣，未回傳給模型。",
+    ok: false as const,
+    status: 403 as const,
+    code: result.code,
+    error: result.error,
+    failedKey: result.failedKey ?? null,
+    deniedClaims: result.deniedClaims ?? [],
+    audited: true,
   };
-  assertNoVaultLeak(payload, "fetch_field");
+  assertNoVaultLeak(payload, "redeem_grant");
   return payload;
 }
 
-export function submitApp(ticketRaw: string) {
-  const ticket = ticketRaw.trim();
-  const { result } = submitApplication(ticket);
-  const grant = result.ok ? grantPublic(result.grantId) : null;
-  const payload = result.ok
-    ? {
-        ok: true as const,
-        grant,
-        note: `送件完成，匣 ${result.grantId} 已耗用。ticket 失效。重放 fetch_field 將 403。`,
-      }
-    : {
-        ok: false as const,
-        status: 403 as const,
-        code: result.code,
-        error: result.error,
-        audited: true,
-      };
+export function requestClaimsTool(agencyRaw: string, purposeRaw: string, claims: string[]) {
+  const agency = requireAgency(agencyRaw);
+  if (!isPurposeId(purposeRaw)) throw new Error(`未登記的目的：${purposeRaw}`);
+  const { blocked, notes } = requestClaims(agency, purposeRaw, claims);
+  const payload = {
+    ok: !blocked,
+    blocked,
+    agency,
+    purpose: purposeRaw,
+    requested: claims,
+    requestedLabels: claimLabels(claims),
+    notes,
+    note: blocked
+      ? "提案階段即攔截，委託人根本不會看到可以按的同意按鈕。"
+      : "在法定職務範圍內，可交由委託人決定是否簽署。",
+  };
+  assertNoVaultLeak(payload, "request_claims");
+  return payload;
+}
+
+export function submitApp(grantIdRaw: string) {
+  const grantId = requireGrantId(grantIdRaw);
+  const { error } = submitApplication(grantId);
+  const payload = error
+    ? { ok: false, error, grant: grantPublic(grantId) }
+    : { ok: true, grant: grantPublic(grantId), note: `已送出。匣 ${grantId} 已耗用。` };
   assertNoVaultLeak(payload, "submit_application");
   return payload;
 }
 
-export function revokeApp(grantIdRaw: string, reason?: string) {
+export function revokeGrantTool(grantIdRaw: string, reason?: string) {
   const grantId = requireGrantId(grantIdRaw);
-  const issuer = getState().principal.id;
-  const { result } = revokeGrant(
-    grantId,
-    reason?.trim() || `委託人撤銷匣 ${grantId}`,
-    { id: issuer },
-  );
-  const grant = grantPublic(grantId);
-  const payload = result.ok
-    ? { ok: true as const, grant, note: `匣 ${grantId} 已撤銷。` }
-    : {
-        ok: false as const,
-        status: 403 as const,
-        code: result.code,
-        error: result.error,
-        grantId,
-        grant,
-      };
+  const { error } = revokeGrant(grantId, reason?.trim() || `委託人撤銷匣 ${grantId}`);
+  const payload = error
+    ? { ok: false, error, grant: grantPublic(grantId) }
+    : { ok: true, grant: grantPublic(grantId), note: `匣 ${grantId} 已撤銷。` };
   assertNoVaultLeak(payload, "revoke_grant");
+  return payload;
+}
+
+export function stopDelegationTool(reason?: string) {
+  revokeDelegation(reason?.trim() || "委託人停止委託");
+  const payload = {
+    ok: true,
+    delegationActive: false,
+    note: "委託已停止，未兌現的匣全部作廢，之後任何兌現都會被擋。已交付機關的述詞收不回來。",
+  };
+  assertNoVaultLeak(payload, "stop_delegation");
   return payload;
 }
 
 export function getAudit() {
   const state = getState();
-  const sight = agentSight(state);
+  const untouched = state.vaultCatalog.filter(
+    (entry) =>
+      !state.wallet.some((c) => CLAIM_DEFS[c.claimId].derivedFrom.includes(entry.fieldId)),
+  );
   const payload = {
     ok: true,
-    incomeNeverEnteredGrant: incomeNeverGranted(state),
-    incomeFieldIds: sight.incomeHeldBack,
-    neverGrantedFieldIds: sight.neverGranted,
+    delegationActive: state.delegation.active,
+    usedJti: state.usedJti.length,
+    vaultFieldsNeverUsed: untouched.map((e) => e.fieldId),
     grants: state.grants.map((g) => ({
       id: g.id,
       issuer: g.issuer,
       subject: g.subject,
       audience: g.audience,
       status: g.status,
-      fieldIds: g.fields,
-      ticketId: g.ticketId,
-      containsIncome: false,
+      claimIds: g.body.claims,
+      signed: Boolean(g.signature),
+      risk: g.risk,
+    })),
+    // Credential metadata only: no values, not even predicate values.
+    wallet: state.wallet.map((c) => ({
+      claimId: c.claimId,
+      issuer: c.issuer,
+      audience: c.audience,
+      expiresAt: c.expiresAt,
+      presentedCount: c.presentedCount,
     })),
     envelopes: (Object.keys(state.envelopes) as GrantId[]).map((id) => ({
       grantId: id,
@@ -312,55 +319,49 @@ export function getAudit() {
       action: entry.action,
       grantId: entry.grantId,
       detail: entry.detail,
-      deniedFields: entry.deniedFields ?? [],
+      deniedClaims: entry.deniedClaims ?? [],
+      risk: entry.risk ?? null,
     })),
-    note: "所得從未進入任何授權匣。稽核只記動作，不含金庫值。送件後收件匣只留雜湊。",
+    note: "稽核只記動作，不含金庫值，也不含述詞的值。",
   };
   assertNoVaultLeak(payload, "get_audit");
   return payload;
 }
 
-export type ToolName = (typeof TOOL_NAMES)[number];
-
 export function callTool(
   name: ToolName,
   args: Record<string, unknown>,
 ): { data: unknown; isError: boolean } {
+  const str = (key: string) => String(args[key] ?? "");
   switch (name) {
     case "plan_applications":
-      return {
-        data: planApplications(String(args.utterance ?? "")),
-        isError: false,
-      };
-    case "approve_grant": {
-      const data = approveGrant(String(args.grantId ?? ""));
-      return { data, isError: data.ok === false };
-    }
-    case "fetch_field": {
-      const data = fetchField({
-        ticket: String(args.ticket ?? ""),
-        fields: Array.isArray(args.fields)
-          ? args.fields.map(String)
-          : undefined,
-      });
-      return { data, isError: data.ok === false };
-    }
-    case "submit_application": {
-      const data = submitApp(String(args.ticket ?? ""));
-      return { data, isError: data.ok === false };
-    }
-    case "revoke_grant": {
-      const data = revokeApp(
-        String(args.grantId ?? ""),
-        args.reason != null ? String(args.reason) : undefined,
+      return wrap(planApplications(str("utterance")));
+    case "get_grant_for_signature":
+      return wrap(getGrantForSignature(str("grantId")));
+    case "redeem_grant":
+      return wrap(redeem(str("grantId"), str("agency")));
+    case "request_claims":
+      return wrap(
+        requestClaimsTool(
+          str("agency"),
+          str("purpose"),
+          Array.isArray(args.claims) ? (args.claims as string[]) : [],
+        ),
       );
-      return { data, isError: data.ok === false };
-    }
+    case "submit_application":
+      return wrap(submitApp(str("grantId")));
+    case "revoke_grant":
+      return wrap(revokeGrantTool(str("grantId"), args.reason ? str("reason") : undefined));
+    case "stop_delegation":
+      return wrap(stopDelegationTool(args.reason ? str("reason") : undefined));
     case "get_audit":
-      return { data: getAudit(), isError: false };
-    default: {
-      const never: never = name;
-      return { data: { ok: false, error: `未知工具：${never}` }, isError: true };
-    }
+      return wrap(getAudit());
+    default:
+      return { data: { ok: false, error: `未知工具：${name}` }, isError: true };
   }
+}
+
+function wrap(data: unknown): { data: unknown; isError: boolean } {
+  const isError = Boolean(data && typeof data === "object" && (data as { ok?: boolean }).ok === false);
+  return { data, isError };
 }

@@ -1,74 +1,78 @@
-import { StatusChip } from "@/components/denial-banner";
-import type { AuditEntry, DemoState } from "@/lib/types";
-import { incomeNeverGranted, incomeSummary } from "@/lib/view";
+"use client";
 
-const ACTION: Record<AuditEntry["action"], string> = {
-  approve: "核准",
-  fetch: "擷取",
+import { StatusChip } from "@/components/status-chip";
+import { SURFACE } from "@/components/surface";
+import { cn } from "@/lib/utils";
+import { formatClock } from "@/lib/view";
+import type { PrincipalView } from "@/lib/view";
+import type { AuditAction } from "@/lib/types";
+
+const ACTION_LABEL: Record<AuditAction, string> = {
+  register: "設定",
+  issue: "發證",
+  sign: "簽署",
+  redeem: "兌現",
   submit: "送件",
   revoke: "撤銷",
   deny: "拒絕",
-  receipt: "收據",
+  notify: "推送",
 };
 
-export function AuditTimeline({
-  entries,
-  state,
-}: {
-  entries: AuditEntry[];
-  state: DemoState;
-}) {
-  const income = incomeSummary(state);
-  const heldOut = incomeNeverGranted(state);
-  const chronological = [...entries].reverse();
+const ACTION_TONE: Record<AuditAction, "stone" | "rose" | "mint" | "amber"> = {
+  register: "stone",
+  issue: "amber",
+  sign: "mint",
+  redeem: "mint",
+  submit: "mint",
+  revoke: "stone",
+  deny: "rose",
+  notify: "amber",
+};
+
+export function AuditTimeline({ view }: { view: PrincipalView }) {
+  const untouched = view.vaultCatalog.filter((e) => e.neverLeft && e.sealed);
 
   return (
-    <div className="space-y-4">
-      <div>
-        <p className="text-[12px] leading-5 text-stone-400">所得</p>
-        {income.length > 0 ? (
-          <p className="text-[13px] leading-6 text-stone-800">
-            {income.map((row) => `${row.label} ${row.value}`).join("　")}
-          </p>
-        ) : (
-          <p className="text-[13px] leading-6 text-stone-600">金庫有所得紀錄</p>
-        )}
-        <p className={`text-[13px] leading-5 ${heldOut ? "text-stone-400" : "text-rose-600"}`}>
-          {heldOut ? "未進入任何授權匣" : "錯誤：所得已被列入匣"}
-        </p>
+    <section className={cn(SURFACE, "space-y-3 p-4")}>
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-[13px] leading-5 text-stone-700">稽核軌跡</p>
+        <StatusChip tone="stone">已用 jti {view.usedJtiCount}</StatusChip>
       </div>
 
-      {chronological.length === 0 ? (
-        <p className="text-[13px] leading-6 text-stone-400">尚無紀錄。</p>
+      {untouched.length ? (
+        <p className="rounded-xl bg-emerald-50 p-2.5 text-[12px] leading-5 text-emerald-800">
+          {untouched.map((e) => e.label).join("、")} 從未派生任何憑證，也從未進入任何匣。
+        </p>
+      ) : null}
+
+      {view.audit.length === 0 ? (
+        <p className="text-[12px] leading-5 text-stone-400">還沒有動作。</p>
       ) : (
-        <ol className="relative space-y-3 border-l border-stone-200/80 pl-4">
-          {chronological.map((entry) => (
-            <li key={entry.id} className="relative text-[13px] leading-6">
-              <span className="absolute top-2 -left-[21px] size-1.5 rounded-full bg-stone-300" />
-              <p className="flex flex-wrap items-baseline gap-x-2 text-stone-800">
-                {entry.action === "deny" ? (
-                  <StatusChip tone="rose">403</StatusChip>
-                ) : (
-                  <span className="text-stone-400">{ACTION[entry.action]}</span>
-                )}
-                {entry.grantId ? <span className="text-stone-400">{entry.grantId}</span> : null}
-                <span className="font-mono text-[11px] text-stone-300">{clock(entry.at)}</span>
-              </p>
-              <p className="text-stone-600">{entry.detail}</p>
-            </li>
-          ))}
+        <ol className="space-y-2">
+          {view.audit
+            .slice()
+            .reverse()
+            .map((entry) => (
+              <li key={entry.id} className="space-y-1">
+                <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+                  <StatusChip tone={ACTION_TONE[entry.action]}>
+                    {ACTION_LABEL[entry.action]}
+                  </StatusChip>
+                  <span className="text-[12px] leading-5 text-stone-500">{entry.actor}</span>
+                  {entry.grantId ? (
+                    <span className="font-mono text-[11px] leading-4 text-stone-400">
+                      {entry.grantId}
+                    </span>
+                  ) : null}
+                  <span className="ml-auto shrink-0 font-mono text-[11px] leading-4 text-stone-300">
+                    {formatClock(entry.at)}
+                  </span>
+                </div>
+                <p className="text-[12px] leading-5 text-stone-500">{entry.detail}</p>
+              </li>
+            ))}
         </ol>
       )}
-    </div>
+    </section>
   );
-}
-
-function clock(iso: string): string {
-  return new Date(iso).toLocaleTimeString("zh-TW", {
-    hour12: false,
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-    timeZone: "Asia/Taipei",
-  });
 }

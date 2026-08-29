@@ -88,35 +88,7 @@ export const FIELD_META: Record<
   },
 };
 
-export const JIA_FIELDS: FieldId[] = [
-  "household.city",
-  "household.address",
-  "household.previousCity",
-  "household.moveDate",
-  "household.householdId",
-  "parentChild.childName",
-  "parentChild.childBirthDate",
-  "parentChild.relation",
-];
-
-export const YI_FIELDS: FieldId[] = [
-  "taipower.meterId",
-  "taipower.usage.m1",
-  "taipower.usage.m2",
-  "taipower.usage.m3",
-];
-
-export const GRANT_FIELDS: Record<GrantId, FieldId[]> = {
-  "G-甲": JIA_FIELDS,
-  "G-乙": YI_FIELDS,
-};
-
-/** HTTP Authorization must be ASCII. UI / audit still show G-甲 and G-乙. */
-export const GRANT_HTTP_TOKEN: Record<GrantId, string> = {
-  "G-甲": "G-jia",
-  "G-乙": "G-yi",
-};
-
+/** Accepts the display ids (G-甲 / G-乙) and their ASCII aliases. */
 export function normalizeGrantId(raw: string): GrantId | null {
   const trimmed = raw.trim();
   const candidates = [trimmed];
@@ -130,23 +102,4 @@ export function normalizeGrantId(raw: string): GrantId | null {
     if (value === "G-乙" || value === "G-yi" || value === "G-B") return "G-乙";
   }
   return null;
-}
-
-export const INCOME_FIELDS: FieldId[] = ["income.annualIncome", "income.taxYear"];
-export const NHI_FIELDS: FieldId[] = ["nhi.cardId", "nhi.status"];
-
-export const HOUSEHOLD_FIELDS: FieldId[] = [
-  "household.city",
-  "household.address",
-  "household.previousCity",
-  "household.moveDate",
-  "household.householdId",
-];
-
-export function isFieldId(value: string): value is FieldId {
-  return value in FIELD_META;
-}
-
-export function fieldLabel(id: FieldId): string {
-  return FIELD_META[id].label;
 }

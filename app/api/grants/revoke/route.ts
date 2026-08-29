@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
-import { asGrantId, revokeGrant } from "@/lib/authz";
-import { getState } from "@/lib/store";
+import { revokeGrant } from "@/lib/authz";
+import { normalizeGrantId } from "@/lib/fields";
+import { principalView } from "@/lib/view";
 
 export const dynamic = "force-dynamic";
 
@@ -9,18 +10,14 @@ export async function POST(request: Request) {
     grantId?: string;
     reason?: string;
   };
-  const grantId = body.grantId ? asGrantId(body.grantId) : null;
+  const grantId = body.grantId ? normalizeGrantId(body.grantId) : null;
   if (!grantId) {
     return NextResponse.json({ error: "無效的匣編號" }, { status: 400 });
   }
-  const issuer = getState().principal.id;
-  const { state, result } = revokeGrant(
-    grantId,
-    body.reason ?? `委託人撤銷匣 ${grantId}`,
-    { id: issuer },
-  );
-  if (!result.ok) {
-    return NextResponse.json({ ...result, state }, { status: 403 });
+  const { state, error } = revokeGrant(grantId, body.reason ?? `委託人撤銷匣 ${grantId}`);
+  const view = principalView(state);
+  if (error) {
+    return NextResponse.json({ error, ...view }, { status: 409 });
   }
-  return NextResponse.json(state);
+  return NextResponse.json(view);
 }

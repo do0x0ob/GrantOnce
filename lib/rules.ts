@@ -1,15 +1,12 @@
-import { JIA_FIELDS, YI_FIELDS } from "./fields";
-import type { ProgramPlan } from "./types";
-
-/** Frozen demo "today" so the 1-year-old child stays in the 0–2 band. */
-export const DEMO_TODAY = "2026-08-29";
+import { ageBandOf, DEMO_TODAY, monthsBetween } from "./claims";
+import { PURPOSES } from "./purposes";
+import type { DemoState, ProgramPlan } from "./types";
 
 /**
- * Situation the principal *told* the agent. Used only by the rule engine.
- * Never read from the MyData vault — eligibility does not open envelopes.
+ * What the principal told the agent in conversation. The rule engine reads only
+ * this: matching eligibility never opens the vault and never mints a grant.
  */
 export const PERSONA_DECLARED = {
-  name: "林曉晴",
   childBirthDate: "2025-07-15",
   hasResidentialMeter: true,
 } as const;
@@ -22,14 +19,14 @@ export type DeclaredSituation = {
   hasResidentialMeter: boolean;
 };
 
-export function monthsBetween(isoDate: string, todayIso: string): number {
-  const from = new Date(`${isoDate}T00:00:00Z`);
-  const to = new Date(`${todayIso}T00:00:00Z`);
-  let months =
-    (to.getUTCFullYear() - from.getUTCFullYear()) * 12 +
-    (to.getUTCMonth() - from.getUTCMonth());
-  if (to.getUTCDate() < from.getUTCDate()) months -= 1;
-  return months;
+export function effectiveToday(state: DemoState): string {
+  const base = new Date(`${DEMO_TODAY}T00:00:00Z`);
+  const shifted = new Date(base.getTime() + (state.clockOffsetDays ?? 0) * 86_400_000);
+  return shifted.toISOString().slice(0, 10);
+}
+
+export function childAgeMonthsAt(today: string): number {
+  return monthsBetween(PERSONA_DECLARED.childBirthDate, today);
 }
 
 export function detectIntent(utterance: string): boolean {
@@ -37,58 +34,122 @@ export function detectIntent(utterance: string): boolean {
   return /搬家|遷徙|剛搬|搬到|遷入|申請|補助|津貼|能申|可以申/.test(t);
 }
 
-export function situationFromUtterance(utterance: string): DeclaredSituation | null {
+export function situationFromUtterance(
+  utterance: string,
+  today: string = DEMO_TODAY,
+): DeclaredSituation | null {
   if (!detectIntent(utterance)) return null;
   return {
     movedRecently: /搬家|遷徙|剛搬|搬到|遷入/.test(utterance.replace(/\s+/g, "")),
-    childAgeMonths: monthsBetween(PERSONA_DECLARED.childBirthDate, DEMO_TODAY),
+    childAgeMonths: childAgeMonthsAt(today),
     hasResidentialMeter: PERSONA_DECLARED.hasResidentialMeter,
   };
 }
 
 /**
- * Deterministic eligibility. LLM must never call this with extra fields,
- * and must never be used to mint grants.
+ * Deterministic eligibility. The model never calls this with extra claims and is
+ * never the thing that mints a grant.
  */
 export function matchPrograms(situation: DeclaredSituation): ProgramPlan[] {
   const programs: ProgramPlan[] = [];
-  const childInBand =
-    situation.childAgeMonths >= 0 && situation.childAgeMonths < 24;
+  const band = ageBandOf(situation.childAgeMonths);
 
-  if (situation.movedRecently && childInBand) {
+  if (situation.movedRecently && band === "0-2") {
+    const purpose = PURPOSES["childcare-allowance"];
     programs.push({
       grantId: "G-甲",
-      title: "育兒津貼",
-      agencyId: "jia",
-      agencyName: "甲｜新北市社會局",
+      purpose: purpose.id,
+      title: purpose.title,
+      agencyId: purpose.agency,
+      agencyName: `甲｜${purpose.agencyName}`,
       reasons: [
         "剛完成遷徙，戶籍已從臺北市改到新北市",
-        "家中有 0–2 歲幼兒，落在育兒津貼年齡帶",
+        "家中幼兒落在 0–2 歲育兒津貼年齡帶",
       ],
-      requiredFields: [...JIA_FIELDS],
-      hint: "孩子滿 2 歲後，育兒津貼條件會改變，需重新評估",
+      claims: [...purpose.allowedClaims],
+      hint: "滿 2 歲後改適用「未滿 5 歲幼兒托育補助」，屆時要換一張新的匣",
     });
   }
 
   if (situation.hasResidentialMeter) {
+    const purpose = PURPOSES["aircon-subsidy"];
     programs.push({
       grantId: "G-乙",
-      title: "冷氣汰換補助",
-      agencyId: "yi",
-      agencyName: "乙｜經濟部能源署 × 台灣電力公司",
-      reasons: [
-        "有住宅用電戶，可用電表號與近三月用電量證明居住事實",
-      ],
-      requiredFields: [...YI_FIELDS],
+      purpose: purpose.id,
+      title: purpose.title,
+      agencyId: purpose.agency,
+      agencyName: `乙｜${purpose.agencyName}`,
+      reasons: ["有住宅用電戶，可用用電級距證明居住事實"],
+      claims: [...purpose.allowedClaims],
     });
   }
 
   return programs;
 }
 
-export function ageHint(childAgeMonths: number): string {
-  const years = Math.floor(childAgeMonths / 12);
-  const months = childAgeMonths % 12;
-  const remain = Math.max(0, 24 - childAgeMonths);
-  return `幼兒目前約 ${years} 歲又 ${months} 個月。再 ${remain} 個月就滿 2 歲，育兒津貼條件會改變。`;
+export function ageHint(months: number): string {
+  const years = Math.floor(months / 12);
+  const rem = months % 12;
+  if (months >= 24) {
+    return `幼兒已滿 ${years} 歲又 ${rem} 個月，離開 0–2 歲帶，育兒津貼條件已改變。`;
+  }
+  return `幼兒目前約 ${years} 歲又 ${rem} 個月。再 ${24 - months} 個月滿 2 歲，育兒津貼條件會改變。`;
 }
+
+export type PendingChange = {
+  kind: "eligibility-change" | "credential-expiry";
+  title: string;
+  body: string;
+  grantId: ProgramPlan["grantId"] | null;
+};
+
+/**
+ * The proactive half. Instead of waiting for the principal to re-ask, the agent
+ * watches for the conditions that will change their entitlement and pushes.
+ */
+export function scanForChanges(state: DemoState, now: Date): PendingChange[] {
+  const today = effectiveToday(state);
+  const months = childAgeMonthsAt(today);
+  const out: PendingChange[] = [];
+
+  if (months >= 24) {
+    out.push({
+      kind: "eligibility-change",
+      title: "育兒津貼資格已改變",
+      body: `幼兒已滿 2 歲，離開 0–2 歲年齡帶。原「育兒津貼」匣的 child.ageBand 述詞已變成 ${ageBandOf(months)}，該匣不再對應正確補助；需要重新比對並簽一張新的匣。`,
+      grantId: "G-甲",
+    });
+  } else if (24 - months <= 3) {
+    out.push({
+      kind: "eligibility-change",
+      title: `再 ${24 - months} 個月育兒津貼條件會變`,
+      body: "幼兒即將滿 2 歲，屆時改適用未滿 5 歲幼兒托育補助，需要不同的述詞組合。先提醒，不預先取得任何資料。",
+      grantId: "G-甲",
+    });
+  }
+
+  for (const cred of state.wallet) {
+    if (cred.revoked) continue;
+    const left = new Date(cred.expiresAt).getTime() - now.getTime();
+    if (left <= 0) {
+      out.push({
+        kind: "credential-expiry",
+        title: `憑證已到期：${cred.label}`,
+        body: `${cred.issuerName} 簽發的「${cred.label}」憑證已過期，下次申請需重新取得。`,
+        grantId: null,
+      });
+    }
+  }
+
+  return out;
+}
+
+/** The three things the agent says about how it works. Kept in one place so the
+ *  web and MCP paths cannot drift apart. */
+export const AGENT_NOTES = [
+  "資格比對只用規則引擎，模型不決定授權。",
+  "匣裡放的是述詞，不是原始欄位。",
+  "取得資料要兩把鑰匙：委託人簽章，加上機關的法定職務範圍。",
+] as const;
+
+export const AGENT_NAME = "補助代理人";

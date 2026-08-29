@@ -1,6 +1,16 @@
-import { FIELD_IDS } from "./types";
-import { FIELD_META, INCOME_FIELDS } from "./fields";
-import type { DemoState, FieldId, GrantId, GrantStatus } from "./types";
+import { CLAIM_DEFS, isClaimId } from "./claims";
+import { PURPOSES } from "./purposes";
+import { RISK_LABEL } from "./risk";
+import type { DemoState, GrantStatus } from "./types";
+import { isCredentialValid, verifyCredential } from "./wallet";
+
+export const GRANT_STATUS_LABEL: Record<GrantStatus, string> = {
+  proposed: "待簽署",
+  signed: "已簽署 · 待兌現",
+  redeemed: "已兌現 · 耗用",
+  revoked: "已撤銷",
+  expired: "已逾效期",
+};
 
 export function formatClock(iso: string): string {
   return new Date(iso).toLocaleString("zh-TW", {
@@ -14,95 +24,108 @@ export function formatClock(iso: string): string {
   });
 }
 
-export const GRANT_STATUS_LABEL: Record<GrantStatus, string> = {
-  pending: "待核准",
-  active: "有效",
-  revoked: "已撤銷",
-  consumed: "已耗用",
-};
-
-export function groupedFields(ids: FieldId[]) {
-  const groups = new Map<string, FieldId[]>();
-  for (const id of ids) {
-    const group = FIELD_META[id].group;
-    const list = groups.get(group) ?? [];
-    list.push(id);
-    groups.set(group, list);
-  }
-  return [...groups.entries()];
+export function claimLabel(id: string): string {
+  return isClaimId(id) ? CLAIM_DEFS[id].label : id;
 }
 
-export function agentSight(state: DemoState) {
-  const readableNow = new Set<FieldId>();
-  const consumed = new Set<FieldId>();
-  const authorized = new Set<FieldId>();
-
-  for (const grant of state.grants) {
-    for (const field of grant.fields) authorized.add(field);
-    const envelope = state.envelopes[grant.id];
-    const live = Object.keys(envelope?.fields ?? {}) as FieldId[];
-    if (grant.status === "active") {
-      for (const field of live) readableNow.add(field);
-    }
-    if (grant.status === "consumed") {
-      const ids = envelope?.receipt?.fieldIds ?? live;
-      for (const field of ids) consumed.add(field);
-    }
-  }
-
-  const neverGranted = FIELD_IDS.filter((id) => !authorized.has(id));
-  const incomeHeldBack = INCOME_FIELDS.filter((id) => !authorized.has(id));
-
+/**
+ * What leaves the server.
+ *
+ * The vault is described but never valued: the console shows that 所得 and 健保
+ * are held and never entered a grant, without shipping the numbers to the
+ * browser.
+ */
+export function principalView(state: DemoState) {
+  const now = new Date();
   return {
-    readableNow: [...readableNow],
-    consumed: [...consumed],
-    neverGranted,
-    incomeHeldBack,
-    authorized: [...authorized],
+    principal: {
+      id: state.principal.id,
+      name: state.principal.name,
+      summary: state.principal.summary,
+      synthetic: state.principal.synthetic,
+      key: {
+        registered: Boolean(state.principal.key.publicKey),
+        method: state.principal.key.method,
+        registeredAt: state.principal.key.registeredAt,
+        publicKey: state.principal.key.publicKey,
+        fingerprint: state.principal.key.publicKey?.slice(0, 12) ?? null,
+      },
+    },
+    // Catalogue only: labels and notes, never values.
+    vaultCatalog: state.vaultCatalog.map((entry) => ({
+      fieldId: entry.fieldId,
+      label: entry.label,
+      group: entry.group,
+      sealed: entry.sealed,
+      note: entry.note,
+      /** True when no credential in the wallet was ever derived from this field. */
+      neverLeft: !state.wallet.some((c) =>
+        CLAIM_DEFS[c.claimId].derivedFrom.includes(entry.fieldId),
+      ),
+    })),
+    wallet: state.wallet.map((c) => ({
+      id: c.id,
+      claimId: c.claimId,
+      label: c.label,
+      value: c.value,
+      sensitivity: c.sensitivity,
+      issuerName: c.issuerName,
+      audience: c.audience,
+      issuedAt: c.issuedAt,
+      expiresAt: c.expiresAt,
+      valid: isCredentialValid(c, now),
+      signatureValid: verifyCredential(c),
+      presentedCount: c.presentedCount,
+      derivedFrom: CLAIM_DEFS[c.claimId].derivedFrom,
+    })),
+    grants: state.grants.map((g) => {
+      const expired = new Date(g.body.exp).getTime() < now.getTime();
+      // A capsule that has run out reads as expired even before anything tries
+      // to redeem it and flips the stored status.
+      const effectiveStatus =
+        expired && (g.status === "proposed" || g.status === "signed") ? "expired" : g.status;
+      return {
+      id: g.id,
+      status: effectiveStatus,
+      statusLabel: GRANT_STATUS_LABEL[effectiveStatus],
+      purpose: g.body.purpose,
+      programTitle: PURPOSES[g.body.purpose].title,
+      agencyId: g.body.aud,
+      agencyName: PURPOSES[g.body.purpose].agencyName,
+      legalBasis: PURPOSES[g.body.purpose].legalBasis,
+      claims: g.body.claims.map((c) => ({
+        claimId: c,
+        label: claimLabel(c),
+        shape: isClaimId(c) ? CLAIM_DEFS[c].shape : "",
+        sensitivity: isClaimId(c) ? CLAIM_DEFS[c].sensitivity : "personal",
+      })),
+      displayText: g.body.displayText,
+      jti: g.body.jti,
+      exp: g.body.exp,
+      cnfJkt: g.body.cnf.jkt,
+      digest: g.digest,
+      serialized: g.serialized,
+      signature: g.signature,
+      signMethod: g.signMethod,
+      risk: g.risk,
+      riskLabel: RISK_LABEL[g.risk],
+      riskNotes: g.riskNotes,
+      proposedAt: g.proposedAt,
+      signedAt: g.signedAt,
+      redeemedAt: g.redeemedAt,
+      revokedAt: g.revokedAt,
+      expired,
+      };
+    }),
+    inboxes: state.inboxes,
+    delegation: state.delegation,
+    notifications: [...state.notifications].reverse(),
+    audit: state.audit,
+    chat: state.chat,
+    plan: state.plan,
+    clockOffsetDays: state.clockOffsetDays ?? 0,
+    usedJtiCount: state.usedJti.length,
   };
 }
 
-export function incomeNeverGranted(state: DemoState): boolean {
-  return state.grants.every(
-    (grant) => !grant.fields.some((id) => INCOME_FIELDS.includes(id)),
-  );
-}
-
-export function incomeSummary(state: DemoState): { label: string; value: string }[] {
-  return (state.vaultHoldings ?? [])
-    .filter((h) => INCOME_FIELDS.includes(h.fieldId))
-    .map((h) => ({ label: h.label, value: h.value }));
-}
-
-export function grantExpiry(status: GrantStatus): string {
-  if (status === "consumed") return "已於送件時失效";
-  if (status === "revoked") return "已撤銷";
-  if (status === "active") return "一次有效 · 送件即失效";
-  return "核准後一次有效 · 送件即失效";
-}
-
-export function agencyTitle(agencyId: "jia" | "yi"): string {
-  return agencyId === "jia" ? "甲｜新北市社會局" : "乙｜經濟部 × 台電";
-}
-
-export function envelopeHasIncome(state: DemoState, grantId: GrantId): boolean {
-  const envelope = state.envelopes[grantId];
-  const live = envelope?.fields ?? {};
-  if (INCOME_FIELDS.some((id) => id in live)) return true;
-  const receiptIds = envelope?.receipt?.fieldIds ?? [];
-  return INCOME_FIELDS.some((id) => receiptIds.includes(id));
-}
-
-export function shortHash(hash: string): string {
-  return hash.slice(0, 12);
-}
-
-export function fatEnvelopeFields(
-  state: DemoState,
-): Partial<Record<FieldId, string>> {
-  const out: Partial<Record<FieldId, string>> = {};
-  for (const holding of state.vaultHoldings ?? []) {
-    out[holding.fieldId] = holding.value;
-  }
-  return out;
-}
+export type PrincipalView = ReturnType<typeof principalView>;
