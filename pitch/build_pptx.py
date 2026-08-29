@@ -15,7 +15,6 @@ from pptx.util import Emu, Inches, Pt
 
 ROOT = Path(__file__).resolve().parent
 OUT = ROOT / "GrantOnce.pptx"
-SHOT = ROOT / "assets" / "02-two-grants.png"
 
 PAPER = RGBColor(0xF4, 0xEF, 0xE4)
 INK = RGBColor(0x1C, 0x16, 0x12)
@@ -242,34 +241,91 @@ def build() -> None:
         y += 1.15
     footer(s, 8)
 
-    # 09 live demo
+    # 09 live demo — callouts only; no screenshot (start-screen shot was misleading)
     s = prs.slides.add_slide(blank)
     fill_slide(s, PAPER)
     kicker(s, "實機")
     add_text(
         s,
         Inches(0.6),
-        Inches(0.7),
+        Inches(0.85),
         Inches(12.1),
         Inches(0.4),
-        [("委託人　｜　代理人　｜　機關＋稽核", 16, MUTED, False)],
+        [("三欄同一畫面。看這四件事。", 16, MUTED, False)],
     )
-    if SHOT.exists():
-        s.shapes.add_picture(str(SHOT), Inches(1.7), Inches(1.2), height=Inches(5.55))
-    else:
-        add_text(s, Inches(0.8), Inches(2.5), Inches(11.5), Inches(2), [
-            ("三欄線框", 28, INK, True),
-            ("左：對話＋兩張匣　　中：計畫／看得見什麼　　右：甲 vs 乙＋時間線", 16, MUTED, False),
-        ])
+    cols = [
+        ("甲匣", "戶籍＋親子", "沒有電號、所得"),
+        ("乙匣", "電號＋三月用電", "沒有戶籍、所得"),
+        ("越權", "乙要戶籍", "403　半包也不給"),
+        ("稽核", "核准／擷取／送件", "撤銷／拒絕"),
+    ]
+    x = 0.6
+    for title, line, note in cols:
+        card = s.shapes.add_shape(
+            MSO_SHAPE.ROUNDED_RECTANGLE, Inches(x), Inches(1.5), Inches(2.9), Inches(4.4)
+        )
+        card.fill.solid()
+        card.fill.fore_color.rgb = WHITE
+        card.line.color.rgb = RULE
+        add_text(
+            s,
+            Inches(x + 0.18),
+            Inches(1.7),
+            Inches(2.55),
+            Inches(4.0),
+            [
+                (title, 14, MUTED, True),
+                (line, 22, INK, True),
+                (note, 14, SEAL if "403" in note else MUTED, False),
+            ],
+        )
+        x += 3.15
     footer(s, 9)
 
     # 10 MPA
     s = prs.slides.add_slide(blank)
     fill_slide(s, PAPER)
     kicker(s, "MPA")
-    add_text(s, Inches(0.8), Inches(1.8), Inches(11.5), Inches(1), [("多個委託人，約束同一個代理人。", 32, INK, True)])
-    add_text(s, Inches(0.8), Inches(3.2), Inches(11.5), Inches(0.7), [("一人一匣。", 32, BOX, True)])
-    add_text(s, Inches(0.8), Inches(4.3), Inches(11.5), Inches(0.7), [("不是一人一把萬能鑰匙。", 22, MUTED, False)])
+    add_text(
+        s,
+        Inches(0.8),
+        Inches(1.15),
+        Inches(11.5),
+        Inches(0.7),
+        [("多個委託人，約束同一個代理人。一人一匣。", 24, INK, True)],
+    )
+    add_text(
+        s,
+        Inches(0.8),
+        Inches(2.15),
+        Inches(11.5),
+        Inches(0.5),
+        [("同一套 Grant。換簽發人。", 28, BOX, True)],
+    )
+    add_text(
+        s,
+        Inches(0.8),
+        Inches(3.0),
+        Inches(11.5),
+        Inches(0.55),
+        [("主家搬家：簽發人 = 本人（同意）", 20, INK, False)],
+    )
+    add_text(
+        s,
+        Inches(0.8),
+        Inches(3.55),
+        Inches(11.5),
+        Inches(0.55),
+        [("執法調閱：簽發人 = 法院／搜索票，不是機關甲", 20, INK, False)],
+    )
+    add_text(
+        s,
+        Inches(0.8),
+        Inches(4.5),
+        Inches(11.5),
+        Inches(0.9),
+        [("甲是收件人。乙仍簽署這包是他的。人還在場。", 18, MUTED, False)],
+    )
     footer(s, 10)
 
     # 11 RBA bonus
