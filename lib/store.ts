@@ -10,8 +10,10 @@ import type {
   DemoState,
   FieldId,
   GrantId,
+  VaultHolding,
 } from "./types";
 import { FIELD_IDS } from "./types";
+import { VAULT } from "./vault";
 
 const STORE_PATH = process.env.GRANTONCE_STORE ?? "/tmp/grantonce-runtime.json";
 
@@ -21,6 +23,16 @@ function nowIso(): string {
 
 function id(prefix: string): string {
   return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+}
+
+function buildVaultHoldings(): VaultHolding[] {
+  return FIELD_IDS.map((fieldId) => ({
+    fieldId,
+    label: FIELD_META[fieldId].label,
+    group: FIELD_META[fieldId].group,
+    value: VAULT.records[fieldId],
+    sealed: Boolean(FIELD_META[fieldId].sealed),
+  }));
 }
 
 export function createInitialState(): DemoState {
@@ -40,6 +52,7 @@ export function createInitialState(): DemoState {
       sealed: Boolean(FIELD_META[fieldId].sealed),
       note: FIELD_META[fieldId].note,
     })),
+    vaultHoldings: buildVaultHoldings(),
     grants: [],
     envelopes: {
       "G-甲": { grantId: "G-甲", agencyId: "jia", fields: {}, fetchedAt: null },
@@ -88,10 +101,18 @@ function persist(state: DemoState) {
 }
 
 export function getState(): DemoState {
-  if (memory) return memory;
+  if (memory) {
+    if (!memory.vaultHoldings?.length) {
+      memory.vaultHoldings = buildVaultHoldings();
+    }
+    return memory;
+  }
   try {
     if (existsSync(STORE_PATH)) {
       memory = JSON.parse(readFileSync(STORE_PATH, "utf8")) as DemoState;
+      if (!memory.vaultHoldings?.length) {
+        memory.vaultHoldings = buildVaultHoldings();
+      }
       return memory;
     }
   } catch {

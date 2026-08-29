@@ -60,6 +60,27 @@ export function agentSight(state: DemoState) {
   };
 }
 
+export function incomeNeverGranted(state: DemoState): boolean {
+  return state.grants.every((grant) => !grant.fields.some((id) => INCOME_FIELDS.includes(id)));
+}
+
+export function incomeSummary(state: DemoState): { label: string; value: string }[] {
+  return (state.vaultHoldings ?? [])
+    .filter((h) => INCOME_FIELDS.includes(h.fieldId))
+    .map((h) => ({ label: h.label, value: h.value }));
+}
+
+export function grantExpiry(status: GrantStatus): string {
+  if (status === "consumed") return "已於送件時失效";
+  if (status === "revoked") return "已撤銷";
+  if (status === "active") return "一次有效 · 送件即失效";
+  return "核准後一次有效 · 送件即失效";
+}
+
+export function agencyTitle(agencyId: "jia" | "yi"): string {
+  return agencyId === "jia" ? "甲｜新北市社會局" : "乙｜經濟部 × 台電";
+}
+
 export function envelopeHasIncome(state: DemoState, grantId: GrantId): boolean {
   const fields = state.envelopes[grantId]?.fields ?? {};
   return INCOME_FIELDS.some((id) => id in fields);

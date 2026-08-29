@@ -1,4 +1,4 @@
-import { GRANT_FIELDS, HOUSEHOLD_FIELDS, isFieldId, normalizeGrantId } from "./fields";
+import { FIELD_META, GRANT_FIELDS, HOUSEHOLD_FIELDS, isFieldId, normalizeGrantId } from "./fields";
 import { agencyOf, appendAudit, grantById, mutate, nowIso } from "./store";
 import type { DemoState, FetchResult, FieldId, Grant, GrantId } from "./types";
 import { readVaultFields } from "./vault";
@@ -19,10 +19,10 @@ export function asGrantId(value: string): GrantId | null {
 }
 
 function inactiveMessage(grant: Grant): string {
-  if (grant.status === "proposed") return `匣 ${grant.id} 尚未核准，拒絕擷取`;
-  if (grant.status === "revoked") return `匣 ${grant.id} 已撤銷，拒絕擷取`;
-  if (grant.status === "consumed") return `匣 ${grant.id} 已隨送件耗用，拒絕重放擷取`;
-  return `匣 ${grant.id} 不可用`;
+  if (grant.status === "proposed") return `匣 ${grant.id} 尚未核准，拒絕擷取。`;
+  if (grant.status === "revoked") return `匣 ${grant.id} 已撤銷，拒絕擷取。`;
+  if (grant.status === "consumed") return `匣 ${grant.id} 已耗用，拒絕重放擷取。`;
+  return `匣 ${grant.id} 不可用。`;
 }
 
 function stampAgencyDenial(
@@ -136,11 +136,13 @@ export function fetchWithGrant(
     const allow = new Set(grant.fields);
     const extra = typed.filter((f) => !allow.has(f));
     if (unknown.length || extra.length) {
+      const names =
+        extra.map((f) => FIELD_META[f].label).join("、") || unknown.join("、");
       result = {
         ok: false,
         status: 403,
         code: "OVERSCOPED",
-        error: `越權關閉：匣 ${grant.id} 未授權 ${[...extra, ...unknown].join("、")}`,
+        error: `匣 ${grant.id} 未授權${names}，請求關閉。`,
         deniedFields: extra,
       };
       appendAudit(s, {

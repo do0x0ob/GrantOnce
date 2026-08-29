@@ -1,6 +1,5 @@
-import { ScrollArea } from "@/components/ui/scroll-area";
-import type { AuditEntry } from "@/lib/types";
-import { formatClock } from "@/lib/view";
+import type { AuditEntry, DemoState } from "@/lib/types";
+import { incomeNeverGranted, incomeSummary } from "@/lib/view";
 
 const ACTION: Record<AuditEntry["action"], { label: string; className: string }> = {
   approve: { label: "核准", className: "bg-emerald-800 text-emerald-50" },
@@ -10,41 +9,62 @@ const ACTION: Record<AuditEntry["action"], { label: string; className: string }>
   deny: { label: "拒絕", className: "bg-red-800 text-red-50" },
 };
 
-export function AuditTimeline({ entries }: { entries: AuditEntry[] }) {
-  if (entries.length === 0) {
-    return (
-      <p className="text-sm text-stone-500">
-        還沒有稽核紀錄。核准、擷取、送件、撤銷、拒絕都會出現在這裡。
-      </p>
-    );
-  }
-
+export function AuditTimeline({
+  entries,
+  state,
+}: {
+  entries: AuditEntry[];
+  state: DemoState;
+}) {
+  const income = incomeSummary(state);
+  const heldOut = incomeNeverGranted(state);
   const chronological = [...entries].reverse();
 
   return (
-    <ScrollArea className="h-[280px] pr-3">
-      <ol className="relative space-y-3 border-l border-stone-300 pl-4">
-        {chronological.map((entry) => {
-          const meta = ACTION[entry.action];
-          return (
-            <li key={entry.id} className="relative">
-              <span className="absolute top-1.5 -left-[21px] size-2.5 rounded-full bg-stone-400" />
-              <div className="flex flex-wrap items-center gap-2">
-                <span className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${meta.className}`}>
+    <div className="space-y-3">
+      <div className="rounded-lg border border-stone-800/15 bg-[#fbf8f1] px-3 py-2">
+        <p className="text-[11px] tracking-wide text-stone-500">所得</p>
+        {income.length > 0 ? (
+          <p className="text-[13px] leading-5 text-stone-900">
+            {income.map((row) => `${row.label} ${row.value}`).join("　")}
+          </p>
+        ) : (
+          <p className="text-[13px] text-stone-700">金庫有所得紀錄</p>
+        )}
+        <p className={`text-[13px] font-medium ${heldOut ? "text-emerald-900" : "text-red-800"}`}>
+          {heldOut ? "未進入任何授權匣" : "錯誤：所得已被列入匣"}
+        </p>
+      </div>
+
+      {chronological.length === 0 ? (
+        <p className="text-[13px] text-stone-500">尚無核准、擷取、送件、撤銷、拒絕。</p>
+      ) : (
+        <ol className="divide-y divide-stone-200 border-y border-stone-200">
+          {chronological.map((entry) => {
+            const meta = ACTION[entry.action];
+            return (
+              <li key={entry.id} className="grid grid-cols-[3.1rem_2.4rem_2.4rem_1fr] items-baseline gap-2 py-2 text-[13px]">
+                <span className="font-mono text-[11px] text-stone-500">{clock(entry.at)}</span>
+                <span className={`inline-flex h-5 w-fit items-center rounded px-1 text-[11px] font-medium ${meta.className}`}>
                   {meta.label}
                 </span>
-                {entry.grantId ? (
-                  <span className="font-mono text-[11px] text-stone-600">{entry.grantId}</span>
-                ) : null}
-                <span className="text-[11px] text-stone-500">{formatClock(entry.at)}</span>
-              </div>
-              <p className="mt-1 text-xs leading-5 text-stone-700">
-                {entry.actor} · {entry.detail}
-              </p>
-            </li>
-          );
-        })}
-      </ol>
-    </ScrollArea>
+                <span className="font-mono text-[12px] text-stone-700">{entry.grantId ?? "—"}</span>
+                <span className="leading-5 text-stone-800">{entry.detail}</span>
+              </li>
+            );
+          })}
+        </ol>
+      )}
+    </div>
   );
+}
+
+function clock(iso: string): string {
+  return new Date(iso).toLocaleTimeString("zh-TW", {
+    hour12: false,
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    timeZone: "Asia/Taipei",
+  });
 }

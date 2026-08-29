@@ -98,6 +98,14 @@ export type VaultCatalogEntry = {
   note: string;
 };
 
+export type VaultHolding = {
+  fieldId: FieldId;
+  label: string;
+  group: string;
+  value: string;
+  sealed: boolean;
+};
+
 export type DemoState = {
   principal: {
     id: string;
@@ -106,6 +114,7 @@ export type DemoState = {
     synthetic: true;
   };
   vaultCatalog: VaultCatalogEntry[];
+  vaultHoldings: VaultHolding[];
   grants: Grant[];
   envelopes: Record<GrantId, Envelope>;
   audit: AuditEntry[];

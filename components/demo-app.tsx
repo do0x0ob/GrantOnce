@@ -23,15 +23,12 @@ export function DemoApp({ initialState }: { initialState: DemoState }) {
 
   return (
     <div className="flex h-full min-h-0 flex-1 flex-col">
-      <header className="flex shrink-0 flex-wrap items-start justify-between gap-3 border-b border-stone-300/80 bg-[#fbf7ee]/90 px-4 py-3 backdrop-blur">
+      <header className="flex shrink-0 items-center justify-between gap-3 border-b border-stone-300/80 bg-[#fbf8f1] px-4 py-2.5">
         <div>
-          <p className="font-serif text-2xl tracking-wide text-stone-900">
-            GrantOnce <span className="text-lg text-stone-600">分匣授權</span>
+          <p className="font-serif text-[22px] leading-7 tracking-wide text-stone-900">
+            GrantOnce <span className="text-[17px] text-stone-600">分匣授權</span>
           </p>
-          <p className="text-sm text-stone-700">只准這一次，而且只准這一匣。</p>
-          <p className="text-[11px] text-stone-500">
-            假 MyData · 假送件 · 授權層是 Grant，不是帳號權限
-          </p>
+          <p className="text-[13px] text-stone-700">只准這一次，而且只准這一匣。</p>
         </div>
         <Button variant="outline" size="sm" disabled={demo.busy} onClick={() => void demo.reset()}>
           重設演示
