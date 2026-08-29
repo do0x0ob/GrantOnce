@@ -59,7 +59,7 @@ export function DemoApp({ initialState }: { initialState: DemoState }) {
 
       <div className="grid min-h-0 flex-1 grid-cols-1 xl:grid-cols-3">
         <section
-          className={`min-h-0 overflow-auto border-stone-300/80 p-4 xl:block xl:border-r ${pane === "principal" ? "block" : "hidden"}`}
+          className={`flex min-h-0 flex-col overflow-hidden border-stone-300/80 p-4 xl:flex xl:border-r ${pane === "principal" ? "flex" : "hidden"}`}
         >
           <PrincipalPane
             state={demo.state}
