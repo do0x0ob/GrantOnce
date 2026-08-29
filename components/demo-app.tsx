@@ -107,35 +107,34 @@ export function DemoApp({ initialState }: { initialState: DemoState }) {
               demo.fetchMyData({
                 grantId: "G-乙",
                 fields: HOUSEHOLD_FIELDS,
-                presenter: "agency-yi",
               })
             }
-            onAudienceYi={() =>
+            onSlotAsTicketYi={() =>
               demo.fetchMyData({
                 grantId: "G-甲",
                 fields: JIA_FIELDS,
-                presenter: "agency-yi",
+                ticket: "G-jia",
               })
             }
             onOverscopeJia={() =>
               demo.fetchMyData({
                 grantId: "G-甲",
                 fields: YI_FIELDS,
-                presenter: "agency-jia",
               })
             }
-            onPeekYi={() =>
-              demo.peekEnvelope({
+            onSlotAsTicketJia={() =>
+              demo.fetchMyData({
                 grantId: "G-乙",
-                presenter: "agency-jia",
+                fields: HOUSEHOLD_FIELDS,
+                ticket: "G-yi",
               })
             }
-            onSubmitJia={() => demo.submit("G-甲", "agency-jia")}
+            onSubmitJia={() => demo.submit("G-甲")}
             onReplayJia={() =>
               demo.fetchMyData({
                 grantId: "G-甲",
                 fields: JIA_FIELDS,
-                presenter: "agency-jia",
+                ticket: "G-jia",
               })
             }
           />

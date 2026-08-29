@@ -17,9 +17,9 @@ export function AgencyPane({
   contrast,
   fatFields,
   onOverscopeYi,
-  onAudienceYi,
+  onSlotAsTicketYi,
   onOverscopeJia,
-  onPeekYi,
+  onSlotAsTicketJia,
   onSubmitJia,
   onReplayJia,
 }: {
@@ -28,9 +28,9 @@ export function AgencyPane({
   contrast: boolean;
   fatFields: Partial<Record<FieldId, string>>;
   onOverscopeYi: () => Promise<unknown>;
-  onAudienceYi: () => Promise<unknown>;
+  onSlotAsTicketYi: () => Promise<unknown>;
   onOverscopeJia: () => Promise<unknown>;
-  onPeekYi: () => Promise<unknown>;
+  onSlotAsTicketJia: () => Promise<unknown>;
   onSubmitJia: () => Promise<unknown>;
   onReplayJia: () => Promise<unknown>;
 }) {
@@ -84,9 +84,9 @@ export function AgencyPane({
             variant="ghost"
             className="rounded-full text-stone-400"
             disabled={busy || !yi}
-            onClick={() => void onPeekYi()}
+            onClick={() => void onSlotAsTicketJia()}
           >
-            讀乙收件匣
+            用匣號 G-乙
           </Button>
         </AgencyCard>
 
@@ -112,10 +112,10 @@ export function AgencyPane({
             size="sm"
             variant="ghost"
             className="rounded-full text-stone-400"
-            disabled={busy || !jiaActive}
-            onClick={() => void onAudienceYi()}
+            disabled={busy || !jia}
+            onClick={() => void onSlotAsTicketYi()}
           >
-            用甲的匣擷取
+            用匣號 G-甲
           </Button>
         </AgencyCard>
       </div>

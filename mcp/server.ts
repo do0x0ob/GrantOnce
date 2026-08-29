@@ -54,7 +54,7 @@ export function createGrantOnceServer(): McpServer {
     {
       title: "核准授權匣",
       description:
-        "不會核准。模型只能提出匣；核准由委託人在畫面完成，claims 留給 passkey 隊友簽。呼叫此工具會得到 CONSENT_REQUIRED。",
+        "委託人核准一張最小欄位授權匣。runtime 發出 HMAC ticket（綁 issuer、audience、fields、exp）。回傳 ticket 與欄位 ID，不含金庫值。",
       inputSchema: {
         grantId: z.string().describe("匣編號：G-甲 / G-jia 或 G-乙 / G-yi"),
       },
@@ -65,25 +65,21 @@ export function createGrantOnceServer(): McpServer {
   server.registerTool(
     "fetch_field",
     {
-      title: "依匣擷取欄位",
+      title: "依 ticket 擷取欄位",
       description:
-        "用授權匣向假 MyData 擷取。目前仍以工具參數 actor 比對 grant.audience（尚未綁定 runtime）。不符則 403 + 稽核。越權（例如機關乙要戶籍）fail closed。成功時欄位值只進機關收件匣，不回傳給模型。",
+        "只用 HMAC ticket 向假 MyData 擷取。沒有 actor。匣號 G-jia／G-yi 不是憑證。越權 fail closed。成功時欄位值只進機關收件匣，不回傳給模型。",
       inputSchema: {
-        grantId: z
+        ticket: z
           .string()
-          .describe("匣編號或 jti：G-甲 / G-jia、G-乙 / G-yi，或核准後的 grn_…"),
+          .optional()
+          .describe("approve_grant 回傳的 HMAC ticket（ticket id 或 grn_….<mac>）。匣號無效。"),
         fields: z
           .array(z.string())
           .optional()
-          .describe("要擷取的欄位 ID。省略時預設戶籍欄位（乙匣會 403）。"),
-        actor: z
-          .string()
-          .optional()
-          .describe("工具參數：宣告的呼叫端 id，用來比對 audience。尚未從 runtime 綁定。"),
+          .describe("要擷取的欄位 ID。省略時預設戶籍欄位（乙匣 ticket 會 403）。"),
       },
     },
-    async ({ grantId, fields, actor }) =>
-      runTool("fetch_field", { grantId, fields, actor }),
+    async ({ ticket, fields }) => runTool("fetch_field", { ticket, fields }),
   );
 
   server.registerTool(
@@ -91,16 +87,15 @@ export function createGrantOnceServer(): McpServer {
     {
       title: "送出申請",
       description:
-        "用有效匣送件。目前仍以工具參數 actor 比對 grant.audience。不符則 403 + 稽核。送件後匣立即耗用；之後 fetch_field 重放會 403。",
+        "用 HMAC ticket 送件。沒有 actor。送件後匣耗用、ticket 失效、收件匣改收據；重放 fetch_field 會 403。",
       inputSchema: {
-        grantId: z.string().describe("匣編號：G-甲 / G-jia 或 G-乙 / G-yi"),
-        actor: z
+        ticket: z
           .string()
           .optional()
-          .describe("工具參數：宣告的呼叫端 id，用來比對 audience。尚未從 runtime 綁定。"),
+          .describe("approve_grant 回傳的 HMAC ticket（ticket id 或 grn_….<mac>）。匣號無效。"),
       },
     },
-    async ({ grantId, actor }) => runTool("submit_application", { grantId, actor }),
+    async ({ ticket }) => runTool("submit_application", { ticket }),
   );
 
   server.registerTool(
@@ -108,18 +103,13 @@ export function createGrantOnceServer(): McpServer {
     {
       title: "撤銷授權匣",
       description:
-        "撤銷尚未耗用的匣。呼叫端必須是 grant.issuer，否則 403 + 稽核。省略 caller 時用目前 session 的 principal。",
+        "撤銷尚未耗用的匣。issuer 固定為 runtime session principal，工具不能自報身分。",
       inputSchema: {
         grantId: z.string().describe("匣編號：G-甲 / G-jia 或 G-乙 / G-yi"),
         reason: z.string().optional().describe("撤銷原因"),
-        caller: z
-          .string()
-          .optional()
-          .describe("宣告的呼叫端 id，必須等於 grant.issuer。省略則用 session principal。"),
       },
     },
-    async ({ grantId, reason, caller }) =>
-      runTool("revoke_grant", { grantId, reason, caller }),
+    async ({ grantId, reason }) => runTool("revoke_grant", { grantId, reason }),
   );
 
   server.registerTool(

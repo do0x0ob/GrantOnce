@@ -48,7 +48,7 @@ GrantOnce
 
 乙要戶籍 → **403 OVERSCOPED**
 
-乙拿甲的匣 → **403 AUDIENCE_MISMATCH**
+用匣號當票 → **403 BAD_TICKET**
 
 不回傳半包欄位。
 
@@ -62,7 +62,7 @@ GrantOnce
 
 ## 08 架構
 
-授權層 = Grant claims。`aud` + 欄位白名單。沒有 `fields:*`。
+授權層 = HMAC ticket。runtime 驗 `iss`／`aud`／`fields`／`exp`。沒有 `fields:*`。匣號不是憑證。
 
 甲匣、乙匣分開存。拿錯匣 403。
 
@@ -101,7 +101,7 @@ GrantOnce
 
 真 MyData 要數發部函。
 
-claims 由 passkey 簽。
+OID4VP／MyData 登入是下一層。
 
 週末用合成資料。
 

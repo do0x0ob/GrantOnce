@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useState } from "react";
-import type { DemoState, GrantId, PresenterId } from "@/lib/types";
+import type { DemoState, GrantId } from "@/lib/types";
 
 type ActionResult = {
   ok: boolean;
@@ -17,8 +17,8 @@ async function readPayload(res: Response): Promise<{ state?: DemoState; error?: 
   return { state: data.state, error: data.error };
 }
 
-function jtiFor(state: DemoState, grantId: GrantId): string | null {
-  return state.grants.find((grant) => grant.id === grantId)?.claims.jti ?? null;
+function ticketFor(state: DemoState, grantId: GrantId): string | null {
+  return state.grants.find((grant) => grant.id === grantId)?.ticket ?? null;
 }
 
 export function useDemo(initialState: DemoState) {
@@ -90,21 +90,15 @@ export function useDemo(initialState: DemoState) {
   );
 
   const fetchMyData = useCallback(
-    async (input: {
-      grantId: GrantId;
-      fields: string[];
-      actor: string;
-    }) => {
+    async (input: { grantId: GrantId; fields: string[]; ticket?: string }) => {
       setBusy(true);
       try {
-        const jti = jtiFor(state, input.grantId);
-        const token = jti ?? input.grantId;
+        const token = input.ticket ?? ticketFor(state, input.grantId) ?? input.grantId;
         const res = await fetch("/api/mydata/fetch", {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
             Authorization: `Bearer Grant ${token}`,
-            "X-GrantOnce-Presenter": input.presenter,
           },
           body: JSON.stringify({
             fields: input.fields,
@@ -118,18 +112,18 @@ export function useDemo(initialState: DemoState) {
     [apply, state],
   );
 
-  const peekEnvelope = useCallback(
-    async (input: { grantId: GrantId; presenter: PresenterId }) => {
+  const submit = useCallback(
+    async (grantId: GrantId, ticketOverride?: string) => {
       setBusy(true);
       try {
-        const jti = jtiFor(state, input.grantId);
-        const res = await fetch("/api/envelopes/peek", {
+        const ticket = ticketOverride ?? ticketFor(state, grantId) ?? "";
+        const res = await fetch("/api/applications/submit", {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            "X-GrantOnce-Presenter": input.presenter,
+            ...(ticket ? { Authorization: `Bearer Grant ${ticket}` } : {}),
           },
-          body: JSON.stringify({ grantId: jti ?? input.grantId }),
+          body: JSON.stringify({ ticket }),
         });
         return await apply(res);
       } finally {
@@ -137,23 +131,6 @@ export function useDemo(initialState: DemoState) {
       }
     },
     [apply, state],
-  );
-
-  const submit = useCallback(
-    async (grantId: GrantId, actor: string) => {
-      setBusy(true);
-      try {
-        const res = await fetch("/api/applications/submit", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ grantId, actor }),
-        });
-        return await apply(res);
-      } finally {
-        setBusy(false);
-      }
-    },
-    [apply],
   );
 
   const reset = useCallback(async () => {
@@ -175,7 +152,6 @@ export function useDemo(initialState: DemoState) {
     approve,
     revoke,
     fetchMyData,
-    peekEnvelope,
     submit,
     reset,
   };

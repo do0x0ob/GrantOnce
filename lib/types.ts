@@ -25,12 +25,25 @@ export type AgencyId = "jia" | "yi";
 export type GrantStatus = "pending" | "active" | "consumed" | "revoked";
 export type GrantSource = "mydata" | "wallet" | "user";
 export type RevokeOn = "submitted" | "user" | "expired";
-export type AuditAction = "approve" | "fetch" | "submit" | "revoke" | "deny";
+export type AuditAction = "approve" | "fetch" | "submit" | "revoke" | "deny" | "receipt";
+
+export type TicketClaims = {
+  jti: string;
+  grantId: GrantId;
+  iss: string;
+  aud: string;
+  fields: FieldId[];
+  exp: string;
+};
+
+export type StoredTicket = TicketClaims & {
+  token: string;
+};
 
 /**
  * GrantOnce authorization instrument. Harness-agnostic protocol object.
  * issuer = who authorized (person / court / institution id — never implied).
- * audience = who may fetch/submit. Callers cannot self-claim this field.
+ * audience = who may fetch/submit. Bound into the HMAC ticket at approve time.
  */
 export type Grant = {
   id: GrantId;
@@ -50,6 +63,13 @@ export type Grant = {
   approvedAt: string | null;
   revokedAt: string | null;
   consumedAt: string | null;
+  /** Opaque ticket id `grn_…`. Null until approve. */
+  ticketId: string | null;
+  /**
+   * Full HMAC ticket for the agency desk harness. Not the HMAC key.
+   * Grant cards must not draw this.
+   */
+  ticket: string | null;
 };
 
 export type EnvelopeReceipt = {
@@ -71,9 +91,8 @@ export type ProtocolEvent = {
   at: string;
   request: {
     authorization: string;
-    presenter: string | null;
     fields: string[];
-    path: "/api/mydata/fetch" | "/api/envelopes/peek";
+    path: "/api/mydata/fetch" | "/api/applications/submit";
   };
   response: {
     ok: boolean;
@@ -157,6 +176,7 @@ export type DemoState = {
   vaultHoldings: VaultHolding[];
   grants: Grant[];
   envelopes: Record<GrantId, Envelope>;
+  tickets: Record<string, StoredTicket>;
   audit: AuditEntry[];
   chat: ChatMessage[];
   plan: AgentPlan | null;
@@ -169,22 +189,9 @@ export type AuthzDenialCode =
   | "GRANT_INACTIVE"
   | "UNKNOWN_GRANT"
   | "BAD_BEARER"
-  | "WILDCARD_FORBIDDEN"
-  | "AUDIENCE_MISMATCH";
-
-export type GrantCaller = {
-  id: PresenterId;
-  name?: string;
-};
-
-export type AuthzDenialCode =
-  | "OVERSCOPED"
-  | "GRANT_INACTIVE"
-  | "UNKNOWN_GRANT"
-  | "BAD_BEARER"
+  | "BAD_TICKET"
   | "WILDCARD_FORBIDDEN"
   | "AUDIENCE_MISMATCH"
-  | "MISSING_ACTOR"
   | "ISSUER_MISMATCH"
   | "NO_ENVELOPE";
 
@@ -206,7 +213,7 @@ export type SubmitResult =
   | { ok: true; grantId: GrantId }
   | { ok: false; status: 403; code: AuthzDenialCode; error: string };
 
-/** Caller of fetch_field / submit_application. `id` must equal grant.audience. */
+/** Library-only caller for revoke issuer checks. MCP does not take this. */
 export type GrantCaller = {
   id: string;
   name?: string;

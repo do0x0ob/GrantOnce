@@ -210,9 +210,9 @@ def build() -> None:
     s = prs.slides.add_slide(blank)
     fill_slide(s, PAPER)
     kicker(s, "越權關閉")
-    add_text(s, Inches(0.8), Inches(1.7), Inches(11.5), Inches(0.7), [("乙要戶籍。乙拿甲的匣。", 32, INK, True)])
+    add_text(s, Inches(0.8), Inches(1.7), Inches(11.5), Inches(0.7), [("乙要戶籍。用匣號當票。", 32, INK, True)])
     add_text(s, Inches(0.8), Inches(2.7), Inches(11.5), Inches(1.2), [("403", 72, SEAL, True)])
-    add_text(s, Inches(0.8), Inches(4.6), Inches(11.5), Inches(0.7), [("OVERSCOPED · AUDIENCE_MISMATCH。不回傳半包。", 20, MUTED, False)])
+    add_text(s, Inches(0.8), Inches(4.6), Inches(11.5), Inches(0.7), [("OVERSCOPED · BAD_TICKET。不回傳半包。", 20, MUTED, False)])
     footer(s, 6)
 
     # 07 revoke
@@ -229,7 +229,7 @@ def build() -> None:
     fill_slide(s, PAPER)
     kicker(s, "架構")
     rows = [
-        ("Grant claims", "jti + aud + 欄位白名單。沒有 fields:*。"),
+        ("HMAC ticket", "runtime 驗 iss／aud／fields／exp。匣號不是憑證。"),
         ("孤立匣", "甲、乙各存各的。拿錯匣 403。"),
         ("規則引擎", "搬家 + 0–2 歲 → 津貼。有電表 → 汰換。"),
         ("LLM 不管授權", "模型不能發匣、不能核准、不能放行欄位。"),
@@ -343,7 +343,7 @@ def build() -> None:
     fill_slide(s, PAPER)
     kicker(s, "下一步")
     add_text(s, Inches(0.8), Inches(1.8), Inches(11.5), Inches(0.8), [("真 MyData 要數發部函。", 32, INK, True)])
-    add_text(s, Inches(0.8), Inches(2.8), Inches(11.5), Inches(0.7), [("claims 由 passkey 簽。", 32, INK, True)])
+    add_text(s, Inches(0.8), Inches(2.8), Inches(11.5), Inches(0.7), [("OID4VP／登入是下一層。", 32, INK, True)])
     add_text(s, Inches(0.8), Inches(3.6), Inches(11.5), Inches(0.5), [("週末用合成資料。", 20, MUTED, False)])
     rule(s, Inches(4.0))
     add_text(

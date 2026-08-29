@@ -8,7 +8,7 @@ export function ProtocolInspector({ event }: { event: ProtocolEvent | null }) {
       <section className={`${SURFACE} px-5 py-4`}>
         <p className="text-[13px] leading-5 text-stone-400">協定</p>
         <p className="mt-1 text-[13px] leading-6 text-stone-400">
-          越權或拿錯匣的請求會出現在這裡：Bearer、presenter、403 JSON。
+          越權或沒帶有效 ticket 的請求會出現在這裡：Bearer grn_…、403 JSON。
         </p>
       </section>
     );
@@ -42,12 +42,6 @@ export function ProtocolInspector({ event }: { event: ProtocolEvent | null }) {
         <div className="grid grid-cols-[5.5rem_1fr] gap-2">
           <dt className="text-stone-400">Authorization</dt>
           <dd className="break-all font-mono text-stone-700">{event.request.authorization}</dd>
-        </div>
-        <div className="grid grid-cols-[5.5rem_1fr] gap-2">
-          <dt className="text-stone-400">Presenter</dt>
-          <dd className="font-mono text-stone-700">
-            {event.request.presenter ?? "（無）"}
-          </dd>
         </div>
         <div className="grid grid-cols-[5.5rem_1fr] gap-2">
           <dt className="text-stone-400">fields</dt>
