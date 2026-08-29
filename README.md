@@ -69,3 +69,53 @@ Authorization: Bearer Grant G-yi
 ```
 
 HTTP 標頭必須是 ASCII，所以匣 G-甲／G-乙 在線上是 `G-jia`／`G-yi`。畫面與稽核仍顯示 G-甲、G-乙。匣 G-乙 只允許台電欄位，所以上面這包會 403。
+
+## MCP（Grok Bot / Cursor 用 stdio）
+
+Grok Bot 與 Cursor 用 **stdio** 連這台 MCP，**不要走 HTTP**。HTTP 只是本機選用。
+
+模型永遠看不到金庫。工具只回欄位 ID、狀態、稽核；值由授權層寫進機關收件匣。
+
+```bash
+npx tsx mcp/server.ts
+# 或
+npm run mcp
+```
+
+Cursor / Grok Bot `mcp.json`（`cwd` 設成 repo 根目錄）：
+
+```json
+{
+  "mcpServers": {
+    "grantonce": {
+      "command": "npx",
+      "args": ["tsx", "mcp/server.ts"],
+      "cwd": "/absolute/path/to/GrantOnce",
+      "env": {
+        "GRANTONCE_STORE": "/tmp/grantonce-runtime.json"
+      }
+    }
+  }
+}
+```
+
+`GRANTONCE_STORE` 可省略（預設 `/tmp/grantonce-runtime.json`）。沒有 API key、沒有 secrets。
+
+工具：
+
+| 工具 | 做什麼 |
+| --- | --- |
+| `plan_applications` | 規則引擎列出 G-甲／G-乙，不讀金庫 |
+| `approve_grant` | 核准一匣；值進收件匣，不回給模型 |
+| `fetch_field` | 依匣擷取。乙要戶籍 → 403 + 稽核 |
+| `submit_application` | 送件即耗用；重放擷取 403 |
+| `revoke_grant` | 撤銷未耗用的匣 |
+| `get_audit` | 時間線；所得從未進入任何匣 |
+
+快樂路徑測試：`npm run test:mcp`
+
+選用 HTTP（Streamable HTTP，預設 `127.0.0.1:43128/mcp`）：
+
+```bash
+npm run mcp:http
+```
