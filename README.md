@@ -125,17 +125,19 @@ MCP 工具清單裡沒有任何簽署工具，而且 `mcp/test.ts` 不是用名�
 - 成對假名用 HMAC，跨機關無法比對
 - 上一版 schema 的 store 檔會被隔離而不是讓整個 app 崩掉
 
-## MCP（Grok Bot / Cursor）
+## MCP（協定客戶端）
 
-可貼給 Grok Bot 的完整指令、快樂路徑、以及 Cursor／遠端限制：[`docs/grok-bot.md`](docs/grok-bot.md)。專案已帶 `.cursor/mcp.json`（stdio）。
+MCP 是 GrantOnce 的非信任客戶端：可規劃、兌現、攔截、稽核，**不能簽署**。可貼進 Grok Bot／Cursor 的協定說明：[`docs/grok-bot.md`](docs/grok-bot.md)。專案已帶 `.cursor/mcp.json`（stdio）。
+
+參考實作裡的補助申請是 conformance profile，不是協定範圍。
 
 ```bash
 npm run mcp
 ```
 
-網頁與 MCP 共用同一個 store（預設 `/tmp/grantonce-runtime.json`）。寫入時互斥上鎖，讀取時偵測檔案異動重讀，不會分歧或互相覆蓋。
+與錢包 UI 共用 store（預設 `/tmp/grantonce-runtime.json`）。寫入互斥上鎖，讀取偵測檔案異動。
 
-工具：`plan_applications`、`get_grant_for_signature`、`redeem_grant`、`request_claims`、`submit_application`、`revoke_grant`、`stop_delegation`、`get_audit`。**沒有簽署工具。**
+工具：`plan_applications`、`get_grant_for_signature`、`redeem_grant`、`request_claims`、`submit_application`、`revoke_grant`、`stop_delegation`、`get_audit`。
 
 ## 這個設計的名字
 
