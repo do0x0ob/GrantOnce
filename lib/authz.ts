@@ -232,11 +232,10 @@ export function fetchWithGrant(
 export function proposeGrantsFromPlan(
   state: DemoState,
   programs: { grantId: GrantId; title: string; agencyId: "jia" | "yi" }[],
-  options?: { issuer?: string; subject?: string },
 ) {
   const at = nowIso();
-  const issuer = options?.issuer?.trim() || state.principal.id;
-  const subject = options?.subject?.trim() || state.principal.id;
+  const issuer = state.principal.id;
+  const subject = state.principal.id;
   for (const program of programs) {
     if (grantById(state, program.grantId)) continue;
     state.grants.push({
@@ -260,10 +259,7 @@ export function proposeGrantsFromPlan(
   }
 }
 
-export function approveGrantAndFetch(
-  grantId: GrantId,
-  options?: { issuer?: string },
-): { state: DemoState; error?: string } {
+export function approveGrantAndFetch(grantId: GrantId): { state: DemoState; error?: string } {
   let error: string | undefined;
   let audience: string | null = null;
   mutate((s) => {
@@ -276,8 +272,7 @@ export function approveGrantAndFetch(
       error = `匣 ${grantId} 目前是 ${grant.status}，不能核准`;
       return;
     }
-    const issuer = options?.issuer?.trim() || grant.issuer || s.principal.id;
-    grant.issuer = issuer;
+    const issuer = grant.issuer || s.principal.id;
     grant.status = "active";
     grant.approvedAt = nowIso();
     grant.revokedAt = null;
@@ -301,33 +296,84 @@ export function approveGrantAndFetch(
   return { state };
 }
 
-export function revokeGrant(grantId: GrantId, reason: string): { state: DemoState; error?: string } {
-  let error: string | undefined;
+export function revokeGrant(
+  grantId: GrantId,
+  reason: string,
+  caller: GrantCaller | null,
+): { state: DemoState; result: SubmitResult } {
+  let result: SubmitResult = {
+    ok: false,
+    status: 403,
+    code: "UNKNOWN_GRANT",
+    error: `找不到匣 ${grantId}`,
+  };
   const state = mutate((s) => {
     const grant = grantById(s, grantId);
     if (!grant) {
-      error = `找不到匣 ${grantId}`;
+      result = {
+        ok: false,
+        status: 403,
+        code: "UNKNOWN_GRANT",
+        error: `找不到匣 ${grantId}`,
+      };
+      appendAudit(s, {
+        actor: callerName(caller),
+        actorRole: caller?.id ? actorRole(caller.id) : "system",
+        action: "deny",
+        grantId,
+        detail: result.error,
+      });
       return;
     }
+
+    const callerId = caller?.id?.trim() || s.principal.id;
+    if (callerId !== grant.issuer) {
+      result = {
+        ok: false,
+        status: 403,
+        code: "ISSUER_MISMATCH",
+        error: `匣 ${grant.id} 的 issuer 是 ${grant.issuer}，呼叫端 ${callerId} 不得撤銷。`,
+      };
+      appendAudit(s, {
+        actor: callerName(caller ?? { id: callerId }),
+        actorRole: actorRole(callerId),
+        action: "deny",
+        grantId: grant.id,
+        detail: result.error,
+      });
+      return;
+    }
+
     if (grant.status === "consumed") {
-      error = `匣 ${grantId} 已耗用，無法再撤銷`;
+      result = {
+        ok: false,
+        status: 403,
+        code: "GRANT_INACTIVE",
+        error: `匣 ${grantId} 已耗用，無法再撤銷`,
+      };
       return;
     }
     if (grant.status === "revoked") {
-      error = `匣 ${grantId} 已撤銷`;
+      result = {
+        ok: false,
+        status: 403,
+        code: "GRANT_INACTIVE",
+        error: `匣 ${grantId} 已撤銷`,
+      };
       return;
     }
     grant.status = "revoked";
     grant.revokedAt = nowIso();
     appendAudit(s, {
-      actor: grant.issuer || s.principal.id,
+      actor: grant.issuer,
       actorRole: "principal",
       action: "revoke",
       grantId,
       detail: reason,
     });
+    result = { ok: true, grantId };
   });
-  return { state, error };
+  return { state, result };
 }
 
 function denySubmit(

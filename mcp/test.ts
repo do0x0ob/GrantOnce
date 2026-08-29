@@ -101,16 +101,13 @@ async function main() {
     "income never enters a proposed grant",
   );
 
-  const approveJia = await call(client, "approve_grant", {
-    grantId: "G-jia",
-    issuer: "court:warrant-2026-0812",
-  });
+  const approveJia = await call(client, "approve_grant", { grantId: "G-jia" });
   assert(approveJia.data.ok === true, "approve_grant G-甲");
   const approvedJia = approveJia.data.grant as PublicGrant;
   assert(approvedJia.status === "active", "G-甲 is active");
   assert(
-    approvedJia.issuer === "court:warrant-2026-0812",
-    "issuer can be a court / warrant, not a hardcoded persona",
+    approvedJia.issuer === "P-lin-demo",
+    "approve does not override issuer from the session",
   );
   assert(approvedJia.audience === "agency-jia", "approved G-甲 keeps audience");
 
@@ -118,7 +115,7 @@ async function main() {
   assert(approveYi.data.ok === true, "approve_grant G-乙");
   assert(
     (approveYi.data.grant as PublicGrant).issuer === "P-lin-demo",
-    "G-乙 issuer stays principal id when not overridden",
+    "G-乙 issuer stays session principal id",
   );
 
   const overscope = await call(client, "fetch_field", {
@@ -183,11 +180,28 @@ async function main() {
   assert(replay.data.status === 403, "replay is 403");
   assert(replay.data.code === "GRANT_INACTIVE", "replay code GRANT_INACTIVE");
 
+  const stealRevoke = await call(client, "revoke_grant", {
+    grantId: "G-乙",
+    caller: "agency-jia",
+    reason: "甲試圖撤銷乙匣",
+  });
+  assert(stealRevoke.data.ok === false, "non-issuer revoke is denied");
+  assert(stealRevoke.data.status === 403, "non-issuer revoke is 403");
+  assert(
+    stealRevoke.data.code === "ISSUER_MISMATCH",
+    "revoke-by-non-issuer code ISSUER_MISMATCH",
+  );
+  assert(stealRevoke.data.audited === true, "non-issuer revoke is audited");
+  assert(
+    (stealRevoke.data.grant as { status: string }).status === "active",
+    "G-乙 stays active after failed revoke",
+  );
+
   const revoke = await call(client, "revoke_grant", {
     grantId: "G-乙",
     reason: "演示撤銷乙匣",
   });
-  assert(revoke.data.ok === true, "revoke_grant G-乙");
+  assert(revoke.data.ok === true, "revoke_grant G-乙 by session issuer");
   assert(
     (revoke.data.grant as { status: string }).status === "revoked",
     "G-乙 status revoked",
@@ -201,12 +215,8 @@ async function main() {
   );
   const auditGrants = audit.data.grants as PublicGrant[];
   assert(
-    auditGrants.every((g) => g.issuer && g.issuer !== "林曉晴"),
-    "audit grants keep explicit issuer ids",
-  );
-  assert(
-    auditGrants.some((g) => g.issuer === "court:warrant-2026-0812"),
-    "audit records court issuer on G-甲",
+    auditGrants.every((g) => g.issuer === "P-lin-demo"),
+    "audit grants keep session issuer ids",
   );
   const entries = audit.data.audit as {
     action: string;
@@ -224,6 +234,10 @@ async function main() {
   assert(
     entries.some((e) => e.action === "deny" && e.detail.includes("audience")),
     "audit has audience mismatch",
+  );
+  assert(
+    entries.some((e) => e.action === "deny" && e.detail.includes("issuer")),
+    "audit has revoke-by-non-issuer",
   );
 
   await client.close();

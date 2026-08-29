@@ -88,7 +88,7 @@ function grantPublic(grantId: GrantId) {
   };
 }
 
-export function planApplications(utterance: string, issuer?: string) {
+export function planApplications(utterance: string) {
   const message = utterance.trim() || HAPPY_PATH_UTTERANCE;
   const situation = situationFromUtterance(message);
 
@@ -135,9 +135,7 @@ export function planApplications(utterance: string, issuer?: string) {
         "沒有「一次交出全部資料」的按鈕。",
       ],
     };
-    proposeGrantsFromPlan(s, programs, {
-      issuer: issuer?.trim() || undefined,
-    });
+    proposeGrantsFromPlan(s, programs);
     appendChat(
       s,
       "agent",
@@ -185,11 +183,9 @@ export function planApplications(utterance: string, issuer?: string) {
   return payload;
 }
 
-export function approveGrant(grantIdRaw: string, issuer?: string) {
+export function approveGrant(grantIdRaw: string) {
   const grantId = requireGrantId(grantIdRaw);
-  const { error } = approveGrantAndFetch(grantId, {
-    issuer: issuer?.trim() || undefined,
-  });
+  const { error } = approveGrantAndFetch(grantId);
   const grant = grantPublic(grantId);
   const payload = error
     ? { ok: false, error, grant }
@@ -279,16 +275,27 @@ export function submitApp(grantIdRaw: string, actorRaw?: string) {
   return payload;
 }
 
-export function revokeApp(grantIdRaw: string, reason?: string) {
+export function revokeApp(grantIdRaw: string, reason?: string, callerRaw?: string) {
   const grantId = requireGrantId(grantIdRaw);
-  const { error } = revokeGrant(
+  const callerId = parseActorId(callerRaw);
+  const { result } = revokeGrant(
     grantId,
     reason?.trim() || `委託人撤銷匣 ${grantId}`,
+    callerId ? { id: callerId, name: actorLabel(callerId) } : null,
   );
   const grant = grantPublic(grantId);
-  const payload = error
-    ? { ok: false, error, grant }
-    : { ok: true, grant, note: `匣 ${grantId} 已撤銷。` };
+  const payload = result.ok
+    ? { ok: true as const, grant, note: `匣 ${grantId} 已撤銷。` }
+    : {
+        ok: false as const,
+        status: 403 as const,
+        code: result.code,
+        error: result.error,
+        grantId,
+        caller: callerId,
+        grant,
+        audited: result.code === "ISSUER_MISMATCH",
+      };
   assertNoVaultLeak(payload, "revoke_grant");
   return payload;
 }
@@ -335,17 +342,11 @@ export function callTool(
   switch (name) {
     case "plan_applications":
       return {
-        data: planApplications(
-          String(args.utterance ?? ""),
-          args.issuer != null ? String(args.issuer) : undefined,
-        ),
+        data: planApplications(String(args.utterance ?? "")),
         isError: false,
       };
     case "approve_grant": {
-      const data = approveGrant(
-        String(args.grantId ?? ""),
-        args.issuer != null ? String(args.issuer) : undefined,
-      );
+      const data = approveGrant(String(args.grantId ?? ""));
       return { data, isError: data.ok === false };
     }
     case "fetch_field": {
@@ -369,6 +370,7 @@ export function callTool(
       const data = revokeApp(
         String(args.grantId ?? ""),
         args.reason != null ? String(args.reason) : undefined,
+        args.caller != null ? String(args.caller) : undefined,
       );
       return { data, isError: data.ok === false };
     }

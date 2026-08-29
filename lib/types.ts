@@ -146,6 +146,7 @@ export type AuthzDenialCode =
   | "WILDCARD_FORBIDDEN"
   | "AUDIENCE_MISMATCH"
   | "MISSING_ACTOR"
+  | "ISSUER_MISMATCH"
   | "NO_ENVELOPE";
 
 export type FetchResult =

@@ -44,14 +44,9 @@ export function createGrantOnceServer(): McpServer {
         utterance: z
           .string()
           .describe("委託人原話。快樂路徑：我剛搬家，看我能申請什麼。"),
-        issuer: z
-          .string()
-          .optional()
-          .describe("核准此匣的 principal id（人／法院／機構）。省略則用委託人 id，不得硬編姓名。"),
       },
     },
-    async ({ utterance, issuer }) =>
-      runTool("plan_applications", { utterance, issuer }),
+    async ({ utterance }) => runTool("plan_applications", { utterance }),
   );
 
   server.registerTool(
@@ -62,13 +57,9 @@ export function createGrantOnceServer(): McpServer {
         "委託人核准一張最小欄位授權匣。授權層會把白名單欄位寫入機關收件匣；回傳只含欄位 ID，不含金庫值。",
       inputSchema: {
         grantId: z.string().describe("匣編號：G-甲 / G-jia 或 G-乙 / G-yi"),
-        issuer: z
-          .string()
-          .optional()
-          .describe("實際核准的 principal id。執法故事可換成法院／搜索票，不是機關。"),
       },
     },
-    async ({ grantId, issuer }) => runTool("approve_grant", { grantId, issuer }),
+    async ({ grantId }) => runTool("approve_grant", { grantId }),
   );
 
   server.registerTool(
@@ -76,7 +67,7 @@ export function createGrantOnceServer(): McpServer {
     {
       title: "依匣擷取欄位",
       description:
-        "用授權匣向假 MyData 擷取。actor 必須等於 grant.audience，否則 403 + 稽核。越權（例如機關乙要戶籍）fail closed。成功時欄位值只進機關收件匣，不回傳給模型。",
+        "用授權匣向假 MyData 擷取。目前仍以工具參數 actor 比對 grant.audience（尚未綁定 runtime）。不符則 403 + 稽核。越權（例如機關乙要戶籍）fail closed。成功時欄位值只進機關收件匣，不回傳給模型。",
       inputSchema: {
         grantId: z.string().describe("匣編號：G-甲 / G-jia 或 G-乙 / G-yi"),
         fields: z
@@ -86,7 +77,7 @@ export function createGrantOnceServer(): McpServer {
         actor: z
           .string()
           .optional()
-          .describe("呼叫端 id，必須等於該匣 audience（甲=agency-jia，乙=agency-yi）。省略或錯誤 → 403 + 稽核。不得自填 audience。"),
+          .describe("工具參數：宣告的呼叫端 id，用來比對 audience。尚未從 runtime 綁定。"),
       },
     },
     async ({ grantId, fields, actor }) =>
@@ -98,13 +89,13 @@ export function createGrantOnceServer(): McpServer {
     {
       title: "送出申請",
       description:
-        "用有效匣送件。actor 必須等於 grant.audience，否則 403 + 稽核。送件後匣立即耗用；之後 fetch_field 重放會 403。",
+        "用有效匣送件。目前仍以工具參數 actor 比對 grant.audience。不符則 403 + 稽核。送件後匣立即耗用；之後 fetch_field 重放會 403。",
       inputSchema: {
         grantId: z.string().describe("匣編號：G-甲 / G-jia 或 G-乙 / G-yi"),
         actor: z
           .string()
           .optional()
-          .describe("呼叫端 id，必須等於該匣 audience。省略或錯誤 → 403 + 稽核。"),
+          .describe("工具參數：宣告的呼叫端 id，用來比對 audience。尚未從 runtime 綁定。"),
       },
     },
     async ({ grantId, actor }) => runTool("submit_application", { grantId, actor }),
@@ -114,13 +105,19 @@ export function createGrantOnceServer(): McpServer {
     "revoke_grant",
     {
       title: "撤銷授權匣",
-      description: "委託人撤銷尚未耗用的匣。已耗用的匣不能再撤銷。",
+      description:
+        "撤銷尚未耗用的匣。呼叫端必須是 grant.issuer，否則 403 + 稽核。省略 caller 時用目前 session 的 principal。",
       inputSchema: {
         grantId: z.string().describe("匣編號：G-甲 / G-jia 或 G-乙 / G-yi"),
         reason: z.string().optional().describe("撤銷原因"),
+        caller: z
+          .string()
+          .optional()
+          .describe("宣告的呼叫端 id，必須等於 grant.issuer。省略則用 session principal。"),
       },
     },
-    async ({ grantId, reason }) => runTool("revoke_grant", { grantId, reason }),
+    async ({ grantId, reason, caller }) =>
+      runTool("revoke_grant", { grantId, reason, caller }),
   );
 
   server.registerTool(
