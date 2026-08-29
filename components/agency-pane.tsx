@@ -4,7 +4,6 @@ import { AuditTimeline } from "@/components/audit-timeline";
 import { DenialBanner } from "@/components/denial-banner";
 import { StatusChip } from "@/components/status-chip";
 import { IdentityDot } from "@/components/identity-dot";
-import { ProtocolInspector } from "@/components/protocol-inspector";
 import { SURFACE } from "@/components/surface";
 import { SENSITIVITY_TEXT } from "@/components/tone";
 import { Button } from "@/components/ui/button";

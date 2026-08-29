@@ -98,13 +98,10 @@ export function createGrantOnceServer(): McpServer {
       title: "送出申請",
       description: "以已兌現的述詞送件。",
       inputSchema: {
-        ticket: z
-          .string()
-          .optional()
-          .describe("approve_grant 回傳的 HMAC ticket（ticket id 或 grn_….<mac>）。匣號無效。"),
+        grantId: z.string().describe("匣編號：G-甲 / G-jia 或 G-乙 / G-yi"),
       },
     },
-    async ({ ticket }) => runTool("submit_application", { ticket }),
+    async ({ grantId }) => runTool("submit_application", { grantId }),
   );
 
   server.registerTool(

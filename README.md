@@ -20,7 +20,7 @@ npm run test:rehearsal # 67 項，逐句對照演示腳本，需先開 dev
 npm run test:mutate    # 22 個注入的 bug，每個都必須被上面某個測試抓到
 ```
 
-需要 Node 20+。沒有資料庫、沒有真實 MyData。可選環境變數 `GRANTONCE_HMAC_KEY`（未設時用演示用金鑰，只存在行程內）。
+需要 Node 20+。沒有環境變數、沒有資料庫、沒有真實 MyData。
 
 ⚠️ **請用 `localhost`，不要用 `127.0.0.1`。** WebAuthn 不接受 IP 位址當 RP ID，在 `127.0.0.1` 上按 passkey 會直接失敗。畫面會擋下按鈕並說明，但省得你在台上才發現。
 

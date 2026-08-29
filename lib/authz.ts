@@ -127,92 +127,6 @@ export function proposeGrantsFromPlan(state: DemoState, programs: ProgramPlan[])
   }
 }
 
-function denial(
-  code: AuthzDenialCode,
-  error: string,
-  deniedFields?: FieldId[],
-): Extract<FetchResult, { ok: false }> {
-  return { ok: false, status: 403, code, error, deniedFields };
-}
-
-function stampProtocol(
-  state: DemoState,
-  input: {
-    token: string;
-    fields: string[];
-    path: ProtocolEvent["request"]["path"];
-    result: FetchResult | SubmitResult;
-  },
-) {
-  const ref = parseTicketRef(input.token);
-  const shown = ref?.jti ?? input.token;
-  state.lastProtocol = {
-    at: nowIso(),
-    request: {
-      authorization: `Bearer Grant ${shown}`,
-      fields: input.fields,
-      path: input.path,
-    },
-    response: input.result.ok
-      ? {
-          ok: true,
-          status: 200,
-          fieldIds: "fieldIds" in input.result ? input.result.fieldIds : undefined,
-        }
-      : {
-          ok: false,
-          status: input.result.status,
-          code: input.result.code,
-          error: input.result.error,
-        },
-  };
-}
-
-function lookupTicket(
-  state: DemoState,
-  raw: string,
-): { ok: true; stored: StoredTicket } | { ok: false; result: Extract<FetchResult, { ok: false }> } {
-  const parsed = parseTicketRef(raw);
-  if (!parsed) {
-    return {
-      ok: false,
-      result: denial(
-        "BAD_TICKET",
-        "需要有效的 HMAC ticket（ticket id 或 Bearer grn_…）。匣號本身不是能力憑證。",
-      ),
-    };
-  }
-  const stored = state.tickets?.[parsed.jti];
-  if (!stored) {
-    return {
-      ok: false,
-      result: denial("BAD_TICKET", `未知 ticket：${parsed.jti}`),
-    };
-  }
-  const claims: TicketClaims = {
-    jti: stored.jti,
-    grantId: stored.grantId,
-    iss: stored.iss,
-    aud: stored.aud,
-    fields: stored.fields,
-    exp: stored.exp,
-  };
-  const mac = parsed.mac ?? parseTicketToken(stored.token)?.mac;
-  if (!mac || !verifyTicketMac(claims, mac)) {
-    return {
-      ok: false,
-      result: denial("BAD_TICKET", "ticket HMAC 驗證失敗，請求關閉。"),
-    };
-  }
-  if (Date.parse(stored.exp) <= Date.now()) {
-    return {
-      ok: false,
-      result: denial("GRANT_INACTIVE", `ticket ${stored.jti} 已過期。`),
-    };
-  }
-  return { ok: true, stored };
-}
-
 /**
  * An agency asking for something on its own initiative. Runs the full risk
  * engine at proposal time, so an over-broad request is refused before the
@@ -251,8 +165,8 @@ export function requestClaims(
     const actor = actorFor(agency);
     if (blocked) {
       appendAudit(s, {
-        actor: looked.ok ? actorLabel(looked.stored.aud) : "未知",
-        actorRole: looked.ok ? actorRole(looked.stored.aud) : "system",
+        actor: actor.name,
+        actorRole: actor.role,
         action: "deny",
         grantId: null,
         detail: `逾越請求遭攔截：${risk.notes.join(" ")}`,
@@ -663,7 +577,6 @@ export function revokeGrant(
   reason: string,
 ): { state: DemoState; error?: string } {
   let error: string | undefined;
-  let ticket: string | undefined;
   const state = mutate((s) => {
     const grant = grantById(s, grantId);
     if (!grant) {
@@ -690,9 +603,8 @@ export function revokeGrant(
       grantId,
       detail: reason,
     });
-    result = { ok: true, grantId };
   });
-  return { state, result };
+  return { state, error };
 }
 
 /** The revocation that always works: stop the agent signing anything new. */
@@ -749,21 +661,7 @@ export function updateDelegation(
 export function submitApplication(grantId: GrantId): { state: DemoState; error?: string } {
   let error: string | undefined;
   const state = mutate((s) => {
-    const looked = lookupTicket(s, ticketRaw);
-    if (!looked.ok) {
-      result = looked.result;
-      appendAudit(s, {
-        actor: "未知",
-        actorRole: "system",
-        action: "deny",
-        detail: result.error,
-      });
-      stampProtocol(s, { token: ticketRaw, fields: [], path: "/api/applications/submit", result });
-      return;
-    }
-
-    const { stored } = looked;
-    const grant = grantById(s, stored.grantId);
+    const grant = grantById(s, grantId);
     if (!grant) {
       error = `找不到匣 ${grantId}。`;
       return;
@@ -787,15 +685,6 @@ export function submitApplication(grantId: GrantId): { state: DemoState; error?:
       grantId,
       detail: `以已交付的述詞送出「${inbox.programTitle}」申請（演示，未連真實機關）。`,
     });
-    appendAudit(s, {
-      actor: "系統",
-      actorRole: "system",
-      action: "revoke",
-      grantId: grant.id,
-      detail: `送件完成，匣 ${grant.id} 立即耗用並撤銷。重放擷取將失敗。`,
-    });
-    result = { ok: true, grantId: grant.id };
-    stampProtocol(s, { token: stored.token, fields: receipt.fieldIds, path: "/api/applications/submit", result });
   });
-  return { state, result };
+  return { state, error };
 }

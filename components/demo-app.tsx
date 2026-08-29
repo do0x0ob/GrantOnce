@@ -19,8 +19,6 @@ type PaneId = (typeof PANES)[number]["id"];
 export function DemoApp({ initialView }: { initialView: PrincipalView }) {
   const demo = useDemo(initialView);
   const [pane, setPane] = useState<PaneId>("principal");
-  const [contrast, setContrast] = useState(false);
-  const fatFields = fatEnvelopeFields(demo.state);
 
   return (
     <div className="flex h-full min-h-0 flex-1 flex-col bg-[#F6F3EE]">
@@ -32,33 +30,16 @@ export function DemoApp({ initialView }: { initialView: PrincipalView }) {
             兩把鑰匙才開得了：你的簽章，加上機關的法定職務。
           </span>
         </p>
-        <div className="flex items-center gap-1">
-          <Button
-            variant="ghost"
-            size="sm"
-            className={`rounded-full ${contrast ? "text-rose-600 hover:text-rose-700" : "text-stone-400 hover:text-stone-600"}`}
-            aria-pressed={contrast}
-            onClick={() => setContrast((value) => !value)}
-          >
-            {contrast ? "回到分匣" : "對照胖授權"}
-          </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="rounded-full text-stone-400 hover:text-stone-600"
-            disabled={demo.busy}
-            onClick={() => void demo.reset()}
-          >
-            重設
-          </Button>
-        </div>
+        <Button
+          variant="ghost"
+          size="sm"
+          className="rounded-full text-stone-400 hover:text-stone-600"
+          disabled={demo.busy}
+          onClick={() => void demo.reset()}
+        >
+          重設
+        </Button>
       </header>
-
-      {contrast ? (
-        <p className="px-6 pb-2 text-[13px] leading-5 text-rose-600">
-          錯的解法是給代理人一張胖 token。fields:* — 甲乙都看到全部，包括所得。
-        </p>
-      ) : null}
 
       {demo.error ? (
         <p className="px-6 pb-2 text-[13px] leading-5 text-rose-600">{demo.error}</p>

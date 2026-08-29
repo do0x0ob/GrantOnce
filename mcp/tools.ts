@@ -290,9 +290,6 @@ export function getAudit() {
     vaultFieldsNeverUsed: untouched.map((e) => e.fieldId),
     grants: state.grants.map((g) => ({
       id: g.id,
-      issuer: g.issuer,
-      subject: g.subject,
-      audience: g.audience,
       status: g.status,
       claimIds: g.body.claims,
       signed: Boolean(g.signature),
@@ -305,11 +302,6 @@ export function getAudit() {
       audience: c.audience,
       expiresAt: c.expiresAt,
       presentedCount: c.presentedCount,
-    })),
-    envelopes: (Object.keys(state.envelopes) as GrantId[]).map((id) => ({
-      grantId: id,
-      liveFieldIds: Object.keys(state.envelopes[id].fields),
-      receipt: state.envelopes[id].receipt,
     })),
     audit: state.audit.map((entry) => ({
       id: entry.id,

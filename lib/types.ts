@@ -74,24 +74,6 @@ export type GrantBody = {
   purpose: PurposeId;
 };
 
-export type TicketClaims = {
-  jti: string;
-  grantId: GrantId;
-  iss: string;
-  aud: string;
-  fields: FieldId[];
-  exp: string;
-};
-
-export type StoredTicket = TicketClaims & {
-  token: string;
-};
-
-/**
- * GrantOnce authorization instrument. Harness-agnostic protocol object.
- * issuer = who authorized (person / court / institution id — never implied).
- * audience = who may fetch/submit. Bound into the HMAC ticket at approve time.
- */
 export type Grant = {
   id: GrantId;
   body: GrantBody;
@@ -274,13 +256,3 @@ export type RedeemResult =
       deniedClaims?: string[];
       failedKey?: "principal" | "agency";
     };
-
-export type SubmitResult =
-  | { ok: true; grantId: GrantId }
-  | { ok: false; status: 403; code: AuthzDenialCode; error: string };
-
-/** Library-only caller for revoke issuer checks. MCP does not take this. */
-export type GrantCaller = {
-  id: string;
-  name?: string;
-};
