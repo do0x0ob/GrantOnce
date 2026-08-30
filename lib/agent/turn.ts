@@ -1,5 +1,5 @@
 import { CLAIM_DEFS, SENSITIVITY_LABEL, SPECIAL_CLAIMS } from "@/lib/claims";
-import { PURPOSE_IDS, PURPOSES, type PurposeId } from "@/lib/purposes";
+import { PURPOSE_IDS, PURPOSES } from "@/lib/purposes";
 import {
   ageHint,
   childAgeMonthsAt,
@@ -7,10 +7,10 @@ import {
   HAPPY_PATH_UTTERANCE,
   matchPrograms,
   PERSONA_DECLARED,
-  situationFromUtterance,
 } from "@/lib/rules";
 import type { ResearchResult } from "@/lib/research";
 import type { DemoState, ProgramPlan } from "@/lib/types";
+import { modelAvailable, type Classification, type Intent } from "./intent";
 import { toBlocks } from "./blocks/of";
 import type { Block } from "./blocks/types";
 
@@ -43,32 +43,18 @@ function withheldFrom(programs: ProgramPlan[]): string[] {
 }
 
 /**
- * What the agent understands.
+ * What the understanding layer may report.
  *
- * Deterministic intent matching rather than a model: the demo's whole claim is
- * that a rule engine decides eligibility, so putting a model in this loop would
- * undercut it. The cost is that the vocabulary is finite — which is why an
- * unrecognised question answers with buttons instead of an apology.
+ * Eligibility stays with the rule engine. This enum is only "what was meant".
+ * An unrecognised or missing report answers with buttons rather than guessing
+ * from keywords — keyword matching silently overrules the classifier.
  */
-export type Intent = "apply" | "status" | "audit" | "privacy" | "revoke" | "help";
+export type { Intent };
 
 const INTENT_VALUES: Intent[] = ["apply", "status", "audit", "privacy", "revoke", "help"];
 
-const INTENT_PATTERNS: [Intent, RegExp][] = [
-  ["status", /進度|到哪|辦得?怎麼樣|狀態|審核|送出了嗎|好了沒/],
-  ["audit", /誰.*(拿|取|看|調)|稽核|紀錄|軌跡|查詢紀錄/],
-  ["privacy", /所得|隱私|會拿到什麼|給什麼|哪些資料|個資|安全|健保/],
-  ["revoke", /撤銷|取消|停止|不要了|收回/],
-  ["apply", /搬家|遷徙|剛搬|搬到|遷入|申請|補助|津貼|能申|可以申|辦什麼/],
-  ["help", /你會|能做什麼|怎麼用|說明|幫助|help/],
-];
-
-export function patternIntent(utterance: string): Intent | null {
-  const t = utterance.replace(/\s+/g, "");
-  for (const [intent, pattern] of INTENT_PATTERNS) {
-    if (pattern.test(t)) return intent;
-  }
-  return null;
+function isKnownPurpose(id: string): boolean {
+  return Object.hasOwn(PURPOSES, id);
 }
 
 const MENU = {
@@ -113,23 +99,22 @@ function DECLARED_SITUATION(today: string) {
 }
 
 export type TurnContext = {
-  today: string;
+  today?: string;
   /** Public search: what the outside world has, which is not the same question
    *  as what this runtime can issue. */
   world?: ResearchResult;
-  resolved?: { intent: Intent; movedRecently: boolean; reply?: string } | null;
+  resolved?: Classification | null;
 };
 
-export function runTurn(state: DemoState, utterance: string, ctx?: TurnContext): TurnResult {
-  const message = utterance.trim();
+export function runTurn(state: DemoState, _utterance: string, ctx?: TurnContext): TurnResult {
   const today = ctx?.today ?? effectiveToday(state);
   const world = ctx?.world;
   const resolved = ctx?.resolved;
-  // Never trust a caller-supplied intent blindly: an unknown label falls back
-  // to the patterns rather than dropping through to whatever branch is last.
+  // Never trust a caller-supplied intent blindly: an unknown label is treated
+  // as not understood, not as a cue to guess from the words.
   const supplied =
     resolved && INTENT_VALUES.includes(resolved.intent) ? resolved : null;
-  const intent = supplied?.intent ?? patternIntent(message);
+  const intent = supplied?.intent ?? null;
 
   // The acknowledgement leads; everything the user needs to rely on follows it
   // as a card, so a missing or rejected sentence costs nothing.
@@ -218,21 +203,34 @@ export function runTurn(state: DemoState, utterance: string, ctx?: TurnContext):
           text:
             intent === "help"
               ? "我用規則引擎比對你能辦什麼補助，然後把最小的授權匣交給你簽。我不決定授權，也簽不了名——私鑰在你的認證器裡。"
-              : "我沒聽懂這句。我會的事情不多，但都做得準：",
+              : modelAvailable()
+                ? "我沒聽懂這句。我會的事情不多，但都做得準："
+                : "理解層沒有回覆這句（還沒接上，或這次解析失敗）。自由描述要先被聽懂；下面是規則引擎認的幾件事：",
         },
         { question: "你可以問我這些", suggestions: MENU.suggestions },
       ],
     };
   }
 
+  // apply is the only remaining branch; a valid classification is required.
+  if (!supplied) {
+    return {
+      programs: [],
+      matched: false,
+      outputs: [
+        ...lead,
+        { text: "我沒聽懂這句。我會的事情不多，但都做得準：" },
+        { question: "你可以問我這些", suggestions: MENU.suggestions },
+      ],
+    };
+  }
+
   // The classifier reports what was said; the rule engine decides what it means.
-  // When it reported a move, build the situation from that rather than re-running
-  // keyword matching over the same sentence — otherwise the patterns silently
-  // overrule the thing that was brought in to understand phrasings they miss.
-  // The classifier reports what was said; the rule engine decides what it means.
-  const situation = supplied
-    ? { ...DECLARED_SITUATION(today), movedRecently: supplied.movedRecently }
-    : (situationFromUtterance(message, today) ?? DECLARED_SITUATION(today));
+  // Facts come from the persona and the clock, not from re-scanning the sentence.
+  const situation = {
+    ...DECLARED_SITUATION(today),
+    movedRecently: supplied.movedRecently,
+  };
 
   // Eligibility is judged on facts alone — what this person qualifies for,
   // regardless of which benefit they happened to name. Narrowing comes after,
@@ -243,19 +241,19 @@ export function runTurn(state: DemoState, utterance: string, ctx?: TurnContext):
   // Naming a benefit narrows the answer to it. Being handed a capsule for
   // 冷氣汰換補助 when you asked about 育兒津貼 is the agent deciding on your
   // behalf what else to authorise, which is the whole thing this is against.
-  // A bare move leaves both `wants` flags true, so a generic question still
-  // lists everything.
-  const named: PurposeId[] = PURPOSE_IDS.filter((id) =>
-    id === "childcare-allowance" ? situation.wantsChildcare : situation.wantsAircon,
-  );
-  const narrowed = named.length < PURPOSE_IDS.length;
+  // `asked === null` / omitted is a generic question and lists everything.
+  const asked = supplied.asked === undefined ? null : supplied.asked;
+  const named = (asked ?? []).filter(isKnownPurpose);
+  const narrowed = asked !== null;
   const programs = narrowed
     ? eligible.filter((program) => named.includes(program.purpose))
     : eligible;
 
   // Named something real but not currently eligible: say which, and what is.
   if (narrowed && !programs.length && eligible.length) {
-    const asked = named.map((id) => PURPOSES[id].title).join("、");
+    const askedLabel = named.length
+      ? named.map((id) => PURPOSES[id].title).join("、")
+      : "你提的那項補助";
     return {
       programs: [],
       matched: true,
@@ -263,8 +261,8 @@ export function runTurn(state: DemoState, utterance: string, ctx?: TurnContext):
         ...lead,
         {
           text: eligible.length
-            ? `目前不符合${asked}。${hint}\n\n符合的是：${eligible.map((p) => p.title).join("、")}。要看嗎？`
-            : `目前不符合${asked}。${hint}`,
+            ? `目前不符合${askedLabel}。${hint}\n\n符合的是：${eligible.map((p) => p.title).join("、")}。要看嗎？`
+            : `目前不符合${askedLabel}。${hint}`,
         },
         { suggestions: MENU.suggestions },
       ],

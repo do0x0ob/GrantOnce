@@ -22,11 +22,9 @@ export async function POST(request: Request) {
   // a slow lookup or a hanging router must never hold the lock. They are
   // independent, so they run together rather than in series.
   //
-  // The classifier is asked even where the patterns already know the intent.
-  // Consulting it only on a miss made the reply acknowledge what you said some
-  // of the time and not others, and that inconsistency reads worse than the
-  // seconds it costs — the thread shows a waiting state meanwhile. With no
-  // router configured `classify` returns immediately.
+  // Understanding is the classifier's job. Keyword matching used to run
+  // afterwards and silently overrule phrasings the model had already heard,
+  // so a miss or a missing router now means "not understood", not a regex guess.
   const [world, resolved] = await Promise.all([researchWorld(message), classify(message)]);
 
   const state = mutate((s) => {

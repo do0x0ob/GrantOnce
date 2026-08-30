@@ -8,7 +8,7 @@
  */
 import { toBlocks } from "../lib/agent/blocks/of";
 import type { Block, BlockKind } from "../lib/agent/blocks/types";
-import { cleanReply, modelAvailable } from "../lib/agent/intent";
+import { cleanReply, modelAvailable, type Classification } from "../lib/agent/intent";
 import { runTurn } from "../lib/agent/turn";
 import { evaluateInquiry } from "../lib/inquiry";
 import { effectiveToday } from "../lib/rules";
@@ -28,7 +28,23 @@ function check(name: string, cond: boolean, detail = "") {
   }
 }
 const kinds = (blocks: Block[]): BlockKind[] => blocks.map((b) => b.kind);
-const ask = (q: string) => toBlocks(runTurn(getState(), q).outputs);
+
+/** What the understanding layer would report for the scripted lines. */
+const HEARD: Record<string, Classification> = {
+  "機關會拿到我哪些資料？": { intent: "privacy", movedRecently: false, asked: null },
+  "誰拿過我的資料？": { intent: "audit", movedRecently: false, asked: null },
+  "我要停止委託": { intent: "revoke", movedRecently: false, asked: null },
+  "我的申請到哪了？": { intent: "status", movedRecently: false, asked: null },
+  "你會做什麼": { intent: "help", movedRecently: false, asked: null },
+  "我剛搬家，看我能申請什麼。": { intent: "apply", movedRecently: true, asked: null },
+  "要搞育兒津貼": { intent: "apply", movedRecently: false, asked: ["childcare-allowance"] },
+  "我要辦一個不存在的補助": { intent: "apply", movedRecently: false, asked: ["not-a-purpose"] },
+};
+
+const ask = (q: string, resolved: Classification | null = HEARD[q] ?? null) =>
+  toBlocks(runTurn(getState(), q, { resolved }).outputs);
+const heard = (q: string, resolved: Classification | null = HEARD[q] ?? null) =>
+  runTurn(getState(), q, { resolved });
 
 resetState();
 
@@ -63,13 +79,13 @@ console.log("\n聽不懂的時候給得出下一步");
 
 console.log("\n比對成功時，每個申請案都有一張簽署卡與一張進度卡");
 {
-  const turn = runTurn(getState(), "我剛搬家，看我能申請什麼。");
-  mutate((s) => proposeGrantsFromPlan(s, turn.programs));
-  const blocks = toBlocks(turn.outputs);
+  const happy = heard("我剛搬家，看我能申請什麼。");
+  mutate((s) => proposeGrantsFromPlan(s, happy.programs));
+  const blocks = toBlocks(happy.outputs);
   const signCards = blocks.filter((b) => b.kind === "signGrant");
   const statusCards = blocks.filter((b) => b.kind === "applicationStatus");
-  check("簽署卡數量等於申請案數量", signCards.length === turn.programs.length, `${signCards.length} vs ${turn.programs.length}`);
-  check("進度卡數量等於申請案數量", statusCards.length === turn.programs.length);
+  check("簽署卡數量等於申請案數量", signCards.length === happy.programs.length, `${signCards.length} vs ${happy.programs.length}`);
+  check("進度卡數量等於申請案數量", statusCards.length === happy.programs.length);
   check(
     "每張簽署卡都指向一張真的存在的匣",
     signCards.every((b) => b.kind === "signGrant" && getState().grants.some((g) => g.id === b.grantId)),
@@ -112,10 +128,10 @@ console.log("\nmatcher 永遠不丟例外");
 console.log("\n指名一項補助時，不會多給別的");
 {
   resetState();
-  const all = runTurn(getState(), "我剛搬家，看我能申請什麼。");
+  const all = heard("我剛搬家，看我能申請什麼。");
   check("沒指名時列出全部符合的", all.programs.length > 1, String(all.programs.length));
 
-  const named = runTurn(getState(), "要搞育兒津貼");
+  const named = heard("要搞育兒津貼");
   check("指名育兒津貼只回一項", named.programs.length === 1, named.programs.map((p) => p.purpose).join(","));
   check("而且就是那一項", named.programs[0]?.purpose === "childcare-allowance");
   check(
@@ -124,7 +140,7 @@ console.log("\n指名一項補助時，不會多給別的");
   );
 
   // Narrowing must never be able to add something the rule engine did not match.
-  const bogus = runTurn(getState(), "我要辦一個不存在的補助");
+  const bogus = heard("我要辦一個不存在的補助");
   check(
     "指名不存在的東西不會憑空生出匣",
     bogus.programs.every((p) => all.programs.some((a) => a.purpose === p.purpose)),
@@ -203,7 +219,7 @@ console.log("\n模型只當「聽懂」那一層");
   // match, and the rule engine still governs what gets asked for.
   const forced = runTurn(getState(), "隨便講一句不相干的話", {
     today: effectiveToday(getState()),
-    resolved: { intent: "apply", movedRecently: true },
+    resolved: { intent: "apply", movedRecently: true, asked: null },
   });
   const blocks = toBlocks(forced.outputs);
   check("模型可以決定走哪個意圖", kinds(blocks).includes("signGrant"), kinds(blocks).join(","));
@@ -222,7 +238,7 @@ console.log("\n模型只當「聽懂」那一層");
     resolved: { intent: "not-an-intent" as never, movedRecently: true },
   });
   check(
-    "不認識的意圖被忽略，退回正則",
+    "不認識的意圖被忽略，不當聽懂",
     !kinds(toBlocks(bogus.outputs)).includes("signGrant"),
     kinds(toBlocks(bogus.outputs)).join(","),
   );
