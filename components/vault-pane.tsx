@@ -55,7 +55,7 @@ export function VaultPane({
           <p className="text-[15px] leading-7 text-stone-400">還沒有任何欄位被用來發證。</p>
         )}
 
-        <FieldGroup title="封鎖" tone="sealed" entries={sealed} />
+        <FieldGroup title="永不授權" tone="sealed" entries={sealed} />
 
         {idle.length ? (
           <details>
