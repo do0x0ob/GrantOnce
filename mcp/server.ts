@@ -17,9 +17,9 @@ function jsonResult(data: unknown, isError: boolean) {
   };
 }
 
-function runTool(name: ToolName, args: Record<string, unknown>) {
+async function runTool(name: ToolName, args: Record<string, unknown>) {
   try {
-    const { data, isError } = callTool(name, args);
+    const { data, isError } = await callTool(name, args);
     return jsonResult(data, isError);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -37,11 +37,11 @@ export function createGrantOnceServer(): McpServer {
   server.registerTool(
     "search_purposes",
     {
-      title: "搜尋目的目錄",
+      title: "搜尋補助（公開資料＋可發票子集）",
       description:
-        "搜本部署登記過的目的目錄（育兒、冷氣、水災救助等）。不是外網搜尋。回傳 issuable；false 表示只能說明、不能 mint Grant、不能發明述詞。不讀金庫。",
+        "公開搜尋真實世界的補助／救助（維基、*.gov.tw 連結），並標出本 runtime 目前能 mint Grant 的子集。登記表不是全世界。宿主若已有網搜，仍應先搜；不要因為 issuable 只有兩筆就拒絕說明其他補助。issuable=false 不能 mint、不能發明述詞。不讀金庫。",
       inputSchema: {
-        query: z.string().describe("自然語言或關鍵字。空字串回傳全部登記項。"),
+        query: z.string().describe("自然語言。空字串只回可發票 profile，仍可再搜。"),
       },
     },
     async ({ query }) => runTool("search_purposes", { query }),
@@ -52,11 +52,9 @@ export function createGrantOnceServer(): McpServer {
     {
       title: "規劃申請",
       description:
-        "用規則引擎比對委託人原話。只有目錄命中且資格成立才提案（G-甲 育兒津貼、G-乙 冷氣補助）。水災等參考項只回目錄、不發票。不讀金庫，也不能簽署。",
+        "用規則引擎決定能不能提案。會附上公開搜尋結果供說明。搜到補助 ≠ 授權。只有目的登記表＋資格成立才 mint（目前綁定：育兒津貼、冷氣補助）。不能發明述詞，不讀金庫，不能簽署。",
       inputSchema: {
-        utterance: z
-          .string()
-          .describe("委託人原話。快樂路徑：我剛搬家，看我能申請什麼。水災只會搜到參考項。"),
+        utterance: z.string().describe("委託人原話。任何補助問題都可以問；發票仍只在有綁定時發生。"),
       },
     },
     async ({ utterance }) => runTool("plan_applications", { utterance }),

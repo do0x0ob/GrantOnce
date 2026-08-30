@@ -2,8 +2,9 @@ import { PURPOSES, type PurposeId } from "./purposes";
 import type { AgencyId } from "./types";
 
 /**
- * Deployed purpose directory. The model may search this list. It may not add
- * rows, invent predicates, or mint a grant from a reference hit.
+ * Issuable profile for THIS runtime — not a model of the real world.
+ * Open-world lookup lives in `research.ts`. A row here only answers
+ * "can we mint a Grant?", never "does this subsidy exist?".
  */
 export const TOPIC_IDS = ["flood", "move", "childcare", "aircon", "general"] as const;
 export type TopicId = (typeof TOPIC_IDS)[number];
@@ -117,7 +118,7 @@ function sortCatalog(entries: CatalogEntry[]): CatalogEntry[] {
   return [...entries].sort((a, b) => Number(b.issuable) - Number(a.issuable));
 }
 
-/** Search the deployed directory only. Never hits the network. */
+/** Filter the issuable profile. Not a web search. */
 export function searchCatalog(query: string): CatalogEntry[] {
   const t = compactText(query);
   if (!t) return sortCatalog([...PURPOSE_CATALOG]);

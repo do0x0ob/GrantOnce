@@ -155,8 +155,8 @@ export function scanForChanges(state: DemoState, now: Date): PendingChange[] {
 /** The three things the agent says about how it works. Kept in one place so the
  *  web and MCP paths cannot drift apart. */
 export const AGENT_NOTES = [
-  "資格比對只用規則引擎，模型不決定授權。",
-  "可以搜本部署登記過的目的目錄；目錄命中不是授權，也不能發明述詞。",
+  "公開搜尋不受目的登記表限制；登記表只決定能不能 mint Grant。",
+  "資格比對與發票只用規則引擎，模型不決定授權，也不能發明述詞。",
   "匣裡放的是述詞，不是原始欄位。",
   "取得資料要兩把鑰匙：委託人簽章，加上機關的法定職務範圍。",
 ] as const;

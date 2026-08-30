@@ -13,7 +13,7 @@ npm install
 npm run dev            # http://localhost:43127
 
 npm run test:flow      # 90 項授權層檢查
-npm run test:mcp       # 19 項 MCP 檢查
+npm run test:mcp       # 32 項 MCP 檢查
 npm run test:race      # 6 項跨 process 檢查（會開子行程）
 npm run test:all       # 以上三個
 npm run test:rehearsal # 67 項，逐句對照演示腳本，需先開 dev
@@ -148,7 +148,7 @@ npm run mcp
 
 工具：`search_purposes`、`plan_applications`、`get_grant_for_signature`、`redeem_grant`、`request_claims`、`submit_application`、`revoke_grant`、`stop_delegation`、`get_audit`。
 
-`search_purposes` 只搜本部署的目的目錄（育兒、冷氣、水災救助等參考項），不是外網。目錄命中且 `issuable=false` 時，`plan_applications` fail-closed，不 mint Grant、不發明述詞。
+`search_purposes` 會做公開搜尋（維基、`*.gov.tw` 連結），並另外標出本 runtime **目前能 mint Grant** 的子集。目的登記表不是全世界；搜到補助 ≠ 授權。`plan_applications` 只有登記表＋資格成立才提案，不能發明述詞。宿主若已有網搜，應先搜，不要被兩筆可發票目的綁死。
 
 ## 這個設計的名字
 
