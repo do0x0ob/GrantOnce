@@ -12,12 +12,12 @@
 npm install
 npm run dev            # http://localhost:43127
 
-npm run test:flow      # 85 項授權層檢查
+npm run test:flow      # 90 項授權層檢查
 npm run test:mcp       # 19 項 MCP 檢查
 npm run test:race      # 6 項跨 process 檢查（會開子行程）
 npm run test:all       # 以上三個
 npm run test:rehearsal # 67 項，逐句對照演示腳本，需先開 dev
-npm run test:mutate    # 22 個注入的 bug，每個都必須被上面某個測試抓到
+npm run test:mutate    # 24 個注入的 bug，每個都必須被上面某個測試抓到
 ```
 
 需要 Node 20+。沒有環境變數、沒有資料庫、沒有真實 MyData。
@@ -49,7 +49,7 @@ npm run test:mutate    # 22 個注入的 bug，每個都必須被上面某個測
 
 ## 最小揭露
 
-育兒津貼實際需要的是三件事，不是一份謄本：
+育兒津貼實際需要的是四件事，不是一份謄本：
 
 | 機關收到 | 值 |
 | --- | --- |

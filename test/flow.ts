@@ -24,6 +24,7 @@ import { AGENCY_KEYS } from "../lib/parties";
 import { originBlocker } from "../lib/passkey";
 import { effectiveToday, matchPrograms, scanForChanges, situationFromUtterance } from "../lib/rules";
 import { getState, mutate, resetState } from "../lib/store";
+import { formatClock, formatDate, formatTime } from "../lib/view";
 import { verifyCredential } from "../lib/wallet";
 import type { Grant, GrantId } from "../lib/types";
 
@@ -139,6 +140,26 @@ check(
   PURPOSES[g.body.purpose].legalBasis.every((basis) => g.body.displayText.includes(basis)),
   g.body.displayText,
 );
+{
+  // The necessity sentence is signed along with the bullet list above it, so a
+  // sentence that undercounts the capsule is a consent screen contradicting
+  // itself. It read 「三件事」 while listing four predicates until this check
+  // existed. Only purposes that state a count are checked; the rest describe
+  // their claims in prose.
+  const NUMERALS = ["零", "一", "二", "三", "四", "五", "六", "七", "八", "九", "十"];
+  const miscounted = Object.values(PURPOSES).filter((def) => {
+    const stated = /([零一二三四五六七八九十])件事/.exec(def.necessity);
+    if (!stated) return false;
+    const quoted = def.necessity.match(/「[^」]+」/g)?.length ?? 0;
+    const count = NUMERALS.indexOf(stated[1]);
+    return count !== quoted || count !== def.allowedClaims.length;
+  });
+  check(
+    "同意文字宣稱的件數等於實際列舉的述詞數",
+    miscounted.length === 0,
+    miscounted.map((d) => d.title).join("、"),
+  );
+}
 check("風險等級為一般", g.risk === "low", g.riskNotes.join("|"));
 
 section("未簽署不得兌現");
@@ -283,6 +304,26 @@ section("passkey 的來源限制");
   check("localhost 可以用", originBlocker("localhost", true, "43127") === null);
   check("一般網域可以用", originBlocker("grantonce.example.tw", true, "443") === null);
   check("非安全脈絡不能用", Boolean(originBlocker("grantonce.example.tw", false, "80")));
+}
+
+section("畫面上的時間在伺服器與瀏覽器算出同一個字串");
+{
+  // These strings are rendered during SSR and again on hydration. `toLocaleString`
+  // used to put U+2009 THIN SPACE between date and time on Node and U+0020 in
+  // Chromium, so React tore the tree down on every page load and `next dev` lit
+  // up a red issue badge next to the agent's input box. Any separator the
+  // formatter did not choose itself is the bug coming back.
+  const iso = "2026-08-29T16:04:01.000Z";
+  const rendered = [formatClock(iso), formatTime(iso), formatDate(iso)];
+  check(
+    "只用 ASCII，沒有 locale 自帶的特殊空白",
+    rendered.every((text) => /^[\x20-\x7E]+$/.test(text)),
+    rendered.map((t) => [...t].map((c) => c.codePointAt(0)!.toString(16)).join(" ")).join(" | "),
+  );
+  // Pinned to Asia/Taipei, so the container's zone cannot change what is shown.
+  check("時區固定在台北，不跟著執行環境跑", formatClock(iso) === "08/30 00:04:01", formatClock(iso));
+  check("午夜是 00 不是 24", formatTime(iso) === "00:04:01", formatTime(iso));
+  check("日期不帶前導零", formatDate(iso) === "2026/8/30", formatDate(iso));
 }
 
 section("邊界輸入");

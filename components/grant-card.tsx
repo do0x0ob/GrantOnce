@@ -6,7 +6,7 @@ import { SENSITIVITY_CHIP } from "@/components/tone";
 import { IdentityDot } from "@/components/identity-dot";
 import { SURFACE } from "@/components/surface";
 import { Button } from "@/components/ui/button";
-import type { PrincipalView } from "@/lib/view";
+import { formatTime, type PrincipalView } from "@/lib/view";
 import { cn } from "@/lib/utils";
 
 type GrantView = PrincipalView["grants"][number];
@@ -88,7 +88,7 @@ export function GrantCard({
         </dd>
         <dt>有效至</dt>
         <dd className={grant.expired ? "text-rose-500" : undefined}>
-          {new Date(grant.exp).toLocaleTimeString("zh-TW", { hour12: false })}
+          {formatTime(grant.exp)}
           {grant.expired ? "（已逾期）" : ""}
         </dd>
         {grant.signature ? (

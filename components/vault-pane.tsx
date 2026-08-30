@@ -4,7 +4,7 @@ import { StatusChip } from "@/components/status-chip";
 import { SURFACE } from "@/components/surface";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import type { PrincipalView } from "@/lib/view";
+import { formatDate, type PrincipalView } from "@/lib/view";
 
 /**
  * The vault is described, never valued.
@@ -109,7 +109,7 @@ export function VaultPane({
                     <span>已出示 {cred.presentedCount} 次</span>
                     <span>
                       {cred.valid ? "有效至" : "已過期"}{" "}
-                      {new Date(cred.expiresAt).toLocaleDateString("zh-TW")}
+                      {formatDate(cred.expiresAt)}
                     </span>
                   </div>
                 </li>

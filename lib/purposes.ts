@@ -45,7 +45,7 @@ export const PURPOSES: Record<PurposeId, PurposeDef> = {
     ],
     maxTtlSeconds: 600,
     necessity:
-      "核定育兒津貼只需確認「設籍本市」「具法定親子關係」「幼兒落在 0–2 歲」三件事，不需要姓名、地址、戶號或出生日期本身。",
+      "核定育兒津貼只需確認「設籍本市」「一年內遷入」「具法定親子關係」「幼兒落在 0–2 歲」四件事，不需要姓名、地址、戶號或出生日期本身。",
   },
   "aircon-subsidy": {
     id: "aircon-subsidy",

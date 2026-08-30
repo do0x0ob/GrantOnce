@@ -6,7 +6,7 @@
  *   npm run test:race
  */
 import { spawn } from "node:child_process";
-import { mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 
@@ -19,6 +19,38 @@ function script(name: string, body: string): string {
   const file = join(dir, `${name}.ts`);
   writeFileSync(file, body, "utf8");
   return file;
+}
+
+/**
+ * A start barrier the children rendezvous on.
+ *
+ * Spawning six `npx tsx` processes and hoping they collide does not test
+ * anything: boot dominates by a second or more and varies run to run, while the
+ * critical section is a few file operations. The suite passed with the lock
+ * removed roughly one run in three — so the mutation harness reported the lock
+ * as untested, on the slide that invites judges to run it.
+ *
+ * Each child finishes importing and preparing, publishes a ready file, then
+ * spins until every sibling has published one. They leave the spin within
+ * microseconds of each other and enter the critical section together, however
+ * long boot took.
+ */
+const BARRIER = `
+import { readdirSync, writeFileSync } from "node:fs";
+function barrier(dir: string, n: number) {
+  writeFileSync(\`\${dir}/\${process.pid}.ready\`, "", "utf8");
+  const deadline = Date.now() + 30_000;
+  while (readdirSync(dir).filter((f) => f.endsWith(".ready")).length < n) {
+    if (Date.now() > deadline) throw new Error("barrier timed out");
+  }
+}
+`;
+
+/** Fresh rendezvous point per wave, so one wave's files do not release the next. */
+function barrierDir(name: string): string {
+  const path = join(dir, `barrier-${name}`);
+  mkdirSync(path, { recursive: true });
+  return path;
 }
 
 function run(file: string, args: string[] = []): Promise<string> {
@@ -53,18 +85,23 @@ console.log("ready");
 
 const redeem = script(
   "redeem",
-  `
+  `${BARRIER}
 import { makeAgencyProof, redeemGrant } from "${LIB}/authz";
-const r = redeemGrant("G-甲", makeAgencyProof("jia", "G-甲"));
+// Everything that is not the critical section happens before the rendezvous.
+const proof = makeAgencyProof("jia", "G-甲");
+barrier(process.argv[2], Number(process.argv[3]));
+const r = redeemGrant("G-甲", proof);
 console.log(r.result.ok ? "REDEEMED" : "REFUSED");
 `,
 );
 
 const audit = script(
   "audit",
-  `
+  `${BARRIER}
 import { appendAudit, mutate } from "${LIB}/store";
-mutate((s) => appendAudit(s, { actor: process.argv[2], actorRole: "system", action: "notify", detail: "race" }));
+const actor = process.argv[2];
+barrier(process.argv[3], Number(process.argv[4]));
+mutate((s) => appendAudit(s, { actor, actorRole: "system", action: "notify", detail: "race" }));
 console.log("done");
 `,
 );
@@ -101,7 +138,10 @@ function check(name: string, cond: boolean, detail = "") {
 async function main() {
   console.log("六個 process 同時兌現同一張一次性的匣");
   await run(setup);
-  const results = await Promise.all(Array.from({ length: 6 }, () => run(redeem)));
+  const redeemGate = barrierDir("redeem");
+  const results = await Promise.all(
+    Array.from({ length: 6 }, () => run(redeem, [redeemGate, "6"])),
+  );
   const state = JSON.parse(await run(inspect)) as { usedJti: number; redeems: number };
   check("只有一個成功", results.filter((r) => r === "REDEEMED").length === 1, results.join(","));
   check("只燒掉一個 jti", state.usedJti === 1, String(state.usedJti));
@@ -110,7 +150,8 @@ async function main() {
   console.log("\n六個 process 各寫一筆稽核");
   await run(setup);
   const tags = ["A", "B", "C", "D", "E", "F"];
-  await Promise.all(tags.map((t) => run(audit, [t])));
+  const auditGate = barrierDir("audit");
+  await Promise.all(tags.map((t) => run(audit, [t, auditGate, String(tags.length)])));
   const after = JSON.parse(await run(inspect)) as { entries: string[] };
   check("六筆都保留，沒有互相覆蓋", after.entries.join(",") === tags.join(","), after.entries.join(","));
 

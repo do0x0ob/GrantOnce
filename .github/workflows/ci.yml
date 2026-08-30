@@ -1,0 +1,38 @@
+name: CI
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+      - run: npm ci
+      - run: npm run lint
+      - name: Typecheck
+        run: npx tsc --noEmit
+      - run: npm run build
+      - run: npm run test:flow
+      - run: npm run test:mcp
+      - run: npm run test:race
+
+  # The suites above only prove themselves if removing a defence turns one red.
+  # Kept as its own job: it runs every suite once per injected bug, so it is the
+  # slow one, and a failure here means the tests have stopped covering something.
+  mutation:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+      - run: npm ci
+      - run: npm run test:mutate

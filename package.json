@@ -3,9 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev --port 43127 --hostname 127.0.0.1",
+    "dev": "next dev --port 43127 --hostname localhost",
     "build": "next build",
-    "start": "next start --port 43127 --hostname 127.0.0.1",
+    "start": "next start --port 43127 --hostname localhost",
     "lint": "eslint",
     "mcp": "tsx mcp/server.ts",
     "mcp:http": "tsx mcp/server.ts --http",
