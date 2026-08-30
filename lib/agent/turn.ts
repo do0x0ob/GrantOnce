@@ -9,6 +9,7 @@ import {
   PERSONA_DECLARED,
   situationFromUtterance,
 } from "@/lib/rules";
+import type { DeclaredSituation } from "@/lib/rules";
 import type { ResearchResult } from "@/lib/research";
 import type { DemoState, ProgramPlan } from "@/lib/types";
 import { SERVICE_REQUEST_LABEL } from "@/lib/view";
@@ -139,6 +140,23 @@ export type TurnContext = {
     skillAction?: AgentSkillAction;
   } | null;
 };
+
+/**
+ * The situation the rule engine judges, from the words plus the one thing the
+ * classifier reports.
+ *
+ * Exported because the caller has to know whether the registry already answers
+ * the question before deciding to spend a public search on it, and deriving the
+ * situation twice in two places is how the two answers drift apart.
+ */
+export function situationFor(
+  utterance: string,
+  today: string,
+  movedRecently: boolean | null,
+): DeclaredSituation {
+  const fromWords = situationFromUtterance(utterance, today) ?? DECLARED_SITUATION(today);
+  return movedRecently === null ? fromWords : { ...fromWords, movedRecently };
+}
 
 export function runTurn(state: DemoState, utterance: string, ctx?: TurnContext): TurnResult {
   const message = utterance.trim();
@@ -371,10 +389,7 @@ export function runTurn(state: DemoState, utterance: string, ctx?: TurnContext):
   // the whole situation from the classifier's branch dropped it: with a router
   // configured, 「要搞育兒津貼」 came back with 冷氣汰換補助 attached, which is the
   // agent deciding on your behalf what else to authorise.
-  const fromWords = situationFromUtterance(message, today) ?? DECLARED_SITUATION(today);
-  const situation = supplied
-    ? { ...fromWords, movedRecently: supplied.movedRecently }
-    : fromWords;
+  const situation = situationFor(message, today, supplied?.movedRecently ?? null);
 
   // Eligibility is judged on facts alone — what this person qualifies for,
   // regardless of which benefit they happened to name. Narrowing comes after,
@@ -398,7 +413,31 @@ export function runTurn(state: DemoState, utterance: string, ctx?: TurnContext):
     ? eligible.filter((program) => named.includes(program.purpose))
     : eligible;
 
-  // Named something real but not currently eligible: say which, and what is.
+  // Asked about something no registered purpose covers. Not the same as being
+  // ineligible, and saying 「目前不符合」 with nothing after it — which is what an
+  // empty `named` used to produce — tells the person their circumstances are the
+  // problem when the truth is that this runtime has no adapter for what they
+  // asked about.
+  if (!named.length && !situation.movedRecently) {
+    return {
+      programs: [],
+      matched: true,
+      confirms: [],
+      outputs: [
+        ...lead,
+        {
+          text: eligible.length
+            ? `這個服務沒有登記在本系統，所以發不出授權匣——缺的是綁定，不是世界上沒有這筆補助。\n\n已登記而且你目前符合的是：${eligible
+                .map((p) => p.title)
+                .join("、")}。要看嗎？`
+            : "這個服務沒有登記在本系統，所以發不出授權匣——缺的是綁定，不是世界上沒有這筆補助。",
+        },
+        { suggestions: MENU.suggestions },
+      ],
+    };
+  }
+
+  // Named a registered benefit but not currently eligible: say which, and what is.
   if (narrowed && !programs.length && eligible.length) {
     const asked = named.map((id) => PURPOSES[id].title).join("、");
     return {
@@ -408,9 +447,9 @@ export function runTurn(state: DemoState, utterance: string, ctx?: TurnContext):
       outputs: [
         ...lead,
         {
-          text: eligible.length
-            ? `目前不符合${asked}。${hint}\n\n符合的是：${eligible.map((p) => p.title).join("、")}。要看嗎？`
-            : `目前不符合${asked}。${hint}`,
+          text: `目前不符合${asked}。${hint}\n\n符合的是：${eligible
+            .map((p) => p.title)
+            .join("、")}。要看嗎？`,
         },
         { suggestions: MENU.suggestions },
       ],

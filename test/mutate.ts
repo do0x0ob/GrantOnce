@@ -268,8 +268,22 @@ const MUTATIONS: Mutation[] = [
     // named, and only shows up with a router configured.
     label: "模型接手後就忘了你指名哪一項",
     file: "lib/agent/turn.ts",
-    find: "  const situation = supplied\n    ? { ...fromWords, movedRecently: supplied.movedRecently }",
-    replace: "  const situation = supplied\n    ? { ...DECLARED_SITUATION(today), movedRecently: supplied.movedRecently }",
+    find: "  const fromWords = situationFromUtterance(utterance, today) ?? DECLARED_SITUATION(today);",
+    replace: "  const fromWords = DECLARED_SITUATION(today);",
+  },
+  {
+    // Public search is the fallback, not the opening move.
+    label: "登記表有答案還是先去公開搜尋",
+    file: "lib/agent/intent.ts",
+    find: "  return matchPrograms(situation).length === 0;",
+    replace: "  return true;",
+  },
+  {
+    // Naming an unregistered benefit is not the same as being ineligible.
+    label: "沒登記的服務被說成不符合資格",
+    file: "lib/agent/turn.ts",
+    find: "  if (!named.length && !situation.movedRecently) {",
+    replace: "  if (false) {",
   },
   {
     label: "述詞換回原始欄位",

@@ -4,13 +4,13 @@ import { toBlocks } from "@/lib/agent/blocks/of";
 import {
   classify,
   shouldClassifyForChat,
-  shouldResearchForChat,
+  shouldResearch,
 } from "@/lib/agent/intent";
 import { runTurn } from "@/lib/agent/turn";
 import { confirmServiceRequest, openServiceRequests } from "@/lib/authz";
 import { researchWorld } from "@/lib/research";
 import { effectiveToday } from "@/lib/rules";
-import { appendChat, mutate } from "@/lib/store";
+import { appendChat, getState, mutate } from "@/lib/store";
 import { principalView } from "@/lib/view";
 
 export const dynamic = "force-dynamic";
@@ -26,7 +26,8 @@ export async function POST(request: Request) {
   // research is a capability of benefit discovery, not a side effect of every
   // sentence: 「你是誰」 must never become a Wikipedia search.
   const resolved = shouldClassifyForChat(message) ? await classify(message) : null;
-  const world = shouldResearchForChat(message, resolved)
+
+  const world = shouldResearch(getState(), message, resolved)
     ? await researchWorld(message)
     : undefined;
 

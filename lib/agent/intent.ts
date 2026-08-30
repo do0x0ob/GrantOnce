@@ -6,7 +6,9 @@ import {
   type AgentSkillAction,
   type AgentSkillId,
 } from "./skills";
-import { patternIntent, type Intent } from "./turn";
+import { effectiveToday, matchPrograms } from "@/lib/rules";
+import type { DemoState } from "@/lib/types";
+import { patternIntent, situationFor, type Intent } from "./turn";
 
 /**
  * The model's entire job: map free text onto one of six labels.
@@ -64,6 +66,25 @@ export function shouldResearchForChat(
 
   return (resolved?.intent ?? patterned) === "apply";
 }
+
+/**
+ * Whether a public search is worth spending on this sentence.
+ *
+ * The registry is asked first: public search exists to say 「這個世界上有，但本
+ * 系統還沒綁定」, which is only informative when the registry came back empty.
+ * Running it regardless put a Wikipedia disambiguation page above the answer for
+ * 「要搞育兒津貼」, a service registered right here.
+ */
+export function shouldResearch(
+  state: DemoState,
+  message: string,
+  resolved: { intent: Intent; movedRecently: boolean } | null,
+): boolean {
+  if (!shouldResearchForChat(message, resolved)) return false;
+  const situation = situationFor(message, effectiveToday(state), resolved?.movedRecently ?? null);
+  return matchPrograms(situation).length === 0;
+}
+
 
 const SYSTEM = `你是 GrantOnce 的語言理解層。先判斷是否有一個 local skill 適用，再把使用者的話對應到下列標籤之一。
 

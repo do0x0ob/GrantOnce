@@ -14,6 +14,7 @@ import {
   shouldClassifyForChat,
   shouldResearchForChat,
 } from "../lib/agent/intent";
+import { shouldResearch } from "../lib/agent/intent";
 import { agentSkillsPrompt, loadAgentSkills } from "../lib/agent/skills";
 import { runTurn } from "../lib/agent/turn";
 import { evaluateInquiry } from "../lib/inquiry";
@@ -305,6 +306,37 @@ console.log("\n模型接手之後，指名一項仍然只給一項");
 
   const patterned = withModel("我剛搬家，看我能申請什麼。", true);
   check("一般的搬家問法照樣兩項都列", patterned.length === 2, patterned.join(","));
+}
+
+console.log("\n登記表先問，公開搜尋是退路");
+{
+  resetState();
+  const ask = (m: string) => shouldResearch(getState(), m, { intent: "apply", movedRecently: false });
+
+  // 「要搞育兒津貼」 used to open with a Wikipedia disambiguation page for a
+  // service registered right here.
+  check("已登記且符合的服務，不浪費一次公開搜尋", !ask("要搞育兒津貼"));
+  check("一般的搬家問法也由登記表回答", !shouldResearch(getState(), HAPPY_PATH_UTTERANCE, { intent: "apply", movedRecently: true }));
+
+  // Where it earns its place: something real that this runtime cannot issue.
+  check("登記表撈不到時才去公開搜尋", ask("我想申請水災救助"));
+  check("不是在找補助的句子一律不搜", !shouldResearch(getState(), "你是誰", { intent: "help", movedRecently: false }));
+}
+
+console.log("\n沒登記 ≠ 不符合資格");
+{
+  resetState();
+  const blocks = toBlocks(
+    runTurn(getState(), "我想申請水災救助", { today: effectiveToday(getState()) }).outputs,
+  );
+  const text = blocks.filter((b) => b.kind === "text").map((b) => (b as { text: string }).text).join("\n");
+  // An empty `named` used to fall into the ineligibility branch and produce
+  // 「目前不符合。」 with nothing after it — telling the person their situation
+  // was the problem when the truth is there is no adapter for what they asked.
+  check("講的是沒有登記，不是不符合", text.includes("沒有登記"), text.slice(0, 60));
+  check("不會說成資格問題", !text.includes("目前不符合"), text.slice(0, 60));
+  check("仍然說得出真實世界有這筆補助", text.includes("不是世界上沒有"), text.slice(0, 60));
+  check("不會憑空生出需求", !blocks.some((b) => b.kind === "serviceRequirement"));
 }
 
 console.log("\n模型只當「聽懂」那一層");
