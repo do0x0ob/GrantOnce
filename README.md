@@ -12,7 +12,7 @@
 npm install
 npm run dev            # http://localhost:43127
 
-npm run test:flow      # 99 項授權層檢查
+npm run test:flow      # 104 項授權層檢查
 npm run test:mcp       # 33 項 MCP 檢查
 npm run test:race      # 6 項跨 process 檢查（會開子行程）
 npm run test:all       # 以上三個
