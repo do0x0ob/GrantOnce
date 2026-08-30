@@ -19,7 +19,7 @@ npm run test:mcp       # MCP 檢查
 npm run test:race      # 跨 process 檢查（會開子行程）
 npm run test:all       # 以上五個
 npm run test:rehearsal # 逐句對照演示腳本，需先開 dev
-npm run test:mutate    # 50 個注入的 bug，每個都必須被上面某個測試抓到
+npm run test:mutate    # 51 個注入的 bug，每個都必須被上面某個測試抓到
 ```
 
 需要 Node 20+。沒有資料庫、沒有真實 MyData。環境變數全部是選用的：不填就跑本地路徑（理解層退回規則、皮夾沙盒停用），一個 socket 都不會開。
@@ -237,7 +237,7 @@ MCP 工具清單裡沒有任何簽署工具，而且 `mcp/test.ts` 不是用名�
 
 `verify()` 用 header 的 `alg` **挑驗證函式**，金鑰由呼叫端指定——反過來就是演算法混淆。白名單只有 `ES256`（沙盒）與 `EdDSA`（我們自己），`none` 不在裡面。key binding 的驗證做完整了（`sd_hash` 只算到最後那個 `~`，不含 KB-JWT 本身）；**產生** KB-JWT 這一端沒做，因為委託人的私鑰由 passkey PRF 在瀏覽器裡派生，伺服器拿不到，畫面上有標。
 
-**`lib/twdiw.ts`（數位憑證皮夾沙盒）**。`FixtureTwdiw` 完整、離線、測試用；`SandboxTwdiw` 打真的發證端（`/api/qrcode/data`、`/api/credential/nonce/{tx}`、`PUT /api/credential/{cid}/revocation`），驗證端的兩支（DWVP-101／201）路徑還沒公布，所以留 `throw new Error("verifier paths TBD")` 而不是猜一個。撤銷不可逆，沙盒的 action enum 只有 `revocation`。
+**`lib/twdiw.ts`（數位憑證皮夾沙盒）**。`FixtureTwdiw` 完整、離線、測試用；`SandboxTwdiw` 打真的沙盒——發證端三支（`/api/qrcode/data`、`/api/credential/nonce/{tx}`、`PUT /api/credential/{cid}/revocation`）與驗證端兩支（`GET /api/oidvp/qrcode`、`POST /api/oidvp/result`）。撤銷不可逆，沙盒的 action enum 只有 `revocation`。
 
 四個述詞的值只有一個來源：`CLAIM_DEFS[claimId].compute()`，跟 `lib/wallet.ts` 同一個函式，不各算一份。卡片效期取四個 `ttlDays` 的最小值（30 天），不是親子關係那張的 365。
 
@@ -249,23 +249,33 @@ TWDIW_API_KEY=                       # 唯一要自己填的；其餘都有預�
 TWDIW_ISSUER_BASE=https://issuer-sandbox.wallet.gov.tw
 TWDIW_VERIFIER_BASE=https://verifier-sandbox.wallet.gov.tw
 TWDIW_VC_UID=0038403010_childcare_predicates_demo
-TWDIW_VP_FULL_ID=childcare_full
-TWDIW_VP_PARTIAL_ID=childcare_partial
+TWDIW_VP_FULL_REF=0038403010_childcare_full      # 驗證服務代碼，不是 VP 代碼
+TWDIW_VP_PARTIAL_REF=0038403010_childcare_partial
 TWDIW_API_KEY_HEADER=Access-Token    # 不是 Authorization: Bearer，也不是 X-API-KEY
 ```
 
 模板、欄位與每個欄位的 regex 都只能在沙盒 console 裡建，沒有 API，所以 `vcUid` 是常數不是這個程式能開的東西。`TWDIW_ENABLED=true` 一個人說了不算：沒有 api key 就過不了認證，缺項讓整區停用而不是送出一個必然被拒的請求。停用時畫面不隱藏，會寫出缺哪一項。
 
-### 沙盒實測踩到的四件事
+### 沙盒實測踩到的七件事
 
-一次真的互通就把四個「照理說應該是」打掉，所以它們現在都各有一條測試釘著（`test/sdjwt.ts` 的「發行端的請求形狀」用 stub 過的 `fetch` 檢查，不出網路）：
+真的發了一張卡、真的叫了一次驗證端，把七個「照理說應該是」打掉。每一個現在都有一條測試釘著（`test/sdjwt.ts` 的「發行端／驗證端的請求形狀」用 stub 過的 `fetch` 檢查，不出網路）：
 
 1. **沙盒簽 ES256，不是 EdDSA**，而且 `cnf.jwk` 是 EC P-256。`verify()` 依 header 的 `alg` 分派驗章函式，金鑰由呼叫端給；key binding 則反過來，由 `cnf.jwk` 自己的 `kty`／`crv` 決定能用哪個演算法簽，KB header 宣告的 alg 必須對得上。JWS 的 ECDSA signature 是 `r||s` 原始 64 bytes，**不是 DER**。
 2. **`_sd` 摘要在 `vc.credentialSubject` 裡**，不在 payload 頂層——W3C VC data model 包在 SD-JWT 外面。`_sd_alg` 則是三個層級都找。
 3. **認證 header 是 `Access-Token`**。Bearer 與 X-API-KEY 都是會被拒的猜法。
 4. **`deepLink` 是 HTTPS 包裝**（`https://frontend-uat.wallet.gov.tw/api/moda/vcqrcode?…`），內層 base64 才是 `modadigitalwallet://`。原封放進 `<a href>`，不要解碼重組；`qrCode` 已經是 data URI PNG，不要自己畫。`/api/qrcode/nodata` 的 schema 只有 `vcUid`，帶不了任何欄位值，所以只能走 `/api/qrcode/data`。
 
-`GET /api/credential/nonce/{transactionId}` 會回原始憑證 JWT，所以互通這條路是通的：把一張真的沙盒憑證放進 `test/fixtures/sandbox-sdjwt.txt`、把發證機構的公鑰放進 `test/fixtures/sandbox-issuer-jwk.json`（單一 JWK 或整份 JWKS 都可以），那條 skip 就會變成一條真的斷言。
+5. **驗證端的交易序號由呼叫端產生**，不是伺服器回的——跟發行端**相反**。UUID v4、≤ 50 字元、不可重複。
+6. **`POST /api/oidvp/result` 回 400 是「使用者尚未上傳資料」**，是正常的等待狀態。spec 明列 200 = 有結果、400 = 尚未上傳、500 = 系統錯誤。把 400 當成 error，第一次輪詢就會失敗，結果永遠拿不到——而且看起來會像皮夾壞了。
+7. **`ref` 是「驗證服務代碼」不是 VP 代碼**，值含機構前綴（`0038403010_childcare_full`）。而且 QR 欄位叫 **`qrcodeImage`**，不是發行端那個 `qrCode`。
+
+`POST /api/oidvp/result` 的回應 schema（`DWverifierVP301iResponse`）內部結構還沒看到，所以**不做任何欄位對映**：原樣帶在 `raw` 裡並印一行 debug log，等實測後再補。照名字猜一套對映比不對映更糟，因為它看起來會像成功了。
+
+### 互通測試為什麼還是 skip
+
+`GET /api/credential/nonce/{transactionId}` 會回原始憑證 JWT，所以這條路本身是通的。但沙盒發出的卡片加進數位憑證皮夾 APP 之後會立刻顯示「已失效」、發卡單位顯示「不明」，把模板的「對外顯示」勾起來也沒有改善。研判是 moda 端的設計——皮夾 APP 只有一套，沙盒與正式環境共用，所以沙盒發出的憑證被刻意標記為無效，避免有人拿測試卡冒充真憑證。**這不是設定錯誤，也不是協定問題**：發證 API 本身成功（`POST /api/qrcode/data` 回 201），正規表示法在發證時確實生效（送 `childAgeBand=0-3` 會被拒），憑證格式與簽章都不受影響。
+
+所以那條測試維持 `skip`，**不會為了讓它變綠而放寬任何驗證**。之後若拿得到憑證字串，把它放進 `test/fixtures/sandbox-sdjwt.txt`、把發證機構公鑰放進 `test/fixtures/sandbox-issuer-jwk.json`（單一 JWK 或整份 JWKS 都可以），那條 skip 就會自動變成一條真的斷言。
 
 ## MCP（協定客戶端）
 

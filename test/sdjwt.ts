@@ -21,12 +21,15 @@ import {
   claimValues,
   credentialTtlDays,
   DEMO_VC_UID,
+  DEMO_VP_FULL_REF,
+  DEMO_VP_PARTIAL_REF,
   FixtureTwdiw,
   fixtureHolderSecret,
   fixtureIssuerPublicKey,
   ISSUER_AUTH_HEADER,
   mintSandboxShapedCredential,
   SandboxTwdiw,
+  twdiwAdapter,
   twdiwConfig,
   TWDIW_FIELDS,
   type SdAlgPlacement,
@@ -609,14 +612,143 @@ async function issuerWireSection() {
       JSON.parse(String(calls[2].init.body)).action === "revocation",
     );
 
-    let presentThrew = "";
-    try {
-      await sandbox.present("childcare_full");
-    } catch (thrown) {
-      presentThrew = (thrown as Error).message;
-    }
-    check("驗證端路徑還沒公布，present() 明說而不是亂猜", presentThrew === "verifier paths TBD", presentThrew);
-    check("而且它沒有多打任何一次網路", calls.length === 3, String(calls.length));
+    check("發行端到這裡總共只打了三次網路", calls.length === 3, String(calls.length));
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+}
+
+/**
+ * The 驗證端 request shape, same recorder, still no socket.
+ *
+ * Two of these are the opposite of the issuer's behaviour and would have been
+ * got wrong by analogy: the transaction id is generated here rather than handed
+ * back, and HTTP 400 is the waiting state rather than a failure.
+ */
+async function verifierWireSection() {
+  section("驗證端的請求形狀（stub fetch，不出網路）");
+
+  const calls: { url: string; init: RequestInit }[] = [];
+  let nextStatus = 200;
+  let nextBody: unknown = { qrcodeImage: "data:image/png;base64,QQ==", authUri: "https://wallet.example/vp?x=1" };
+
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = (async (url: string | URL | Request, init: RequestInit = {}) => {
+    calls.push({ url: String(url), init });
+    return new Response(nextStatus === 400 ? "" : JSON.stringify(nextBody), {
+      status: nextStatus,
+      headers: { "content-type": "application/json" },
+    });
+  }) as typeof fetch;
+
+  try {
+    const config = twdiwConfig({ TWDIW_ENABLED: "true", TWDIW_API_KEY: "secret-key" });
+    check(
+      "驗證服務代碼用登記好的 ref，含機構前綴",
+      config.vpFullRef === DEMO_VP_FULL_REF && config.vpPartialRef === DEMO_VP_PARTIAL_REF,
+      `${config.vpFullRef} ／ ${config.vpPartialRef}`,
+    );
+
+    const sandbox = new SandboxTwdiw(config);
+    const ticket = await sandbox.present("childcare_partial");
+    const first = new URL(calls[0].url);
+    check(
+      "present() 打 GET /api/oidvp/qrcode",
+      first.pathname === "/api/oidvp/qrcode" && (calls[0].init.method ?? "GET") === "GET",
+      `${calls[0].init.method ?? "GET"} ${first.pathname}`,
+    );
+    check(
+      "帶 ref，值是登記好的驗證服務代碼",
+      first.searchParams.get("ref") === DEMO_VP_PARTIAL_REF,
+      String(first.searchParams.get("ref")),
+    );
+    check(
+      "驗證端也用 Access-Token 認證",
+      (calls[0].init.headers as Record<string, string>)[ISSUER_AUTH_HEADER] === "secret-key",
+    );
+
+    const sentTx = first.searchParams.get("transactionId") ?? "";
+    check(
+      "transactionId 是呼叫端產生的 UUID v4，長度 ≤ 50",
+      /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(sentTx) &&
+        sentTx.length <= 50,
+      sentTx,
+    );
+
+    await sandbox.present("childcare_full");
+    const secondTx = new URL(calls[1].url).searchParams.get("transactionId");
+    check("連續呼叫兩次的 transactionId 不重複", sentTx !== secondTx, `${sentTx} vs ${secondTx}`);
+    check(
+      "第二次帶的是 full 的 ref",
+      new URL(calls[1].url).searchParams.get("ref") === DEMO_VP_FULL_REF,
+    );
+
+    check(
+      "qrCodeDataUri 取自 qrcodeImage 欄位，不是發行端那個 qrCode",
+      ticket.qrCodeDataUri === "data:image/png;base64,QQ==",
+      ticket.qrCodeDataUri,
+    );
+    check(
+      "authUri 原封回傳，不解碼重組",
+      ticket.authUri === "https://wallet.example/vp?x=1",
+      ticket.authUri,
+    );
+    check("回應沒帶 transactionId 時，沿用自己產生的那一組", ticket.txId === sentTx, ticket.txId);
+
+    nextStatus = 400;
+    const waiting = await sandbox.result(sentTx);
+    const resultCall = calls[2];
+    check(
+      "result() 打 POST /api/oidvp/result",
+      resultCall.init.method === "POST" && new URL(resultCall.url).pathname === "/api/oidvp/result",
+      `${resultCall.init.method} ${resultCall.url}`,
+    );
+    check(
+      "body 就是 {transactionId}",
+      serializeBody(JSON.parse(String(resultCall.init.body))) === serializeBody({ transactionId: sentTx }),
+      String(resultCall.init.body),
+    );
+    check(
+      "400 是「使用者尚未上傳」→ pending，不是 failed",
+      waiting.status === "pending",
+      JSON.stringify(waiting),
+    );
+
+    nextStatus = 500;
+    const broke = await sandbox.result(sentTx);
+    check("500 才是 failed", broke.status === "failed", JSON.stringify(broke));
+
+    nextStatus = 200;
+    nextBody = { transactionId: sentTx, note: "shape TBD" };
+    const done = await sandbox.result(sentTx);
+    check(
+      "200 回 done，並把還沒公布 schema 的回應原樣帶著",
+      done.status === "done" && serializeBody(done.raw) === serializeBody(nextBody),
+      JSON.stringify(done),
+    );
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+}
+
+/** With the sandbox off, nothing in this module may reach for the network. */
+async function offlineSection() {
+  section("停用時完全不打網路");
+  const calls: string[] = [];
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = (async (url: string | URL | Request) => {
+    calls.push(String(url));
+    throw new Error("測試期間不該有任何網路呼叫");
+  }) as typeof fetch;
+  try {
+    const offline = twdiwAdapter(twdiwConfig({}));
+    const values = claimValues(getState(), NOW);
+    const ticket = await offline.issue({ ...values, syntheticData: "true" });
+    await offline.getCredential(ticket.transactionId);
+    const vp = await offline.present("childcare_full");
+    await offline.result(vp.txId);
+    await offline.revoke("whatever");
+    check("TWDIW_ENABLED=false 時走 fixture，一次網路都沒打", calls.length === 0, calls.join(","));
   } finally {
     globalThis.fetch = realFetch;
   }
@@ -628,6 +760,8 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 void sandboxSection()
   .then(issuerWireSection)
+  .then(verifierWireSection)
+  .then(offlineSection)
   .then(() => {
     console.log(
       `\n${pass} passed, ${failures.length} failed${skipped.length ? `, ${skipped.length} skipped` : ""}`,

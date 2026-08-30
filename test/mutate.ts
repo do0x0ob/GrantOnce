@@ -486,6 +486,14 @@ const MUTATIONS: Mutation[] = [
     find: "  if (isRecord(vc)) {",
     replace: "  if (false && isRecord(vc)) {",
   },
+  {
+    // 400 from the verifier means「使用者尚未上傳資料」. Lumping it in with the
+    // other 4xx makes the very first poll fail, so the result never arrives.
+    label: "result() 把 400 當成 failed",
+    file: "lib/twdiw.ts",
+    find: '    if (response.status === 400) return { status: "pending" };',
+    replace: '    if (response.status === 400) return { status: "failed", reason: "HTTP 400" };',
+  },
 ];
 
 /**

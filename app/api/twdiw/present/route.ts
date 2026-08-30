@@ -19,9 +19,7 @@ export async function POST(request: Request) {
   try {
     ticket = await wallet().present(vp);
   } catch (thrown) {
-    // The verifier endpoints are not published yet; `SandboxTwdiw` says so
-    // rather than guessing a path.
-    return NextResponse.json({ ok: false, reason: (thrown as Error).message }, { status: 501 });
+    return NextResponse.json({ ok: false, reason: (thrown as Error).message }, { status: 502 });
   }
 
   const state = mutate((s) => {

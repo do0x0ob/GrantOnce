@@ -149,8 +149,9 @@ function twdiwView(state: DemoState) {
     issuerBase: config.issuerBase,
     /** Identifier, not a secret — the api key beside it is never in the view. */
     vcUid: config.vcUid,
-    vpFullId: config.vpFullId,
-    vpPartialId: config.vpPartialId,
+    /** 驗證服務代碼 — shown so the desk can see which service it is calling. */
+    vpFullRef: config.vpFullRef,
+    vpPartialRef: config.vpPartialRef,
     ttlDays: credentialTtlDays(),
     /** The five fields a 發證 would write, with the values as they stand now. */
     fields: [

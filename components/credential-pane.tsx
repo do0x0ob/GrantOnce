@@ -227,6 +227,9 @@ export function CredentialPane({ demo }: { demo: Demo }) {
               同樣四個述詞，寫進 {twdiw.issuerBase}，效期取最小的 {twdiw.ttlDays} 天。
             </p>
             <p className={MONO}>模板 {twdiw.vcUid}</p>
+            <p className={MONO}>
+              驗證服務 {twdiw.vpFullRef} ／ {twdiw.vpPartialRef}
+            </p>
           </div>
           <StatusChip tone={twdiw.enabled ? "mint" : "stone"}>
             {twdiw.enabled ? "已啟用" : "停用中"}
@@ -260,12 +263,14 @@ export function CredentialPane({ demo }: { demo: Demo }) {
           >
             {twdiw.ticket ? "重新產生" : "發一張述詞憑證"}
           </Button>
+          {/* The browser names the profile; the 驗證服務代碼 that goes to moda is
+              resolved server-side and never round-trips through here. */}
           <Button
             variant="secondary"
             size="sm"
             className="rounded-full"
             disabled={demo.busy || !twdiw.enabled}
-            onClick={() => void demo.twdiwPresent(twdiw.vpFullId)}
+            onClick={() => void demo.twdiwPresent("childcare_full")}
           >
             用 OID4VP 出示 · 四題
           </Button>
@@ -274,7 +279,7 @@ export function CredentialPane({ demo }: { demo: Demo }) {
             size="sm"
             className="rounded-full"
             disabled={demo.busy || !twdiw.enabled}
-            onClick={() => void demo.twdiwPresent(twdiw.vpPartialId)}
+            onClick={() => void demo.twdiwPresent("childcare_partial")}
           >
             出示 · 兩題
           </Button>
@@ -362,8 +367,38 @@ export function CredentialPane({ demo }: { demo: Demo }) {
                 <p className={MONO}>{twdiw.ticket.credential}</p>
               </Row>
             ) : null}
+            {twdiw.ticket.presentation ? (
+              <Row label={`出示要求 · ${twdiw.ticket.presentation.vp}`}>
+                <div className="flex flex-wrap items-center gap-4">
+                  <Image
+                    src={twdiw.ticket.presentation.ticket.qrCodeDataUri}
+                    alt="OID4VP 出示 QR"
+                    width={144}
+                    height={144}
+                    unoptimized
+                    className="size-36 rounded-[20px] bg-white p-2 [image-rendering:pixelated]"
+                  />
+                  <div className="space-y-2">
+                    <a
+                      className="inline-flex rounded-full bg-[var(--ink)] px-4 py-1.5 text-[13px] leading-5 text-[var(--primary-foreground)]"
+                      href={twdiw.ticket.presentation.ticket.authUri}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      用皮夾出示
+                    </a>
+                    <p className={MONO}>{twdiw.ticket.presentation.ticket.txId}</p>
+                  </div>
+                </div>
+              </Row>
+            ) : null}
             {twdiw.ticket.lastResult ? (
               <Row label={`出示結果 · ${twdiw.ticket.presentation?.vp ?? ""}`}>
+                {twdiw.ticket.lastResult.status === "pending" ? (
+                  <p className="text-[14px] leading-6 text-stone-500">
+                    使用者還沒把資料上傳給驗證端。驗證端回 400 就是這個意思，不是錯誤。
+                  </p>
+                ) : null}
                 <Json value={twdiw.ticket.lastResult} />
               </Row>
             ) : null}

@@ -14,7 +14,7 @@ export async function GET(_request: Request, context: { params: Promise<{ txId: 
   try {
     result = await wallet().result(txId);
   } catch (thrown) {
-    return NextResponse.json({ ok: false, reason: (thrown as Error).message }, { status: 501 });
+    return NextResponse.json({ ok: false, reason: (thrown as Error).message }, { status: 502 });
   }
 
   const state = mutate((s) => {
