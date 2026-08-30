@@ -1,2 +1,2 @@
 export const SURFACE =
-  "rounded-[24px] border border-stone-200/60 bg-white shadow-[0_1px_2px_rgba(28,25,23,0.035)]";
+  "rounded-[28px] bg-[var(--card)] shadow-[0_1px_0_rgba(26,24,20,0.04),0_24px_48px_-28px_rgba(26,24,20,0.2)]";

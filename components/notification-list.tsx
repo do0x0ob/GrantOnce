@@ -29,7 +29,7 @@ export function NotificationList({
         type="button"
         disabled={busy}
         onClick={onScan}
-        className="w-full rounded-full border border-dashed border-stone-200 px-3 py-1.5 text-[12px] leading-5 text-stone-400 hover:bg-white disabled:opacity-40"
+        className="text-[13px] leading-5 text-stone-400 underline-offset-4 hover:text-stone-600 hover:underline disabled:opacity-40"
       >
         讓代理人主動檢查我的資格有沒有變
       </button>
@@ -37,13 +37,13 @@ export function NotificationList({
   }
 
   return (
-    <div className="space-y-2">
-      <div className="flex items-center justify-between">
-        <p className="text-[12px] leading-4 text-stone-400">代理人主動提醒</p>
+    <div className="space-y-4">
+      <div className="flex items-baseline justify-between gap-3">
+        <p className="text-[13px] leading-5 tracking-[0.04em] text-stone-400">代理人主動提醒</p>
         <Button
           size="sm"
           variant="ghost"
-          className="h-6 rounded-full px-2 text-[11px] text-stone-400 hover:text-stone-600"
+          className="h-7 rounded-full px-2 text-[12px] text-stone-400 hover:text-stone-700"
           disabled={busy}
           onClick={onScan}
         >
@@ -51,14 +51,21 @@ export function NotificationList({
         </Button>
       </div>
       {notifications.map((n) => (
-        <article key={n.id} className={cn(SURFACE, "space-y-1.5 p-3")}>
-          <div className="flex items-start justify-between gap-2">
-            <p className="text-[13px] leading-5 text-stone-700">{n.title}</p>
+        <article
+          key={n.id}
+          className={cn(
+            SURFACE,
+            "space-y-2 p-5",
+            n.kind === "risk" && "ring-1 ring-rose-100",
+          )}
+        >
+          <div className="flex items-start justify-between gap-3">
+            <p className="text-[16px] leading-6 text-stone-800">{n.title}</p>
             <StatusChip tone={TONE[n.kind] ?? "stone"}>
               {n.kind === "risk" ? "攔截" : n.kind === "credential-expiry" ? "憑證" : "資格"}
             </StatusChip>
           </div>
-          <p className="whitespace-pre-wrap text-[12px] leading-5 text-stone-500">{n.body}</p>
+          <p className="whitespace-pre-wrap text-[14px] leading-6 text-stone-500">{n.body}</p>
         </article>
       ))}
     </div>

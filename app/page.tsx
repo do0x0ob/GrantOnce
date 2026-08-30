@@ -6,7 +6,7 @@ export const dynamic = "force-dynamic";
 
 export default function Home() {
   return (
-    <main className="flex h-svh flex-col overflow-hidden">
+    <main className="min-h-svh">
       <DemoApp initialView={principalView(getState())} />
     </main>
   );

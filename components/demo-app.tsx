@@ -1,85 +1,133 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { AgencyPane } from "@/components/agency-pane";
+import { BrandMark } from "@/components/brand-mark";
 import { PrincipalPane } from "@/components/principal-pane";
 import { VaultPane } from "@/components/vault-pane";
 import { Button } from "@/components/ui/button";
 import { useDemo } from "@/hooks/use-demo";
+import { cn } from "@/lib/utils";
 import type { PrincipalView } from "@/lib/view";
 
-const PANES = [
-  { id: "principal", label: "皮夾" },
+const VIEWS = [
+  { id: "authorize", label: "授權" },
   { id: "vault", label: "金庫" },
   { id: "agency", label: "機關" },
 ] as const;
 
-type PaneId = (typeof PANES)[number]["id"];
+type ViewId = (typeof VIEWS)[number]["id"];
 
 export function DemoApp({ initialView }: { initialView: PrincipalView }) {
   const demo = useDemo(initialView);
-  const [pane, setPane] = useState<PaneId>("principal");
+  const [viewId, setViewId] = useState<ViewId>("authorize");
+  const seen = useRef(new Set<string>());
+  const booted = useRef(false);
+
+  useEffect(() => {
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }, [viewId]);
+
+  useEffect(() => {
+    const ids = demo.view.notifications.map((n) => n.id);
+    if (!booted.current) {
+      booted.current = true;
+      for (const id of ids) seen.current.add(id);
+      return;
+    }
+    const fresh = demo.view.notifications.filter((n) => !seen.current.has(n.id));
+    for (const id of ids) seen.current.add(id);
+    if (fresh.some((n) => n.kind === "risk")) setViewId("authorize");
+  }, [demo.view.notifications]);
+
+  const pending = demo.view.grants.filter((g) => g.status === "proposed").length;
+  const inboxReady = Object.values(demo.view.inboxes).some((box) => box.receivedAt);
 
   return (
-    <div className="flex h-full min-h-0 flex-1 flex-col bg-[#F6F3EE]">
-      <header className="flex shrink-0 items-baseline justify-between gap-3 px-6 py-3.5">
-        <p className="text-[15px] leading-6 tracking-tight text-stone-800">
-          GrantOnce
-          <span className="ml-2 text-stone-400">分匣授權</span>
-          <span className="ml-3 hidden text-[13px] text-stone-400 sm:inline">
-            兩把鑰匙才開得了：你的簽章，加上機關的法定職務。
-          </span>
-        </p>
-        <Button
-          variant="ghost"
-          size="sm"
-          className="rounded-full text-stone-400 hover:text-stone-600"
-          disabled={demo.busy}
-          onClick={() => void demo.reset()}
-        >
-          重設
-        </Button>
+    <div className="min-h-svh bg-[#EFEAE3]">
+      <header className="sticky top-0 z-30 border-b border-stone-200/50 bg-[#EFEAE3]/80 backdrop-blur-md">
+        <div className="mx-auto flex max-w-[72rem] flex-col gap-3 px-6 py-3 sm:h-16 sm:flex-row sm:items-center sm:justify-between sm:gap-6 sm:py-0">
+          <div className="flex items-center justify-between gap-4">
+            <div className="flex items-center gap-3 text-stone-800">
+              <BrandMark className="size-7" />
+              <div className="leading-tight">
+                <p className="text-[15px] font-medium tracking-tight">GrantOnce</p>
+                <p className="text-[12px] text-stone-400">分匣授權</p>
+              </div>
+            </div>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="rounded-full text-stone-400 hover:text-stone-700 sm:hidden"
+              disabled={demo.busy}
+              onClick={() => {
+                setViewId("authorize");
+                void demo.reset();
+              }}
+            >
+              重設
+            </Button>
+          </div>
+
+          <nav className="flex items-center gap-0.5 self-start rounded-full bg-white/70 p-1 shadow-[0_1px_0_rgba(26,24,20,0.04)] sm:self-auto">
+            {VIEWS.map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => setViewId(item.id)}
+                className={cn(
+                  "relative rounded-full px-3.5 py-1.5 text-[13px] leading-5 transition-colors",
+                  viewId === item.id
+                    ? "bg-stone-900 text-white"
+                    : "text-stone-500 hover:text-stone-800",
+                )}
+              >
+                {item.label}
+                {item.id === "authorize" && pending > 0 && viewId !== "authorize" ? (
+                  <span className="absolute right-1.5 top-1.5 size-1.5 rounded-full bg-[#C45C4A]" />
+                ) : null}
+                {item.id === "agency" && inboxReady && viewId !== "agency" ? (
+                  <span className="absolute right-1.5 top-1.5 size-1.5 rounded-full bg-emerald-500" />
+                ) : null}
+              </button>
+            ))}
+          </nav>
+
+          <div className="hidden items-center gap-3 sm:flex">
+            <p className="text-[13px] text-stone-400">{demo.view.principal.name}</p>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="rounded-full text-stone-400 hover:text-stone-700"
+              disabled={demo.busy}
+              onClick={() => {
+                setViewId("authorize");
+                void demo.reset();
+              }}
+            >
+              重設
+            </Button>
+          </div>
+        </div>
       </header>
 
       {demo.error ? (
-        <p className="px-6 pb-2 text-[13px] leading-5 text-rose-600">{demo.error}</p>
+        <p className="mx-auto max-w-[40rem] px-6 pt-4 text-[14px] leading-6 text-rose-700">
+          {demo.error}
+        </p>
       ) : null}
 
-      <nav className="flex shrink-0 gap-1 px-5 pb-2 lg:hidden">
-        {PANES.map((item) => (
-          <Button
-            key={item.id}
-            size="sm"
-            variant={pane === item.id ? "default" : "ghost"}
-            className="rounded-full"
-            onClick={() => setPane(item.id)}
-          >
-            {item.label}
-          </Button>
-        ))}
-      </nav>
-
-      <div className="grid min-h-0 flex-1 grid-cols-1 gap-6 px-6 pb-6 lg:grid-cols-[minmax(20rem,1.1fr)_minmax(17rem,0.9fr)_minmax(22rem,1.2fr)]">
-        <section
-          className={`min-h-0 overflow-hidden ${pane === "principal" ? "flex flex-col" : "hidden"} lg:flex lg:flex-col`}
-        >
-          <PrincipalPane demo={demo} />
-        </section>
-        <section
-          className={`min-h-0 overflow-hidden ${pane === "vault" ? "flex flex-col" : "hidden"} lg:flex lg:flex-col`}
-        >
-          <VaultPane
-            view={demo.view}
-            busy={demo.busy}
-            onClock={(days) => void demo.setClock(days)}
-          />
-        </section>
-        <section
-          className={`min-h-0 overflow-hidden ${pane === "agency" ? "flex flex-col" : "hidden"} lg:flex lg:flex-col`}
-        >
-          <AgencyPane demo={demo} />
-        </section>
-      </div>
+      {viewId === "authorize" ? (
+        <PrincipalPane demo={demo} onOpenAgency={() => setViewId("agency")} />
+      ) : null}
+      {viewId === "vault" ? (
+        <VaultPane
+          view={demo.view}
+          busy={demo.busy}
+          onClock={(days) => void demo.setClock(days)}
+        />
+      ) : null}
+      {viewId === "agency" ? <AgencyPane demo={demo} /> : null}
     </div>
   );
 }
