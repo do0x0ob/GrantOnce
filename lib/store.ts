@@ -21,12 +21,21 @@ import type {
   DemoState,
   GrantId,
   Notification,
+  NotificationDraft,
+  NotificationSeverity,
 } from "./types";
 import { FIELD_IDS } from "./types";
 
 const STORE_PATH = process.env.GRANTONCE_STORE ?? "/tmp/grantonce-runtime.json";
-/** Bump when DemoState changes shape. A file from an older build is discarded. */
-const STORE_VERSION = 3;
+/**
+ * Bump when DemoState changes shape. A file from an older build is discarded.
+ *
+ * 4 rather than 3 because two branches each shipped their own v3: the registry
+ * desk added `registeredPurposes`, the watch loop added `lastTickAt` and the
+ * inbox status. Either file would satisfy the other's version check and then
+ * fail on a field that is not there.
+ */
+const STORE_VERSION = 4;
 export function nowIso(): string {
   return new Date().toISOString();
 }
@@ -44,6 +53,8 @@ function emptyInbox(agencyId: AgencyId): DemoState["inboxes"][AgencyId] {
     submittedAt: null,
     lastDenial: null,
     lastDeniedAt: null,
+    applicationStatus: "none",
+    statusChangedAt: null,
   };
 }
 export function createInitialState(): DemoState {
@@ -71,12 +82,14 @@ export function createInitialState(): DemoState {
     delegation: {
       active: true,
       agencies: ["jia", "yi"],
-      purposes: ["childcare-allowance", "aircon-subsidy"],
+      purposes: ["childcare-allowance", "childcare-service-subsidy", "aircon-subsidy"],
       // Default ceiling stops at pairwise pseudonyms: raw personal data needs an
       // explicit widening by the principal, it is never the default.
       maxSensitivity: "pseudonym",
       grantTtlSeconds: 600,
-      validUntil: new Date(Date.now() + 7 * 86_400_000).toISOString(),
+      // Long enough that the 7-day expiry notice means something. A 7-day
+      // delegation would trip that detector the moment it was created.
+      validUntil: new Date(Date.now() + 30 * 86_400_000).toISOString(),
       revokedAt: null,
       revokedReason: null,
     },
@@ -95,6 +108,7 @@ export function createInitialState(): DemoState {
     clockOffsetDays: 0,
     registeredPurposes: {},
     retiredPurposes: [],
+    lastTickAt: null,
   };
 }
 let memory: DemoState | null = null;
@@ -130,7 +144,9 @@ function isCurrentSchema(value: unknown): value is DemoState {
       s.inboxes?.yi &&
       s.delegation &&
       s.registeredPurposes &&
-      Array.isArray(s.retiredPurposes),
+      Array.isArray(s.retiredPurposes) &&
+      Array.isArray(s.notifications) &&
+      typeof s.inboxes?.jia?.applicationStatus === "string",
   );
 }
 function diskMtime(): number {
@@ -286,15 +302,33 @@ export function appendChat(
   state.chat.push(msg);
   return msg;
 }
-export function notify(
-  state: DemoState,
-  input: Omit<Notification, "id" | "at" | "acknowledged">,
-): Notification {
+const SEVERITY_BY_KIND: Partial<Record<Notification["kind"], NotificationSeverity>> = {
+  info: "info",
+  risk: "risk",
+};
+
+/**
+ * Anything the detectors do not fill in is derived here, so a caller that only
+ * knows the old four fields still produces a well-formed notice — including a
+ * dedupe key, without which the watch loop would push it again every pass.
+ */
+export type NotificationInput = Pick<NotificationDraft, "kind" | "title" | "body" | "grantId"> &
+  Partial<Omit<NotificationDraft, "kind" | "title" | "body" | "grantId">>;
+
+export function notify(state: DemoState, input: NotificationInput): Notification {
   const n: Notification = {
     ...input,
     id: randomId("ntf"),
+    key: input.key ?? `${input.kind}:${input.title}`,
     at: nowIso(),
+    severity: input.severity ?? SEVERITY_BY_KIND[input.kind] ?? "action-required",
+    // Falling back to the title is safe only because titles never carry a
+    // predicate value; `claimValueLeakIn` is what keeps that true.
+    summaryForAgent: input.summaryForAgent ?? input.title,
+    suggestedAction: input.suggestedAction ?? null,
+    staleAfter: input.staleAfter ?? null,
     acknowledged: false,
+    acknowledgedAt: null,
   };
   state.notifications.push(n);
   appendAudit(state, {
@@ -310,5 +344,23 @@ export function grantById(state: DemoState, grantId: string) {
   return state.grants.find((g) => g.id === grantId) ?? null;
 }
 export function agencyOf(grantId: GrantId): AgencyId {
-  return grantId === "G-甲" ? "jia" : "yi";
+  return grantId === "G-乙" ? "yi" : "jia";
+}
+
+/**
+ * Keeps the demo's application-status fixture in step with what actually
+ * happened, whichever path got there. Never walks a status backwards, so a
+ * stage-advanced 「審核中」 is not reset by the next watch pass.
+ */
+export function reconcileApplications(state: DemoState): void {
+  for (const inbox of Object.values(state.inboxes)) {
+    const reached: DemoState["inboxes"][AgencyId]["applicationStatus"] | null =
+      inbox.submittedAt ? "submitted" : inbox.receivedAt ? "received" : null;
+    if (!reached) continue;
+    const order = ["none", "received", "submitted"];
+    if (order.indexOf(inbox.applicationStatus) < order.indexOf(reached)) {
+      inbox.applicationStatus = reached;
+      inbox.statusChangedAt = nowIso();
+    }
+  }
 }

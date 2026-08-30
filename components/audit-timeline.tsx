@@ -16,6 +16,7 @@ const ACTION_LABEL: Record<AuditAction, string> = {
   revoke: "撤銷",
   deny: "拒絕",
   notify: "推送",
+  acknowledge: "簽收",
 };
 
 const ACTION_TONE: Record<AuditAction, "stone" | "rose" | "mint" | "amber"> = {
@@ -27,6 +28,7 @@ const ACTION_TONE: Record<AuditAction, "stone" | "rose" | "mint" | "amber"> = {
   revoke: "stone",
   deny: "rose",
   notify: "amber",
+  acknowledge: "stone",
 };
 
 export function AuditTimeline({ view }: { view: PrincipalView }) {

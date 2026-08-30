@@ -9,6 +9,7 @@ import { VaultPane } from "@/components/vault-pane";
 import { Button } from "@/components/ui/button";
 import { useDemo } from "@/hooks/use-demo";
 import { cn } from "@/lib/utils";
+import { formatTime } from "@/lib/view";
 import type { PrincipalView } from "@/lib/view";
 
 const VIEWS = [
@@ -96,6 +97,11 @@ export function DemoApp({ initialView }: { initialView: PrincipalView }) {
           </nav>
 
           <div className="hidden items-center gap-3 sm:flex">
+            {/* Makes 「它一直在看」 something you can point at, rather than a claim. */}
+            <p className="text-[13px] text-stone-400">
+              代理人上次巡檢：
+              {demo.view.lastTickAt ? formatTime(demo.view.lastTickAt) : "尚未巡檢"}
+            </p>
             <p className="text-[13px] text-stone-400">{demo.view.principal.name}</p>
             <Button
               variant="ghost"

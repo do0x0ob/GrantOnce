@@ -163,11 +163,28 @@ export function principalView(state: DemoState) {
     }),
     inboxes: state.inboxes,
     delegation: state.delegation,
-    notifications: [...state.notifications].reverse(),
+    // The browser gets `body` — the principal is the one the values are about.
+    // `summaryForAgent` is deliberately not here: it exists for the model, and
+    // shipping both would invite the two to be used interchangeably.
+    notifications: [...state.notifications].reverse().map((n) => ({
+      id: n.id,
+      key: n.key,
+      at: n.at,
+      kind: n.kind,
+      severity: n.severity,
+      title: n.title,
+      body: n.body,
+      grantId: n.grantId,
+      suggestedAction: n.suggestedAction,
+      acknowledged: n.acknowledged,
+      acknowledgedAt: n.acknowledgedAt,
+    })),
     audit: state.audit,
     chat: state.chat,
     plan: state.plan,
     clockOffsetDays: state.clockOffsetDays ?? 0,
+    /** Shows that the agent is watching, rather than asking you to take it on trust. */
+    lastTickAt: state.lastTickAt,
     usedJtiCount: state.usedJti.length,
     registry: registryView(state),
   };

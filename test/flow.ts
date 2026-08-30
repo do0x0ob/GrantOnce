@@ -24,10 +24,11 @@ import {
 } from "../lib/authz";
 import { AGENCY_KEYS } from "../lib/parties";
 import { originBlocker } from "../lib/passkey";
+import { runAgentTick } from "../lib/agent";
 import { FLOOD_UTTERANCE } from "../lib/catalog";
 import { evaluateInquiry } from "../lib/inquiry";
 import { effectiveToday, matchPrograms, scanForChanges, situationFromUtterance } from "../lib/rules";
-import { getState, mutate, resetState } from "../lib/store";
+import { getState, mutate, notify, resetState } from "../lib/store";
 import { formatClock, formatDate, formatTime } from "../lib/view";
 import { verifyCredential } from "../lib/wallet";
 import type { Grant, GrantId } from "../lib/types";
@@ -627,7 +628,106 @@ section("動態授權：時間前進");
   check("偵測到幼兒滿 2 歲", changes.some((c) => c.kind === "eligibility-change"), JSON.stringify(changes));
   const later = situationFromUtterance("我剛搬家，看我能申請什麼。", effectiveToday(getState()))!;
   check("重新比對後育兒津貼不再成立", !matchPrograms(later).some((p) => p.grantId === "G-甲"));
+  check(
+    "改適用未滿 5 歲幼兒托育補助",
+    matchPrograms(later).some((p) => p.grantId === "G-丙" && p.purpose === "childcare-service-subsidy"),
+    matchPrograms(later).map((p) => p.grantId).join(","),
+  );
+
+  // The whole point of the proactive half: the clock moving forward is not only
+  // a loss. One notice says what stopped applying, the other says what started.
+  mutate((s) => { s.notifications = []; });
+  const pushed = runAgentTick();
+  const keys = pushed.map((n) => n.key);
+  check("推播了「育兒津貼失效」", keys.includes("eligibility:aged-out:G-甲"), keys.join(","));
+  check("同時推播了「你現在符合托育補助」", keys.includes("eligibility:gained:childcare-service-subsidy"), keys.join(","));
+  check("巡檢會留下時間戳", Boolean(getState().lastTickAt));
+
+  const total = getState().notifications.length;
+  runAgentTick();
+  runAgentTick();
+  check("同一個時鐘位置重跑兩次，推播總數不變", getState().notifications.length === total, `${total} → ${getState().notifications.length}`);
+
+  // Keying on the title is what this used to do; a reworded title would push the
+  // same condition all over again.
+  mutate((s) => {
+    for (const n of s.notifications) n.title = `${n.title}（改過的標題）`;
+  });
+  runAgentTick();
+  check("標題改了也不會重複推播", getState().notifications.length === total, `${total} → ${getState().notifications.length}`);
+
   mutate((s) => { s.clockOffsetDays = 0; });
+}
+
+section("換了一張匣，就要換一則推播");
+{
+  // Capsule ids are reused across proposals — `proposeGrantsFromPlan` replaces
+  // the whole grant — so a dedupe key built from the id alone lets a notice
+  // about the *previous* capsule suppress the new one's.
+  mutate((s) => { s.notifications = []; });
+  freshProposal();
+  const backdate = () =>
+    mutate((s) => {
+      for (const grant of s.grants) {
+        grant.proposedAt = new Date(Date.now() - 120_000).toISOString();
+      }
+    });
+  backdate();
+  runAgentTick();
+  const firstJti = grantOf(jia).body.jti;
+  const waiting = () =>
+    getState().notifications.filter((n) => n.kind === "awaiting-signature").map((n) => n.key);
+  check("等待簽署的推播帶著這張匣的 jti", waiting().some((k) => k.includes(firstJti)), waiting().join(","));
+
+  freshProposal();
+  backdate();
+  runAgentTick();
+  const secondJti = grantOf(jia).body.jti;
+  check("重新提案換了一個 jti", secondJti !== firstJti);
+  check(
+    "新的匣會推出屬於自己的那一則，不會被舊推播擋掉",
+    waiting().some((k) => k.includes(secondJti)),
+    waiting().join(","),
+  );
+  mutate((s) => { s.notifications = []; });
+}
+
+section("推播會自己過期");
+{
+  mutate((s) => {
+    s.notifications = [];
+    const stale = new Date(Date.now() - 60_000).toISOString();
+    notify(s, {
+      kind: "info",
+      title: "已經不成立的提醒",
+      body: "測試用",
+      grantId: null,
+      key: "test:stale",
+      staleAfter: stale,
+    });
+    notify(s, {
+      kind: "info",
+      title: "簽收過的舊提醒",
+      body: "測試用",
+      grantId: null,
+      key: "test:stale-acknowledged",
+      staleAfter: stale,
+    });
+    s.notifications[1].acknowledged = true;
+    notify(s, {
+      kind: "info",
+      title: "還成立的提醒",
+      body: "測試用",
+      grantId: null,
+      key: "test:fresh",
+      staleAfter: new Date(Date.now() + 600_000).toISOString(),
+    });
+  });
+  runAgentTick();
+  const keys = getState().notifications.map((n) => n.key);
+  check("staleAfter 過期的未簽收推播會被清掉", !keys.includes("test:stale"), keys.join(","));
+  check("簽收過的留著，那是看過的紀錄", keys.includes("test:stale-acknowledged"), keys.join(","));
+  check("還沒到期的留著", keys.includes("test:fresh"), keys.join(","));
 }
 
 console.log(`\n${pass} passed, ${failures.length} failed`);

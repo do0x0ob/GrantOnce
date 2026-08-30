@@ -10,7 +10,7 @@ import {
   registerSoftwareKey,
   signGrantBytes,
 } from "@/lib/passkey";
-import type { AgencyId, GrantId } from "@/lib/types";
+import type { AgencyId, ApplicationStatus, GrantId } from "@/lib/types";
 import type { PrincipalView } from "@/lib/view";
 
 type ActionResult = { ok: boolean; error?: string };
@@ -148,6 +148,9 @@ export function useDemo(initialView: PrincipalView) {
       post("/api/delegation", { action: "update", maxSensitivity }),
     setClock: (offsetDays: number) => post("/api/clock", { offsetDays }),
     scanNotifications: () => post("/api/notifications"),
+    acknowledge: (id: string) => post("/api/notifications/ack", { id }),
+    advanceApplication: (agency: AgencyId, status: ApplicationStatus) =>
+      post("/api/agency/advance", { agency, status }),
     reset: () => post("/api/reset"),
     upsertPurpose: (purpose: {
       id: string;

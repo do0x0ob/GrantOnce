@@ -117,6 +117,7 @@ export function PrincipalPane({
               notifications={view.notifications}
               busy={busy}
               onScan={() => void demo.scanNotifications()}
+              onAcknowledge={(id) => void demo.acknowledge(id)}
             />
 
             {view.chat.length ? <ChatTranscript chat={view.chat} compact /> : null}

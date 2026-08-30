@@ -1,7 +1,11 @@
 import type { ClaimId } from "./claims";
 import type { AgencyId } from "./types";
 
-export const PURPOSE_IDS = ["childcare-allowance", "aircon-subsidy"] as const;
+export const PURPOSE_IDS = [
+  "childcare-allowance",
+  "childcare-service-subsidy",
+  "aircon-subsidy",
+] as const;
 /** Builtin ids plus any purpose an agency hangs on the registry desk. */
 export type PurposeId = string;
 
@@ -47,6 +51,26 @@ export const PURPOSES: Record<PurposeId, PurposeDef> = {
     maxTtlSeconds: 600,
     necessity:
       "核定育兒津貼只需確認「設籍本市」「一年內遷入」「具法定親子關係」「幼兒落在 0–2 歲」四件事，不需要姓名、地址、戶號或出生日期本身。",
+  },
+  /**
+   * Where a child goes when they age out of 育兒津貼. Same agency, same statute,
+   * a different age band — so the clock moving forward is not only a loss.
+   */
+  "childcare-service-subsidy": {
+    id: "childcare-service-subsidy",
+    title: "未滿 5 歲幼兒托育補助",
+    agency: "jia",
+    agencyName: "新北市政府社會局",
+    legalBasis: [
+      "個人資料保護法 §15 第 1 款：執行法定職務必要範圍內蒐集、處理",
+      "個人資料保護法 §16 第 1 款：於執行法定職務必要範圍內利用",
+      "個人資料保護法 §5：不得逾越特定目的之必要範圍",
+      "兒童及少年福利與權益保障法 §23：直轄市主管機關辦理托育與育兒補助",
+    ],
+    allowedClaims: ["resident.inNewTaipei", "parentChild.verified", "child.ageBand"],
+    maxTtlSeconds: 600,
+    necessity:
+      "核定托育補助只需確認「設籍本市」「具法定親子關係」「幼兒尚未滿 5 歲」三件事，不需要姓名、地址或出生日期本身。",
   },
   "aircon-subsidy": {
     id: "aircon-subsidy",
