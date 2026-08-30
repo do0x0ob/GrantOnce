@@ -57,14 +57,6 @@ export function PrincipalPane({
             <PageIntro kicker={view.principal.name} title="想辦什麼？">
               跟代理人說你現在的情況。資格由規則引擎決定，模型不決定授權。
             </PageIntro>
-            <WalletKeyCard
-              keyState={view.principal.key}
-              busy={busy}
-              passkeyAvailable={demo.passkeyAvailable}
-              passkeyProblem={demo.passkeyProblem}
-              localKeyUsable={demo.localKeyUsable}
-              onRegister={(mode) => void demo.registerKey(mode)}
-            />
             <button
               type="button"
               disabled={busy}
@@ -108,14 +100,6 @@ export function PrincipalPane({
                   <p>已交付的述詞收不回來。防線是一開始就少給。</p>
                 )}
               </PageIntro>
-              <WalletKeyCard
-                keyState={view.principal.key}
-                busy={busy}
-                passkeyAvailable={demo.passkeyAvailable}
-                passkeyProblem={demo.passkeyProblem}
-                localKeyUsable={demo.localKeyUsable}
-                onRegister={(mode) => void demo.registerKey(mode)}
-              />
               {phase === "waiting" ? (
                 <Button size="lg" variant="secondary" onClick={onOpenAgency}>
                   前往機關收件匣
@@ -156,7 +140,7 @@ export function PrincipalPane({
 
       </div>
 
-      {view.principal.key.registered && demo.localKeyUsable ? (
+      {phase === "ask" ? (
         <div className="sticky bottom-0 bg-gradient-to-t from-[#EFEAE3] via-[#EFEAE3] to-transparent pb-5 pt-8">
           <form
             className="mx-auto flex w-full max-w-[40rem] items-center gap-2 px-6 sm:px-8"

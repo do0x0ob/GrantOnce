@@ -74,6 +74,38 @@ export function GrantCard({
   const elevated = grant.risk === "elevated";
   const signable = grant.status === "proposed" && !blocked && !grant.expired;
   const childcare = grant.purpose === "childcare-allowance";
+  const compact =
+    !signable && !blocked && grant.status !== "expired" && !showConsent;
+
+  if (compact) {
+    return (
+      <article className={cn(SURFACE, "relative overflow-hidden")}>
+        <span
+          aria-hidden
+          className={cn("absolute inset-y-0 left-0 w-1", ACCENT[grant.agencyId] ?? "bg-stone-300")}
+        />
+        <div className="flex items-center justify-between gap-4 p-6 pl-8">
+          <div className="min-w-0 space-y-1">
+            <h2 className="truncate text-[18px] font-medium leading-6 text-stone-900">
+              {grant.programTitle}
+            </h2>
+            <p className="truncate text-[13px] leading-5 text-stone-400">{grant.agencyName}</p>
+          </div>
+          <div className="flex shrink-0 items-center gap-2">
+            <StatusChip tone={CHIP[grant.status]}>{grant.statusLabel}</StatusChip>
+            <Button
+              size="sm"
+              variant="ghost"
+              className="rounded-full px-2 text-[13px] text-stone-400 hover:text-stone-700"
+              onClick={() => setShowConsent(true)}
+            >
+              看我簽的是什麼
+            </Button>
+          </div>
+        </div>
+      </article>
+    );
+  }
 
   return (
     <article className={cn(SURFACE, "relative overflow-hidden")}>

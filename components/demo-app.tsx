@@ -125,6 +125,7 @@ export function DemoApp({ initialView }: { initialView: PrincipalView }) {
           view={demo.view}
           busy={demo.busy}
           onClock={(days) => void demo.setClock(days)}
+          onScan={() => void demo.scanNotifications()}
         />
       ) : null}
       {viewId === "agency" ? <AgencyPane demo={demo} /> : null}

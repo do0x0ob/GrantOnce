@@ -13,7 +13,6 @@ export function ChatTranscript({
   compact?: boolean;
 }) {
   const [open, setOpen] = useState(!compact);
-  const last = chat.at(-1);
 
   if (chat.length === 0) return null;
 
@@ -22,10 +21,9 @@ export function ChatTranscript({
       <button
         type="button"
         onClick={() => setOpen(true)}
-        className="text-left text-[14px] leading-6 text-stone-400 transition-colors hover:text-stone-600"
+        className="text-[13px] leading-5 text-stone-400 transition-colors hover:text-stone-600"
       >
         與代理人的對話 · {chat.length} 則
-        {last ? <span className="mt-0.5 block truncate text-stone-500">{last.text}</span> : null}
       </button>
     );
   }

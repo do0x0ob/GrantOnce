@@ -178,8 +178,8 @@ export function AgencyPane({ demo }: { demo: Demo }) {
 
   return (
     <div className="mx-auto w-full max-w-[40rem] space-y-10 px-6 py-10 sm:px-8">
-      <PageIntro kicker="機關收件匣" title="一次只看一個機關">
-        機關要拿到東西，必須自己出示金鑰證明身分，而且該目的要在法定職務範圍內。
+      <PageIntro kicker="機關收件匣" title={demo.view.inboxes[desk].name}>
+        要拿到東西，必須自己出示金鑰證明身分，而且該目的要在法定職務範圍內。
       </PageIntro>
 
       <div className="flex gap-1 rounded-full bg-white/70 p-1 shadow-[0_1px_0_rgba(26,24,20,0.04)]">

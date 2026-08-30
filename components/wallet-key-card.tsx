@@ -55,14 +55,7 @@ export function WalletKeyCard({
     );
   }
 
-  if (keyState.registered) {
-    return (
-      <p className="text-[13px] leading-5 text-stone-400">
-        皮夾簽章金鑰已就緒 · {keyState.method === "passkey" ? "passkey · 生物辨識" : "軟體金鑰 · 備援"}
-        {keyState.fingerprint ? ` · 公鑰 ${keyState.fingerprint}…` : null}
-      </p>
-    );
-  }
+  if (keyState.registered) return null;
 
   return (
     <div className="flex min-h-[calc(100svh-10rem)] flex-col items-center justify-center px-2 text-center">
@@ -70,9 +63,8 @@ export function WalletKeyCard({
       <h1 className="mt-10 text-[2.25rem] font-medium leading-tight tracking-tight text-stone-900">
         先建立你的簽章金鑰
       </h1>
-      <p className="mt-5 max-w-[26rem] text-[16px] leading-7 text-stone-500">
+      <p className="mt-5 max-w-[22rem] text-[17px] leading-8 text-stone-500">
         兩把鑰匙才開得了：你的簽章，加上機關的法定職務。
-        金鑰由 passkey 的 PRF 擴充派生，每次簽署都要通過 Face ID／指紋才會重新算出來，算完即丟。伺服器只拿得到公鑰。
       </p>
       <div className="mt-10 flex w-full max-w-xs flex-col gap-3">
         <Button
@@ -94,12 +86,12 @@ export function WalletKeyCard({
       </div>
       <p
         className={cn(
-          "mt-8 max-w-[24rem] text-[13px] leading-6",
+          "mt-10 max-w-[22rem] text-[13px] leading-6",
           passkeyAvailable ? "text-stone-400" : "text-amber-700",
         )}
       >
         {passkeyAvailable
-          ? "認證器若不支援 PRF，請改用軟體金鑰；流程一樣，只是私鑰改存瀏覽器。"
+          ? "金鑰由 passkey 派生，簽完即丟，伺服器只有公鑰。認證器若不支援 PRF，請改用軟體金鑰。"
           : `${passkeyProblem ?? "無法使用 passkey"}。目前請用軟體金鑰。`}
       </p>
     </div>

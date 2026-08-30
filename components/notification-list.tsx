@@ -23,18 +23,7 @@ export function NotificationList({
   busy: boolean;
   onScan: () => void;
 }) {
-  if (!notifications.length) {
-    return (
-      <button
-        type="button"
-        disabled={busy}
-        onClick={onScan}
-        className="text-[13px] leading-5 text-stone-400 underline-offset-4 hover:text-stone-600 hover:underline disabled:opacity-40"
-      >
-        讓代理人主動檢查我的資格有沒有變
-      </button>
-    );
-  }
+  if (!notifications.length) return null;
 
   return (
     <div className="space-y-4">
