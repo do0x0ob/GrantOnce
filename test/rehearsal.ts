@@ -1,5 +1,5 @@
 /**
- * Executable run-through of pitch/demo-script.md.
+ * Executable run-through of the live product flow.
  *
  * Every assertion corresponds to a sentence said out loud on stage. It drives
  * the running app over HTTP, so it exercises the API routes and the view
