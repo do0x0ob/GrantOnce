@@ -62,7 +62,7 @@ const INTENT_PATTERNS: [Intent, RegExp][] = [
   ["help", /你會|能做什麼|怎麼用|說明|幫助|help/],
 ];
 
-function intentOf(utterance: string): Intent | null {
+export function patternIntent(utterance: string): Intent | null {
   const t = utterance.replace(/\s+/g, "");
   for (const [intent, pattern] of INTENT_PATTERNS) {
     if (pattern.test(t)) return intent;
@@ -120,7 +120,7 @@ export function runTurn(
   // to the patterns rather than dropping through to whatever branch is last.
   const supplied =
     resolved && INTENT_VALUES.includes(resolved.intent) ? resolved : null;
-  const intent = supplied?.intent ?? intentOf(message);
+  const intent = supplied?.intent ?? patternIntent(message);
 
   if (intent === "privacy") {
     return {

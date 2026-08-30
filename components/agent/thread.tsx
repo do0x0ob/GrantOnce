@@ -1,5 +1,7 @@
 "use client";
 
+import { useEffect, useRef } from "react";
+
 import { ApplicationStatusCard } from "@/components/agent/application-status-card";
 import { AuditCard } from "@/components/agent/audit-card";
 import { ClaimsExplainerCard } from "@/components/agent/claims-explainer-card";
@@ -88,6 +90,17 @@ function renderBlock(block: Block, key: string, demo: Demo) {
  * transcript and the capsules in a separate column.
  */
 export function AgentThread({ demo }: { demo: Demo }) {
+  // The last turn is still in flight when the user's line has no reply after it.
+  const last = demo.view.chat.at(-1);
+  const awaiting = demo.busy && last?.role === "user";
+
+  // New cards land below the fold on a long thread, which looks the same as
+  // nothing having happened. Follow the end of the thread instead.
+  const endRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    endRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+  }, [last?.id, awaiting]);
+
   return (
     <div className="flex flex-col gap-8">
       {demo.view.chat.map((message) => {
@@ -120,6 +133,19 @@ export function AgentThread({ demo }: { demo: Demo }) {
           </div>
         );
       })}
+
+      {awaiting ? (
+        <p className="flex items-center gap-2 text-[15px] leading-7 text-stone-400">
+          <span className="inline-flex gap-1" aria-hidden>
+            <span className="size-1.5 animate-bounce rounded-full bg-stone-400 [animation-delay:-0.3s]" />
+            <span className="size-1.5 animate-bounce rounded-full bg-stone-400 [animation-delay:-0.15s]" />
+            <span className="size-1.5 animate-bounce rounded-full bg-stone-400" />
+          </span>
+          代理人正在理解這句話…
+        </p>
+      ) : null}
+
+      <div ref={endRef} />
     </div>
   );
 }

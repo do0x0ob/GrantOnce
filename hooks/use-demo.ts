@@ -46,6 +46,48 @@ export function useDemo(initialView: PrincipalView) {
     return { ok: true };
   }, []);
 
+  /**
+   * The user's own line appears the moment they send it.
+   *
+   * A turn can take several seconds when the classifier is consulted, and until
+   * the response lands the view is whatever the server last returned — so
+   * without this the message you just typed simply is not there, which reads as
+   * the button having done nothing.
+   */
+  const sendChat = useCallback(
+    async (message: string): Promise<ActionResult> => {
+      setView((current) => ({
+        ...current,
+        chat: [
+          ...current.chat,
+          {
+            id: `pending:${Date.now()}`,
+            role: "user" as const,
+            text: message,
+            at: new Date().toISOString(),
+          },
+        ],
+      }));
+      setBusy(true);
+      setError(null);
+      try {
+        const res = await fetch("/api/chat", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ message }),
+        });
+        return await apply(res);
+      } catch (e) {
+        const text = e instanceof Error ? e.message : String(e);
+        setError(text);
+        return { ok: false, error: text };
+      } finally {
+        setBusy(false);
+      }
+    },
+    [apply],
+  );
+
   const post = useCallback(
     async (url: string, body?: unknown): Promise<ActionResult> => {
       setBusy(true);
@@ -135,7 +177,7 @@ export function useDemo(initialView: PrincipalView) {
     localKeyUsable: !view.principal.key.registered || browserKey === view.principal.key.publicKey,
     registerKey,
     signGrant,
-    sendChat: (message: string) => post("/api/chat", { message }),
+    sendChat,
     redeem: (grantId: GrantId, agency: AgencyId) =>
       post("/api/grants/redeem", { grantId, agency }),
     revoke: (grantId: GrantId) => post("/api/grants/revoke", { grantId }),

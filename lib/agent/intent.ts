@@ -40,22 +40,44 @@ help     想知道你會做什麼、怎麼用
 movedRecently 只在使用者提到搬家、遷徙、遷入、換住址時為 true。
 無法對應到任何標籤時，intent 用 "help"。`;
 
-const BASE_URL = process.env.AGENT_MODEL_BASE_URL;
-const API_KEY = process.env.AGENT_MODEL_API_KEY;
-const MODEL = process.env.AGENT_MODEL ?? "claude-opus-5";
-const TIMEOUT_MS = 4000;
+// Reasoning models spend this budget thinking before they answer, so a
+// classifier ceiling sized for one line of JSON leaves nothing for the line —
+// the reply comes back with finish_reason "length" and empty content.
+const MAX_TOKENS = 1024;
+
+// Only ever paid when the patterns already missed, so it can be generous.
+const TIMEOUT_MS = 10_000;
+
+/**
+ * Read per call, not at module scope. Module-level capture binds whatever the
+ * environment happened to be when the import was first evaluated, which is
+ * before anything that loads a dotenv file at runtime gets a chance to run.
+ */
+function config() {
+  const baseURL = process.env.AGENT_MODEL_BASE_URL?.trim();
+  const apiKey = process.env.AGENT_MODEL_API_KEY?.trim();
+  return {
+    baseURL,
+    apiKey,
+    model: process.env.AGENT_MODEL?.trim() || "claude-opus-5",
+    configured: Boolean(baseURL && apiKey),
+  };
+}
 
 /** Present only when a router is configured; otherwise the deterministic
  *  patterns handle everything and behaviour is identical. */
 export function modelAvailable(): boolean {
-  return Boolean(BASE_URL && API_KEY);
+  return config().configured;
 }
 
 function parse(raw: string): Classification | null {
-  // Routers vary in whether they strip fences, so tolerate one.
-  const body = raw.trim().replace(/^```(?:json)?/, "").replace(/```$/, "").trim();
+  // Some routers inline the reasoning ahead of the answer and some wrap it in a
+  // fence, so take the last balanced object rather than assuming the whole
+  // string is the JSON.
+  const match = raw.match(/\{[^{}]*\}(?![\s\S]*\{[^{}]*\})/);
+  if (!match) return null;
   try {
-    const value = JSON.parse(body) as Record<string, unknown>;
+    const value = JSON.parse(match[0]) as Record<string, unknown>;
     const intent = value.intent;
     if (typeof intent !== "string") return null;
     if (!(INTENTS as readonly string[]).includes(intent)) return null;
@@ -71,18 +93,14 @@ function parse(raw: string): Classification | null {
  * removing the credentials changes nothing about how the demo behaves.
  */
 export async function classify(utterance: string): Promise<Classification | null> {
-  if (!modelAvailable()) return null;
+  const { baseURL, apiKey, model, configured } = config();
+  if (!configured) return null;
 
   try {
-    const client = new OpenAI({
-      baseURL: BASE_URL,
-      apiKey: API_KEY,
-      timeout: TIMEOUT_MS,
-      maxRetries: 0,
-    });
+    const client = new OpenAI({ baseURL, apiKey, timeout: TIMEOUT_MS, maxRetries: 0 });
     const response = await client.chat.completions.create({
-      model: MODEL,
-      max_tokens: 128,
+      model,
+      max_tokens: MAX_TOKENS,
       temperature: 0,
       messages: [
         { role: "system", content: SYSTEM },

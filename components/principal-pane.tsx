@@ -33,6 +33,10 @@ export function PrincipalPane({
   const [draft, setDraft] = useState("");
   const { view, busy } = demo;
   const phase = authorizePhase(demo);
+  // The conversation is the surface, so it must not be gated on a capsule
+  // existing: a reply that answers a question without proposing anything —
+  // "who read my data", "what would they get" — has to be visible too.
+  const started = view.chat.some((message) => message.role === "user");
   const pending = view.grants.filter((g) => g.status === "proposed").length;
   const submitted = Object.values(view.inboxes).some((box) => box.submittedAt);
   const received = Object.values(view.inboxes).some((box) => box.receivedAt);
@@ -51,7 +55,7 @@ export function PrincipalPane({
           />
         ) : null}
 
-        {phase === "ask" ? (
+        {phase === "ask" && !started ? (
           <div className="flex flex-1 flex-col items-start justify-center py-10">
             <PageIntro kicker={view.principal.name} title="想辦什麼？">
               跟代理人說你現在的情況。資格由規則引擎決定，模型不決定授權。
@@ -77,8 +81,9 @@ export function PrincipalPane({
           </div>
         ) : null}
 
-        {phase === "review" || phase === "waiting" || phase === "done" ? (
+        {started ? (
           <div className="space-y-10 pb-8">
+            {view.grants.length ? (
             <div className="space-y-4">
               <PageIntro
                 kicker={view.principal.name}
@@ -110,6 +115,7 @@ export function PrincipalPane({
                 </Button>
               ) : null}
             </div>
+            ) : null}
 
             <NotificationList
               notifications={view.notifications}
