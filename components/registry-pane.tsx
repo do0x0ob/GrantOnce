@@ -12,7 +12,7 @@ import type { Demo } from "@/hooks/use-demo";
 
 const DEFAULT_BASIS = [
   "個人資料保護法 §15 第 1 款：執行法定職務必要範圍內蒐集、處理",
-  "個人資料保護法 §16 第 1 款：於執行法定職務必要範圍內利用",
+  "個人資料保護法 §16 本文：於執行法定職務必要範圍內利用，並與蒐集之特定目的相符",
   "個人資料保護法 §5：不得逾越特定目的之必要範圍",
 ].join("\n");
 
@@ -24,7 +24,7 @@ export function RegistryPane({ demo }: { demo: Demo }) {
   const [id, setId] = useState("");
   const [title, setTitle] = useState("");
   const [agency, setAgency] = useState<"jia" | "yi">("jia");
-  const [legalBasis, setLegalBasis] = useState(DEFAULT_BASIS);
+  const [privacyBasis, setPrivacyBasis] = useState(DEFAULT_BASIS);
   const [necessity, setNecessity] = useState("");
   const [ttl, setTtl] = useState("600");
   const [claims, setClaims] = useState<string[]>([]);
@@ -41,7 +41,7 @@ export function RegistryPane({ demo }: { demo: Demo }) {
     setId(purpose.id);
     setTitle(purpose.title);
     setAgency(purpose.agency);
-    setLegalBasis(purpose.legalBasis.join("\n"));
+    setPrivacyBasis(purpose.privacyBasis.join("\n"));
     setNecessity(purpose.necessity);
     setTtl(String(purpose.maxTtlSeconds));
     setClaims([...purpose.allowedClaims]);
@@ -108,7 +108,7 @@ export function RegistryPane({ demo }: { demo: Demo }) {
             id,
             title,
             agency,
-            legalBasis: legalBasis.split("\n"),
+            privacyBasis: privacyBasis.split("\n"),
             allowedClaims: claims,
             maxTtlSeconds: Number(ttl),
             necessity,
@@ -150,13 +150,16 @@ export function RegistryPane({ demo }: { demo: Demo }) {
             </button>
           ))}
         </div>
-        <textarea
-          value={legalBasis}
-          onChange={(e) => setLegalBasis(e.target.value)}
-          rows={5}
-          disabled={demo.busy}
-          className={FIELD}
-        />
+        <label className="block space-y-2">
+          <span className="text-[13px] leading-5 text-stone-400">個資依據（每行一條）</span>
+          <textarea
+            value={privacyBasis}
+            onChange={(e) => setPrivacyBasis(e.target.value)}
+            rows={5}
+            disabled={demo.busy}
+            className={FIELD}
+          />
+        </label>
         <textarea
           value={necessity}
           onChange={(e) => setNecessity(e.target.value)}

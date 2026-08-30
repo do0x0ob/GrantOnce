@@ -153,8 +153,10 @@ check(
     PURPOSES[g.body.purpose].maxTtlSeconds,
 );
 check(
-  "同意畫面文字實際引用了登記表裡的法源",
-  PURPOSES[g.body.purpose].legalBasis.every((basis) => g.body.displayText.includes(basis)),
+  "同意畫面文字實際引用了登記表裡的個資依據",
+  PURPOSES[g.body.purpose].privacyBasis.every((basis: string) =>
+    g.body.displayText.includes(basis),
+  ),
   g.body.displayText,
 );
 {
@@ -364,7 +366,7 @@ section("登記台");
     id: "flood-relief",
     title: "水災災害救助",
     agency: "jia",
-    legalBasis: ["個人資料保護法 §15 第 1 款：執行法定職務必要範圍"],
+    privacyBasis: ["個人資料保護法 §15 第 1 款：執行法定職務必要範圍"],
     allowedClaims: ["disaster.floodVictim"],
     maxTtlSeconds: 600,
     necessity: "核定災害救助需要受災事實，但本 runtime 還沒有這項述詞。",
@@ -376,7 +378,7 @@ section("登記台");
     id: "toString",
     title: "偽造目的",
     agency: "jia",
-    legalBasis: ["個人資料保護法 §15"],
+    privacyBasis: ["個人資料保護法 §15"],
     allowedClaims: ["resident.inNewTaipei"],
     maxTtlSeconds: 600,
     necessity: "這不應該被當成合法目的寫進登記表。",
@@ -387,7 +389,7 @@ section("登記台");
     id: "move-bonus",
     title: "遷入獎勵",
     agency: "jia",
-    legalBasis: ["個人資料保護法 §15 第 1 款：執行法定職務必要範圍"],
+    privacyBasis: ["個人資料保護法 §15 第 1 款：執行法定職務必要範圍"],
     allowedClaims: ["resident.inNewTaipei", "resident.movedWithin12m"],
     maxTtlSeconds: 600,
     necessity: "只要確認設籍本市與一年內遷入，不需要地址本身。",
@@ -551,11 +553,31 @@ section("特種個資是獨立的一道，不是靠其他檢查順便擋掉");
   });
   check("仍然攔截", verdict.level === "blocked");
   check(
-    "理由明確指出特種／敏感個資，且不是來自委託上限那條",
-    verdict.notes.some((n) => n.includes("特種") && !n.includes("委託設定")),
+    "所得的扣留理由引 §5 比例原則，而不是委託上限",
+    verdict.notes.some((n) => n.includes("綜合所得") && n.includes("§5 比例原則") && !n.includes("委託設定")),
+    verdict.notes.join(" | "),
+  );
+  // 所得 is ordinary personal data. Telling an evaluator who knows the statute
+  // that §6 forbids it would be an overclaim, so the note must say the opposite.
+  check(
+    "明講所得不是 §6 特種個資",
+    verdict.notes.some((n) => n.includes("綜合所得") && n.includes("非 §6 特種個資")),
     verdict.notes.join(" | "),
   );
   check("所得被列進 blockedClaims", verdict.blockedClaims.includes("raw.income.annual"));
+
+  const nhiVerdict = assessRisk({
+    purpose: "childcare-allowance",
+    claims: ["raw.nhi.cardId"],
+    delegation: { ...getState().delegation, maxSensitivity: "special" },
+    recentAudit: [],
+    now: new Date(),
+  });
+  check(
+    "健保的扣留理由引 §6 第 1 項（法律禁止）",
+    nhiVerdict.notes.some((n) => n.includes("健保") && n.includes("§6 第 1 項")),
+    nhiVerdict.notes.join(" | "),
+  );
 }
 
 section("高風險攔截");
@@ -563,7 +585,11 @@ section("高風險攔截");
   const r = requestClaims("jia", "childcare-allowance", ["raw.income.annual", "raw.household.address"]);
   check("機關索取所得 → 提案即攔截", r.blocked);
   check("攔截理由指出法定職務範圍", r.notes.some((n) => n.includes("§15")), r.notes.join("|"));
-  check("攔截理由指出特種個資", r.notes.some((n) => n.includes("特種")));
+  check(
+    "所得的扣留理由不會誤植成法律禁令",
+    r.notes.some((n) => n.includes("綜合所得") && n.includes("§5")),
+    r.notes.join(" | "),
+  );
 }
 {
   const r = requestClaims("yi", "aircon-subsidy", ["raw.household.householdId"]);

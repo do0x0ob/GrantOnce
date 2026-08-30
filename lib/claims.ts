@@ -49,6 +49,16 @@ export type ClaimDef = {
   derivedFrom: FieldId[];
   /** How long an issued credential stays reusable, in days. */
   ttlDays: number;
+  /**
+   * Why this claim is never released, when it never is.
+   *
+   * The two withheld claims are withheld on different grounds and saying so
+   * matters: 健保 is 個資法 §6 特種個資, which the law forbids outright, while
+   * 所得 is ordinary personal data that this design excludes itself under the
+   * §5 proportionality rule. Calling both "特種個資" would dress a policy choice
+   * up as a legal prohibition.
+   */
+  withholdBasis?: string;
   compute: (ctx: { subject: string; audience: string }) => string;
 };
 
@@ -208,6 +218,7 @@ export const CLAIM_DEFS: Record<ClaimId, ClaimDef> = {
     issuer: "nhia",
     derivedFrom: ["nhi.cardId"],
     ttlDays: 1,
+    withholdBasis: "個資法 §6 第 1 項列舉之特種個資（醫療、健康檢查），法律禁止蒐集處理利用",
     compute: () => VAULT.records["nhi.cardId"],
   },
   "raw.income.annual": {
@@ -218,6 +229,8 @@ export const CLAIM_DEFS: Record<ClaimId, ClaimDef> = {
     issuer: "tax",
     derivedFrom: ["income.annualIncome", "income.taxYear"],
     ttlDays: 1,
+    withholdBasis:
+      "非 §6 特種個資，但依 §5 比例原則由本設計自行排除：這些補助的核定不需要所得",
     compute: () => VAULT.records["income.annualIncome"],
   },
 };
@@ -230,10 +243,10 @@ export const SENSITIVITY_LABEL: Record<Sensitivity, string> = {
   predicate: "述詞（不含個資）",
   pseudonym: "機關專屬假名",
   personal: "原始個資",
-  special: "特種／敏感個資",
+  special: "不得授權",
 };
 
-/** Claims a purpose may never carry, whatever the principal signs. */
+/** Claims no purpose may ever carry, whatever the principal signs. */
 export const SPECIAL_CLAIMS: ClaimId[] = CLAIM_IDS.filter(
   (id) => CLAIM_DEFS[id].sensitivity === "special",
 );

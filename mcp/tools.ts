@@ -193,7 +193,8 @@ export async function planApplications(utterance: string) {
       claimIds: p.claims,
       claimLabels: claimLabels(p.claims),
       sensitivities: p.claims.map((c) => SENSITIVITY_LABEL[CLAIM_DEFS[c].sensitivity]),
-      legalBasis: PURPOSES[p.purpose].legalBasis,
+      privacyBasis: PURPOSES[p.purpose].privacyBasis,
+      programBasis: PURPOSES[p.purpose].programBasis ?? [],
       hint: p.hint,
     })),
   };

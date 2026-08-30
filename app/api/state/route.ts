@@ -16,7 +16,7 @@ export async function POST(request: Request) {
       id?: string;
       title?: string;
       agency?: string;
-      legalBasis?: string[];
+      privacyBasis?: string[];
       allowedClaims?: string[];
       maxTtlSeconds?: number;
       necessity?: string;
@@ -30,7 +30,7 @@ export async function POST(request: Request) {
       id: purpose.id ?? "",
       title: purpose.title ?? "",
       agency: purpose.agency ?? "",
-      legalBasis: purpose.legalBasis ?? [],
+      privacyBasis: purpose.privacyBasis ?? [],
       allowedClaims: purpose.allowedClaims ?? [],
       maxTtlSeconds: purpose.maxTtlSeconds ?? 0,
       necessity: purpose.necessity ?? "",

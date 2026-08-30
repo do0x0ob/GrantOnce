@@ -136,13 +136,33 @@ console.log("\n拒絕的理由要講真正的原因");
   // The reason a matched purpose did not issue is a fact about this person.
   // Naming a precondition that is no longer one told someone whose child had
   // turned two that they needed to declare a move.
+
+  // Aging out of 育兒津貼 is a handover, not a refusal: the same agency's
+  // 托育補助 picks the child up on the other side of the 0–2 band.
   mutate((s) => {
     s.clockOffsetDays = 400;
   });
   const aged = evaluateInquiry("要搞育兒津貼", effectiveToday(getState()));
-  check("滿兩歲後不能發票", !aged.canIssue);
-  check("理由講年齡，不講遷徙", Boolean(aged.closeReason?.includes("2 歲")), aged.closeReason ?? "");
-  check("不會再叫人去聲明遷徙", !aged.closeReason?.includes("聲明遷徙"), aged.closeReason ?? "");
+  check(
+    "滿兩歲後接到托育補助",
+    aged.programs.some((p) => p.purpose === "childcare-service-subsidy"),
+    aged.programs.map((p) => p.purpose).join(",") || "（無）",
+  );
+  check("不再提育兒津貼", !aged.programs.some((p) => p.purpose === "childcare-allowance"));
+
+  // Past every age band there is nothing to hand over to, and that is where the
+  // refusal text has to be right.
+  mutate((s) => {
+    s.clockOffsetDays = 2000;
+  });
+  const outgrown = evaluateInquiry("要搞育兒津貼", effectiveToday(getState()));
+  check("年齡帶都過了就不能發票", !outgrown.canIssue);
+  check("理由講年齡，不講遷徙", Boolean(outgrown.closeReason?.includes("歲")), outgrown.closeReason ?? "");
+  check(
+    "不會再叫人去聲明遷徙",
+    !outgrown.closeReason?.includes("聲明遷徙"),
+    outgrown.closeReason ?? "",
+  );
   mutate((s) => {
     s.clockOffsetDays = 0;
   });

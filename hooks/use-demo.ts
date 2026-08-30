@@ -198,7 +198,7 @@ export function useDemo(initialView: PrincipalView) {
       id: string;
       title: string;
       agency: string;
-      legalBasis: string[];
+      privacyBasis: string[];
       allowedClaims: string[];
       maxTtlSeconds: number;
       necessity: string;

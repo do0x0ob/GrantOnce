@@ -135,8 +135,18 @@ export function principalView(state: DemoState) {
       purpose: g.body.purpose,
       programTitle: purposesFrom(state)[g.body.purpose]?.title ?? PURPOSES[g.body.purpose]?.title ?? g.body.purpose,
       agencyId: g.body.aud,
-      agencyName: purposesFrom(state)[g.body.purpose]?.agencyName ?? PURPOSES[g.body.purpose]?.agencyName ?? g.body.aud,
-      legalBasis: purposesFrom(state)[g.body.purpose]?.legalBasis ?? PURPOSES[g.body.purpose]?.legalBasis ?? [],
+      agencyName:
+        purposesFrom(state)[g.body.purpose]?.agencyName ??
+        PURPOSES[g.body.purpose]?.agencyName ??
+        g.body.aud,
+      privacyBasis:
+        purposesFrom(state)[g.body.purpose]?.privacyBasis ??
+        PURPOSES[g.body.purpose]?.privacyBasis ??
+        [],
+      programBasis:
+        purposesFrom(state)[g.body.purpose]?.programBasis ??
+        PURPOSES[g.body.purpose]?.programBasis ??
+        [],
       claims: g.body.claims.map((c) => ({
         claimId: c,
         label: claimLabel(c),
