@@ -1,9 +1,13 @@
 import { NextResponse } from "next/server";
 import { pushChanges } from "@/lib/agent";
 import { toBlocks } from "@/lib/agent/blocks/of";
-import { classify } from "@/lib/agent/intent";
+import {
+  classify,
+  shouldClassifyForChat,
+  shouldResearchForChat,
+} from "@/lib/agent/intent";
 import { runTurn } from "@/lib/agent/turn";
-import { proposeGrantsFromPlan } from "@/lib/authz";
+import { confirmServiceRequest, openServiceRequests } from "@/lib/authz";
 import { researchWorld } from "@/lib/research";
 import { effectiveToday } from "@/lib/rules";
 import { appendChat, mutate } from "@/lib/store";
@@ -18,27 +22,30 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "請輸入訊息" }, { status: 400 });
   }
 
-  // Both reach outside the process, so both happen before the store is touched:
-  // a slow lookup or a hanging router must never hold the lock. They are
-  // independent, so they run together rather than in series.
-  //
-  // The classifier is asked even where the patterns already know the intent.
-  // Consulting it only on a miss made the reply acknowledge what you said some
-  // of the time and not others, and that inconsistency reads worse than the
-  // seconds it costs — the thread shows a waiting state meanwhile. With no
-  // router configured `classify` returns immediately.
-  const [world, resolved] = await Promise.all([researchWorld(message), classify(message)]);
+  // External work happens before the store lock. Classify first because public
+  // research is a capability of benefit discovery, not a side effect of every
+  // sentence: 「你是誰」 must never become a Wikipedia search.
+  const resolved = shouldClassifyForChat(message) ? await classify(message) : null;
+  const world = shouldResearchForChat(message, resolved)
+    ? await researchWorld(message)
+    : undefined;
 
   const state = mutate((s) => {
     appendChat(s, "user", message);
 
-    // The rule engine runs first and grants are proposed before the blocks are
-    // assembled, so a signing card always names a grant that already exists.
+    // The rule engine runs first and the store is moved before the blocks are
+    // assembled, so a card always names something that already exists.
     const turn = runTurn(s, message, { today: effectiveToday(s), world, resolved });
+
+    // Stage 2: the matched services state what they need. No capsule yet.
     if (turn.programs.length) {
       s.plan = { utterance: message, matchedAt: new Date().toISOString() };
-      proposeGrantsFromPlan(s, turn.programs);
+      openServiceRequests(s, turn.programs);
     }
+
+    // Stages 3–4: only now, and only for what the person confirmed, does the
+    // registry and 個資法 check run and a signable capsule appear.
+    for (const requestId of turn.confirms) confirmServiceRequest(s, requestId);
 
     const blocks = toBlocks(turn.outputs);
     const text = blocks

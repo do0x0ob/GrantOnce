@@ -13,6 +13,10 @@ export type PurposeDraft = {
   allowedClaims: string[];
   maxTtlSeconds: number;
   necessity: string;
+  retentionPolicy: string;
+  processingArea: string;
+  processingMethod: string;
+  declineEffect: string;
 };
 
 export function purposesFrom(
@@ -51,7 +55,7 @@ export function validatePurposeDraft(draft: PurposeDraft): { def?: PurposeDef; e
   }
   const title = draft.title.trim();
   if (title.length < 2) return { error: "請填目的名稱。" };
-  if (!isKnownAgency(draft.agency)) return { error: "只能掛到已上線的兌現機關（jia / yi）。" };
+  if (!isKnownAgency(draft.agency)) return { error: "只能掛到已上線的服務／請求機關（jia / yi）。" };
   const basis = draft.privacyBasis.map((line) => line.trim()).filter(Boolean);
   if (basis.length === 0) return { error: "至少要有一條個資法依據。" };
   const claims: ClaimId[] = [];
@@ -68,6 +72,14 @@ export function validatePurposeDraft(draft: PurposeDraft): { def?: PurposeDef; e
   }
   const necessity = draft.necessity.trim();
   if (necessity.length < 8) return { error: "請用白話寫為什麼這些述詞是必要範圍。" };
+  const retentionPolicy = draft.retentionPolicy.trim();
+  if (retentionPolicy.length < 8) return { error: "請填寫資料保存期間與期滿處理方式。" };
+  const processingArea = draft.processingArea.trim();
+  if (processingArea.length < 2) return { error: "請填寫資料利用地區。" };
+  const processingMethod = draft.processingMethod.trim();
+  if (processingMethod.length < 8) return { error: "請填寫資料提供與利用方式。" };
+  const declineEffect = draft.declineEffect.trim();
+  if (declineEffect.length < 8) return { error: "請說明不提供資料對使用者權益的影響。" };
 
   const def: PurposeDef = {
     id,
@@ -82,6 +94,10 @@ export function validatePurposeDraft(draft: PurposeDraft): { def?: PurposeDef; e
     allowedClaims: claims,
     maxTtlSeconds: ttl,
     necessity,
+    retentionPolicy,
+    processingArea,
+    processingMethod,
+    declineEffect,
   };
   return { def };
 }
@@ -110,6 +126,10 @@ export function issuerInventory() {
 export function registryView(state: DemoState) {
   const purposes = Object.values(purposesFrom(state)).map((def) => ({
     ...def,
+    dataSources: [...new Set(def.allowedClaims.map((claim) => CLAIM_DEFS[claim].issuer))].map((id) => ({
+      id,
+      name: ISSUERS[id].name,
+    })),
     builtin: Object.hasOwn(PURPOSES, def.id),
     overridden: Object.hasOwn(state.registeredPurposes ?? {}, def.id),
   }));
@@ -124,7 +144,7 @@ export function registryView(state: DemoState) {
       issuerName: ISSUERS[claim.issuer].name,
       inventable: false,
     })),
-    note: "兌現機關在這裡掛目的。發證機關上線的述詞才能勾。不能發明 disaster.* 這類還沒 adapter 的欄位。",
+    note: "服務／請求機關在這裡登記目的與告知事項。資料來源已上線的述詞才能勾；不能發明還沒有 adapter 的欄位。",
     updatedAt: new Date().toISOString(),
   };
 }

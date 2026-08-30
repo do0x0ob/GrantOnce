@@ -11,8 +11,15 @@ import {
 } from "@/lib/rules";
 import type { ResearchResult } from "@/lib/research";
 import type { DemoState, ProgramPlan } from "@/lib/types";
+import { SERVICE_REQUEST_LABEL } from "@/lib/view";
 import { toBlocks } from "./blocks/of";
 import type { Block } from "./blocks/types";
+import {
+  isAgentSkillAction,
+  isAgentSkillId,
+  type AgentSkillAction,
+  type AgentSkillId,
+} from "./skills";
 
 /**
  * One turn of the agent, as tool output.
@@ -28,6 +35,12 @@ export type TurnResult = {
   /** Untyped tool output, in reading order. */
   outputs: unknown[];
   matched: boolean;
+  /**
+   * Requirement ids the person just confirmed. The caller runs the registry and
+   * 個資法 check and mints from these — never this function, which stays free of
+   * side effects.
+   */
+  confirms: string[];
 };
 
 /** Vault groups the matched programmes deliberately never ask for. */
@@ -50,17 +63,18 @@ function withheldFrom(programs: ProgramPlan[]): string[] {
  * undercut it. The cost is that the vocabulary is finite — which is why an
  * unrecognised question answers with buttons instead of an apology.
  */
-export type Intent = "apply" | "status" | "audit" | "privacy" | "revoke" | "help";
+export type Intent = "apply" | "confirm" | "status" | "audit" | "privacy" | "revoke" | "help";
 
-const INTENT_VALUES: Intent[] = ["apply", "status", "audit", "privacy", "revoke", "help"];
+const INTENT_VALUES: Intent[] = ["apply", "confirm", "status", "audit", "privacy", "revoke", "help"];
 
 const INTENT_PATTERNS: [Intent, RegExp][] = [
   ["status", /進度|到哪|辦得?怎麼樣|狀態|審核|送出了嗎|好了沒/],
   ["audit", /誰.*(拿|取|看|調)|稽核|紀錄|軌跡|查詢紀錄/],
   ["privacy", /所得|隱私|會拿到什麼|給什麼|哪些資料|個資|安全|健保/],
   ["revoke", /撤銷|取消|停止|不要了|收回/],
+  ["confirm", /確認|同意這|就這樣|繼續|好，?(請|幫)?(繼續|準備|給我)|準備簽署|要簽/],
   ["apply", /搬家|遷徙|剛搬|搬到|遷入|申請|補助|津貼|能申|可以申|辦什麼/],
-  ["help", /你會|能做什麼|怎麼用|說明|幫助|help/],
+  ["help", /你是誰|你叫什麼|你是什麼|你會|能做什麼|怎麼用|說明|幫助|help/],
 ];
 
 export function patternIntent(utterance: string): Intent | null {
@@ -117,7 +131,13 @@ export type TurnContext = {
   /** Public search: what the outside world has, which is not the same question
    *  as what this runtime can issue. */
   world?: ResearchResult;
-  resolved?: { intent: Intent; movedRecently: boolean; reply?: string } | null;
+  resolved?: {
+    intent: Intent;
+    movedRecently: boolean;
+    reply?: string;
+    skill?: AgentSkillId;
+    skillAction?: AgentSkillAction;
+  } | null;
 };
 
 export function runTurn(state: DemoState, utterance: string, ctx?: TurnContext): TurnResult {
@@ -129,24 +149,52 @@ export function runTurn(state: DemoState, utterance: string, ctx?: TurnContext):
   // to the patterns rather than dropping through to whatever branch is last.
   const supplied =
     resolved && INTENT_VALUES.includes(resolved.intent) ? resolved : null;
-  const intent = supplied?.intent ?? patternIntent(message);
+  const selectedSkill =
+    supplied && isAgentSkillId(supplied.skill) && isAgentSkillAction(supplied.skillAction)
+      ? { id: supplied.skill, action: supplied.skillAction }
+      : null;
+  const intent = selectedSkill?.action === "plan"
+    ? "apply"
+    : (supplied?.intent ?? patternIntent(message));
 
   // The acknowledgement leads; everything the user needs to rely on follows it
   // as a card, so a missing or rejected sentence costs nothing.
-  const ack: unknown[] = supplied?.reply ? [{ text: supplied.reply }] : [];
+  // Help has its own stable identity/capability copy below. Keeping a model
+  // acknowledgement there produces two introductions for a question such as
+  // 「你是誰」, so free prose is useful only on the other branches.
+  const ack: unknown[] = supplied?.reply && intent !== "help" ? [{ text: supplied.reply }] : [];
 
   // What the outside world has is a separate question from what this runtime
   // can issue, so it renders as its own card rather than being folded into the
   // reply as prose.
-  const lead: unknown[] = [
-    ...(world && world.findings.length ? [{ research: world }] : []),
-    ...ack,
-  ];
+  const researchLead: unknown[] = world && world.findings.length ? [{ research: world }] : [];
+  const lead: unknown[] = [...researchLead, ...ack];
+
+  // A skill may make the conversation more natural, but only `plan` crosses
+  // into the deterministic proposal path. Explaining and clarifying are
+  // deliberately read-only even if the coarse intent label was `apply`.
+  if (selectedSkill?.id === "apply-with-grant" && selectedSkill.action !== "plan") {
+    const fallback =
+      selectedSkill.action === "explain"
+        ? "我可以先說明補助差異、所需述詞與授權流程；只有你明確要開始比對時，才會準備授權匣。"
+        : "你可以先了解流程，也可以直接開始資格比對。告訴我你想先了解哪一部分就好。";
+    return {
+      programs: [],
+      matched: true,
+      confirms: [],
+      outputs: [
+        ...researchLead,
+        { text: fallback },
+        { suggestions: MENU.suggestions },
+      ],
+    };
+  }
 
   if (intent === "privacy") {
     return {
       programs: [],
       matched: true,
+      confirms: [],
       outputs: [
         ...lead,
         {
@@ -162,6 +210,7 @@ export function runTurn(state: DemoState, utterance: string, ctx?: TurnContext):
     return {
       programs: [],
       matched: true,
+      confirms: [],
       outputs: [
         ...lead,
         { text: "每一次核准、發證、兌現、送件與拒絕都留了紀錄。稽核只記動作，不含金庫值。" },
@@ -177,6 +226,7 @@ export function runTurn(state: DemoState, utterance: string, ctx?: TurnContext):
       return {
         programs: [],
         matched: true,
+        confirms: [],
         outputs: [
           { text: "目前還沒有任何申請案。先跟我說你的情況，我才知道要比對什麼。" },
           { suggestions: MENU.suggestions },
@@ -186,6 +236,7 @@ export function runTurn(state: DemoState, utterance: string, ctx?: TurnContext):
     return {
       programs: [],
       matched: true,
+      confirms: [],
       outputs: [
         ...lead,
         { text: "目前的進度如下。送件之後的階段本演示沒有接真實機關，不會亮起。" },
@@ -198,26 +249,113 @@ export function runTurn(state: DemoState, utterance: string, ctx?: TurnContext):
     return {
       programs: [],
       matched: true,
+      confirms: [],
       outputs: [
         ...lead,
         {
-          text: "停止委託會讓我不能再簽任何新的匣，尚未兌現的也會一併作廢。已經交給機關的述詞收不回來——這點我不會假裝做得到。\n\n下面「我的委託設定」裡有停止的按鈕。",
+          text: "停止委託後，這個流程不再接受新的簽署，尚未兌現的 Grant 也會一併作廢。已經交給機關的述詞收不回來——這點我不會假裝做得到。\n\n下面「我的委託設定」裡有停止的按鈕。",
         },
         { suggestions: MENU.suggestions },
       ],
     };
   }
 
+  /**
+   * Stage 3–4 — the person confirmed, so the check may now run.
+   *
+   * Gated on state, never on the classifier alone: 「好」 and 「可以」 are far too
+   * cheap for a word to be the thing that mints an authorisation.
+   */
+  const pending = state.serviceRequests.filter((r) => r.status === "awaiting-confirmation");
+  if (intent === "confirm") {
+    if (!pending.length) {
+      return {
+        programs: [],
+        matched: true,
+        confirms: [],
+        outputs: [
+          ...lead,
+          { text: "目前沒有等你確認的服務需求。要先看看你符合哪些補助嗎？" },
+          { suggestions: MENU.suggestions },
+        ],
+      };
+    }
+
+    // Naming one confirms that one. The fallback to "the only one open" applies
+    // only when nothing was named at all — otherwise saying 「確認育兒津貼」 once
+    // it is already signed would confirm whatever else happened to be left open,
+    // which is precisely the handed-a-capsule-you-did-not-name failure.
+    const mentioned = state.serviceRequests.filter((r) => message.includes(r.title));
+    const namedPending = pending.filter((r) => message.includes(r.title));
+    const chosen = namedPending.length
+      ? namedPending
+      : mentioned.length
+        ? []
+        : pending.length === 1
+          ? pending
+          : [];
+
+    if (!chosen.length && mentioned.length) {
+      const already = mentioned.map((r) => `${r.title}：${SERVICE_REQUEST_LABEL[r.status]}`);
+      return {
+        programs: [],
+        matched: true,
+        confirms: [],
+        outputs: [
+          ...lead,
+          { text: `這一項不在等待確認的狀態。\n\n${already.join("\n")}` },
+          { suggestions: MENU.suggestions },
+        ],
+      };
+    }
+
+    if (!chosen.length) {
+      return {
+        programs: [],
+        matched: true,
+        confirms: [],
+        outputs: [
+          ...lead,
+          { text: `有 ${pending.length} 項需求在等你確認。要先送哪一項去做目的與法源檢查？` },
+          {
+            question: "選一項",
+            options: pending.map((r) => ({
+              purpose: r.purpose,
+              title: r.title,
+              detail: `${r.requesterName}：${r.claims.length} 項述詞`,
+            })),
+          },
+        ],
+      };
+    }
+
+    const outputs: unknown[] = [
+      ...lead,
+      {
+        text:
+          chosen.length > 1
+            ? `已確認 ${chosen.length} 項需求。現在才做目的與法源檢查——先看機關有沒有權力要這些，通過了才鑄出你要簽的匣。`
+            : `已確認「${chosen[0].title}」。現在才做目的與法源檢查——先看機關有沒有權力要這些，通過了才鑄出你要簽的匣。`,
+      },
+    ];
+    for (const request of chosen) outputs.push({ legalCheck: request.purpose });
+    for (const request of chosen) outputs.push({ grantId: PURPOSES[request.purpose].slot });
+    for (const request of chosen) outputs.push({ purpose: request.purpose });
+
+    return { programs: [], matched: true, confirms: chosen.map((r) => r.id), outputs };
+  }
+
   if (intent === "help" || intent === null) {
     return {
       programs: [],
       matched: false,
+      confirms: [],
       outputs: [
         ...lead,
         {
           text:
             intent === "help"
-              ? "我用規則引擎比對你能辦什麼補助，然後把最小的授權匣交給你簽。我不決定授權，也簽不了名——私鑰在你的認證器裡。"
+              ? "我是 GrantOnce 的服務申請助手。我會找已登記服務、顯示本次必要資料並追蹤進度。你簽署後，資料來源才直接交付辦理機關；我不代簽，也不取得資料值。"
               : "我沒聽懂這句。我會的事情不多，但都做得準：",
         },
         { question: "你可以問我這些", suggestions: MENU.suggestions },
@@ -245,9 +383,12 @@ export function runTurn(state: DemoState, utterance: string, ctx?: TurnContext):
   // behalf what else to authorise, which is the whole thing this is against.
   // A bare move leaves both `wants` flags true, so a generic question still
   // lists everything.
-  const named: PurposeId[] = PURPOSE_IDS.filter((id) =>
-    id === "childcare-allowance" ? situation.wantsChildcare : situation.wantsAircon,
-  );
+  const named: PurposeId[] = PURPOSE_IDS.filter((id) => {
+    if (id === "childcare-allowance" || id === "childcare-service-subsidy") {
+      return situation.wantsChildcare;
+    }
+    return id === "aircon-subsidy" && situation.wantsAircon;
+  });
   const narrowed = named.length < PURPOSE_IDS.length;
   const programs = narrowed
     ? eligible.filter((program) => named.includes(program.purpose))
@@ -259,6 +400,7 @@ export function runTurn(state: DemoState, utterance: string, ctx?: TurnContext):
     return {
       programs: [],
       matched: true,
+      confirms: [],
       outputs: [
         ...lead,
         {
@@ -275,6 +417,7 @@ export function runTurn(state: DemoState, utterance: string, ctx?: TurnContext):
     return {
       programs,
       matched: true,
+      confirms: [],
       outputs: [...lead, { text: `目前沒有符合的補助。${hint}` }, { suggestions: MENU.suggestions }],
     };
   }
@@ -284,13 +427,13 @@ export function runTurn(state: DemoState, utterance: string, ctx?: TurnContext):
     {
       text:
         programs.length > 1
-          ? `比對到 ${programs.length} 項補助。每一項都要你單獨簽署一次——沒有「一次全給」。`
+          ? `找到 ${programs.length} 項已登記服務。各服務已回傳本次必要資料；目的與最小範圍檢查通過後，才各自請你簽署。`
           : narrowed && eligible.length > 1
             ? `只準備了${programs[0].title}這一張。你其實也符合${eligible
                 .filter((p) => p.purpose !== programs[0].purpose)
                 .map((p) => p.title)
                 .join("、")}，但你沒提，我就不會替你要。`
-            : "比對到 1 項補助。",
+            : "找到 1 項已登記服務。服務已回傳本次必要資料，現在等你確認。",
     },
     {
       reasons: programs.flatMap((p) => [`${p.title}：${p.reasons.join("；")}`]),
@@ -299,17 +442,30 @@ export function runTurn(state: DemoState, utterance: string, ctx?: TurnContext):
     },
   ];
 
-  // One signing card per programme, in the order the rule engine matched them.
+  // The turn stops at the requirement. Nothing is minted and nothing is
+  // signable until the person says yes — that confirmation is stage 2, and
+  // fusing it with the signing card is what made the flow feel back to front.
   for (const program of programs) {
-    outputs.push({ grantId: program.grantId });
+    outputs.push({ serviceRequirement: program.purpose });
   }
+
+  outputs.push({
+    question:
+      programs.length > 1
+        ? "要我把哪一項送去做目的與法源檢查？"
+        : "要送去做目的與法源檢查嗎？",
+    suggestions: programs.map((program) => ({
+      label: `確認「${program.title}」的資料需求`,
+      utterance: `確認${program.title}的資料需求`,
+    })),
+  });
 
   // Where each application currently stands, once there is something to stand.
   for (const program of programs) {
     outputs.push({ purpose: program.purpose });
   }
 
-  return { programs, matched: true, outputs };
+  return { programs, matched: true, outputs, confirms: [] };
 }
 
 /** Convenience for callers that want blocks directly. */

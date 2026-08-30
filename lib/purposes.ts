@@ -36,6 +36,11 @@ export type PurposeDef = {
   maxTtlSeconds: number;
   /** Plain-language reason, rendered verbatim into the signed displayText. */
   necessity: string;
+  /** Required 個資法 notice fields for this registered service. */
+  retentionPolicy: string;
+  processingArea: string;
+  processingMethod: string;
+  declineEffect: string;
 };
 
 /**
@@ -73,6 +78,10 @@ export const PURPOSES: Record<PurposeId, PurposeDef> = {
     maxTtlSeconds: 600,
     necessity:
       "核定育兒津貼只需確認「設籍本市」「一年內遷入」「具法定親子關係」「幼兒落在 0–2 歲」四件事，不需要姓名、地址、戶號或出生日期本身。",
+    retentionPolicy: "案件辦理期間及依法應保存的期限；期滿後刪除或停止利用。",
+    processingArea: "中華民國境內",
+    processingMethod: "由資料來源機關簽發資格憑證，直接交付新北市政府社會局進行線上審核。",
+    declineEffect: "不提供則無法由本流程自動查驗資格，仍可改走人工申請。",
   },
   /**
    * Where a child goes when they age out of 育兒津貼. Same agency, same statute,
@@ -98,6 +107,10 @@ export const PURPOSES: Record<PurposeId, PurposeDef> = {
     maxTtlSeconds: 600,
     necessity:
       "幼兒滿 2 歲後改適用本項補助。核定同樣只需確認「設籍本市」「具法定親子關係」「幼兒年齡帶」，而親子關係可直接沿用皮夾裡既有的憑證，不必再調一次戶政資料。",
+    retentionPolicy: "案件辦理期間及依法應保存的期限；期滿後刪除或停止利用。",
+    processingArea: "中華民國境內",
+    processingMethod: "由資料來源機關簽發資格憑證，直接交付新北市政府社會局進行線上審核。",
+    declineEffect: "不提供則無法由本流程自動查驗資格，仍可改走人工申請。",
   },
   "aircon-subsidy": {
     id: "aircon-subsidy",
@@ -118,6 +131,10 @@ export const PURPOSES: Record<PurposeId, PurposeDef> = {
     maxTtlSeconds: 600,
     necessity:
       "核定節能補助只需確認「有住宅用電戶」與「用電級距」，並取得一個本署專屬的帳戶代號以供撥款核銷；不需要電號本身，也不需要逐月用電度數。",
+    retentionPolicy: "案件辦理與核銷期間及依法應保存的期限；期滿後刪除或停止利用。",
+    processingArea: "中華民國境內",
+    processingMethod: "由台灣電力公司簽發資格憑證，直接交付補助辦理機關進行線上審核。",
+    declineEffect: "不提供則無法由本流程自動查驗用電資格，仍可改走人工申請。",
   },
 };
 

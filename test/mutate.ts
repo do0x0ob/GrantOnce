@@ -124,8 +124,10 @@ const MUTATIONS: Mutation[] = [
   {
     label: "索取時不看是誰在問",
     file: "lib/authz.ts",
-    find: "    if (PURPOSES[purpose].agency !== agency) {",
-    replace: "    if (false) {",
+    // Keep the unregistered-purpose guard and drop only the requester check, so
+    // what the mutation removes is exactly the property under test.
+    find: "    if (!live || live.agency !== agency) {",
+    replace: "    if (!live) {",
   },
   {
     label: "先發證再驗憑證",
@@ -228,6 +230,37 @@ const MUTATIONS: Mutation[] = [
     file: "lib/authz.ts",
     find: "  const existing = state.inboxes[purpose];\n  if (existing) return existing;",
     replace: "  const existing = state.inboxes[purpose];\n  if (!existing) return {} as AgencyInbox;",
+  },
+  {
+    // The beat this whole split exists for: discovery must not mint.
+    label: "比對完就直接鑄匣（需求與授權又黏回去）",
+    file: "lib/agent/turn.ts",
+    find: "  for (const program of programs) {\n    outputs.push({ serviceRequirement: program.purpose });\n  }",
+    replace: "  for (const program of programs) {\n    outputs.push({ serviceRequirement: program.purpose });\n    outputs.push({ grantId: program.grantId });\n  }",
+  },
+  {
+    // Confirming names one thing. Falling back to 「唯一還開著的那項」 after
+    // something was named hands over a capsule nobody asked for.
+    label: "指名已簽掉的那項，就順手確認別的",
+    file: "lib/agent/turn.ts",
+    find: "      : mentioned.length\n        ? []",
+    replace: "      : mentioned.length\n        ? pending",
+  },
+  {
+    // A word must not be enough to mint. Without the state gate, 「確認」 with
+    // nothing open falls through and starts a proposal on its own.
+    label: "沒有待確認的需求也照樣往下走",
+    file: "lib/agent/turn.ts",
+    find: '  const pending = state.serviceRequests.filter((r) => r.status === "awaiting-confirmation");',
+    replace: "  const pending = state.serviceRequests;",
+  },
+  {
+    // The registry and 個資法 check belongs after the person agrees, and its
+    // result is what the card shows.
+    label: "確認後不再記錄檢查結果",
+    file: "lib/authz.ts",
+    find: "  request.checkNotes = [...fresh.riskNotes];",
+    replace: "  request.checkNotes = [];",
   },
   {
     label: "述詞換回原始欄位",

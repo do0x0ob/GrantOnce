@@ -43,6 +43,15 @@ type View = {
     cnfJkt: string;
     programTitle: string;
   }[];
+  serviceRequests: {
+    id: string;
+    title: string;
+    purpose: string;
+    status: string;
+    grantId: string | null;
+    confirmedAt: string | null;
+    checkNotes: string[];
+  }[];
   inboxes: Record<
     string,
     {
@@ -110,6 +119,18 @@ function leaksIn(payload: unknown): string[] {
 
 const grantOf = (view: View, id: string) => view.grants.find((g) => g.id === id)!;
 
+/**
+ * Discovery states the requirements; confirming is what mints. Steps that only
+ * need capsules on the table walk both beats through this, one confirmation per
+ * service, because a single 「確認」 covering everything is exactly the shortcut
+ * the two-beat split exists to avoid.
+ */
+async function applyAndConfirm() {
+  await post("/api/chat", { message: "我剛搬家，看我能申請什麼。" });
+  await post("/api/chat", { message: "確認育兒津貼的資料需求" });
+  await post("/api/chat", { message: "確認住宅冷氣汰換補助的資料需求" });
+}
+
 async function main() {
   await post("/api/reset");
 
@@ -123,11 +144,39 @@ async function main() {
     );
   }
 
-  say("STEP 2 - the rule engine decides eligibility; two capsules appear");
+  say("STEP 2 - the services state what they need; nothing is minted yet");
   {
     const { view } = await post("/api/chat", { message: "我剛搬家，看我能申請什麼。" });
+    check("two service requirements", view.serviceRequests.length === 2, "got " + view.serviceRequests.length);
+    check(
+      "all of them waiting on the person, not on a signature",
+      view.serviceRequests.every((r) => r.status === "awaiting-confirmation"),
+      JSON.stringify(view.serviceRequests.map((r) => r.status)),
+    );
+    // The point of the beat: a requirement is not an authorisation, so there is
+    // nothing signable in the store for a service nobody has agreed to yet.
+    check("no capsule exists yet", view.grants.length === 0, "got " + view.grants.length);
+    check("no requirement carries a capsule", view.serviceRequests.every((r) => r.grantId === null));
+  }
+
+  say("STEP 2b - the person confirms each service; only then does the check run and a capsule appear");
+  {
+    const first = await post("/api/chat", { message: "確認育兒津貼的資料需求" });
+    check("confirming one mints one", first.view.grants.length === 1, "got " + first.view.grants.length);
+    check(
+      "the other service is still only a requirement",
+      first.view.serviceRequests.some((r) => r.status === "awaiting-confirmation" && r.grantId === null),
+    );
+
+    const { view } = await post("/api/chat", { message: "確認住宅冷氣汰換補助的資料需求" });
     check("two capsules", view.grants.length === 2, "got " + view.grants.length);
     check("both awaiting signature", view.grants.every((g) => g.status === "proposed"));
+    check(
+      "each confirmation is stamped",
+      view.serviceRequests
+        .filter((r) => r.status === "awaiting-signature")
+        .every((r) => Boolean(r.confirmedAt)),
+    );
   }
 
   say("STEP 3 - the agency receives four facts; no name, address, household id or birth date");
@@ -162,7 +211,11 @@ async function main() {
     const jia = grantOf(await get(), "G-甲");
     const body = JSON.parse(jia.serialized) as Record<string, unknown>;
     check("signed bytes contain the consent text", body.displayText === jia.displayText);
-    check("consent text matches what the card renders", jia.displayText.includes("新北市政府社會局 將取得以下關於你的資訊"));
+    check(
+      "consent text names the collecting agency and the purpose",
+      jia.displayText.includes("「育兒津貼」服務由 新北市政府社會局 辦理"),
+      jia.displayText.slice(0, 60),
+    );
     check("signed scope includes aud", body.aud === "jia");
     check("signed scope includes cnf", JSON.stringify(body.cnf) === JSON.stringify({ jkt: jia.cnfJkt }), jia.serialized);
     check("the key binding is literally in the signed bytes", jia.serialized.includes(jia.cnfJkt));
@@ -261,7 +314,8 @@ async function main() {
       check("its lifetime is one year", Math.round(days) === 365, Math.round(days) + " days");
     }
     const walletBefore = view.wallet.length;
-    await post("/api/chat", { message: "我剛搬家，看我能申請什麼。" });
+    // 7b signs the energy capsule this produces.
+    await applyAndConfirm();
     const again = grantOf(await get(), "G-甲");
     await post("/api/grants/sign", {
       grantId: "G-甲",
@@ -279,8 +333,8 @@ async function main() {
 
   say("STEP 7b - the two agencies get different identifiers and cannot join their records");
   {
-    // Step 7 re-ran the application, which re-proposes both capsules with fresh
-    // one-time ids, so the energy capsule needs signing again.
+    // Step 7 re-ran the application and confirmed both requirements, which mints
+    // fresh one-time ids, so the energy capsule needs signing again.
     const yi = grantOf(await get(), "G-乙");
     await post("/api/grants/sign", {
       grantId: "G-乙",
@@ -350,7 +404,7 @@ async function main() {
 
   say("STEP 9 - stopping the delegation is instant; what was already delivered cannot be recalled");
   {
-    await post("/api/chat", { message: "我剛搬家，看我能申請什麼。" });
+    await applyAndConfirm();
     const beforeInbox = (await get()).inboxes["childcare-allowance"].claims.length;
     const r = await post("/api/delegation", { action: "revoke", reason: "彩排" });
     check("delegation stopped", !r.view.delegation.active);
@@ -367,7 +421,7 @@ async function main() {
 
   say("STEP 10 - the audit trail carries every action type");
   {
-    await post("/api/chat", { message: "我剛搬家，看我能申請什麼。" });
+    await applyAndConfirm();
     const g = grantOf(await get(), "G-甲");
     await post("/api/grants/sign", { grantId: "G-甲", signature: sign(g.serialized, wallet.secret), publicKey });
     await post("/api/grants/redeem", { grantId: "G-甲", agency: "jia" });
@@ -395,7 +449,7 @@ async function main() {
   {
     await post("/api/reset");
     await post("/api/wallet/register", { publicKey, method: "software" });
-    await post("/api/chat", { message: "我剛搬家，看我能申請什麼。" });
+    await applyAndConfirm();
     const fresh = grantOf(await get(), "G-甲");
     const ttl = (new Date(fresh.exp).getTime() - Date.now()) / 1000;
     check("at least ten minutes of budget", ttl > 590, Math.round(ttl) + "s");

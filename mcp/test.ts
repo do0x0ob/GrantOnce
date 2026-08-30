@@ -71,7 +71,7 @@ async function main() {
     check("回傳公開搜尋區塊", Boolean(world && world.source));
     check(
       "公開搜尋不是把登記表當成全世界",
-      String(flood.data.note).includes("不要把登記表當成全世界"),
+      String(flood.data.note).includes("搜尋結果不等於授權"),
     );
     const blob = JSON.stringify(world.findings ?? []);
     if ((world.findings?.length ?? 0) > 0) {
@@ -90,6 +90,10 @@ async function main() {
       allowedClaims: ["resident.inNewTaipei", "resident.movedWithin12m"],
       maxTtlSeconds: 600,
       necessity: "只要確認設籍本市與一年內遷入，不需要地址本身。",
+      retentionPolicy: "案件辦理期間及依法應保存的期限。",
+      processingArea: "中華民國境內",
+      processingMethod: "由戶政簽發述詞並直接交付服務機關。",
+      declineEffect: "不提供則無法自動查驗，仍可改走人工申請。",
     });
     const hung = await call("search_purposes", { query: "遷入獎勵" });
     const hungMatches = hung.data.matches as { id: string; issuable: boolean }[];

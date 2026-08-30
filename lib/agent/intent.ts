@@ -1,5 +1,12 @@
 import OpenAI from "openai";
-import type { Intent } from "./turn";
+import {
+  agentSkillsPrompt,
+  isAgentSkillAction,
+  isAgentSkillId,
+  type AgentSkillAction,
+  type AgentSkillId,
+} from "./skills";
+import { patternIntent, type Intent } from "./turn";
 
 /**
  * The model's entire job: map free text onto one of six labels.
@@ -16,10 +23,13 @@ import type { Intent } from "./turn";
  * models. Asking for one line and validating it here is both simpler and the
  * thing that actually works across them.
  */
-const INTENTS = ["apply", "status", "audit", "privacy", "revoke", "help"] as const;
+const INTENTS = ["apply", "confirm", "status", "audit", "privacy", "revoke", "help"] as const;
 
 export type Classification = {
   intent: Intent;
+  /** Optional local playbook. It can choose how to help, never what claims exist. */
+  skill?: AgentSkillId;
+  skillAction?: AgentSkillAction;
   /** Whether the speaker described a recent move. The rule engine decides what
    *  that means; this only reports what was said. */
   movedRecently: boolean;
@@ -32,14 +42,41 @@ export type Classification = {
   reply?: string;
 };
 
-const SYSTEM = `你是一個意圖分類器，唯一的工作是把使用者的話對應到下列標籤之一。
+/** Known non-application commands are clearer and faster through fixed rules. */
+export function shouldClassifyForChat(utterance: string): boolean {
+  const patterned = patternIntent(utterance);
+  return patterned === null || patterned === "apply";
+}
+
+/** Public research is useful for benefit discovery, not for every chat turn. */
+export function shouldResearchForChat(
+  utterance: string,
+  resolved: Classification | null,
+): boolean {
+  if (resolved?.skill === "apply-with-grant" && resolved.skillAction === "clarify") {
+    return false;
+  }
+
+  const patterned = patternIntent(utterance);
+  if (patterned && patterned !== "apply") {
+    return false;
+  }
+
+  return (resolved?.intent ?? patterned) === "apply";
+}
+
+const SYSTEM = `你是 GrantOnce 的語言理解層。先判斷是否有一個 local skill 適用，再把使用者的話對應到下列標籤之一。
 
 apply    想知道自己能申請什麼補助，或描述了生活狀況的變動
+confirm  同意繼續進行剛才列出的資料需求（「確認」「就這樣」「繼續」「好，準備簽」）
 status   想知道現有申請案的進度
 audit    想知道誰在什麼時候取用過自己的資料
 privacy  想知道機關會拿到哪些資料，或擔心某類資料外流
 revoke   想撤銷、取消或停止授權
 help     想知道你會做什麼、怎麼用
+
+可用的 local skills 會附在下方。skill 只決定怎麼協助，不得改變資格、述詞、目的、受眾或法源。
+使用 apply-with-grant 時，還要依照 skill 的規則選 skillAction：explain、clarify 或 plan。
 
 另外寫一句話回應對方實際說的內容，接在系統的說明之前。規則：
 
@@ -50,10 +87,14 @@ help     想知道你會做什麼、怎麼用
 - 系統會在你這句話下面附上正確的資料，你不需要自己列
 
 只輸出一行 JSON，不要有其他文字，不要 markdown 圍欄：
-{"intent":"<標籤>","movedRecently":<true 或 false>,"reply":"<一句話>"}
+{"intent":"<標籤>","skill":"<skill 名稱或 null>","skillAction":"<動作或 null>","movedRecently":<true 或 false>,"reply":"<一句話>"}
 
 movedRecently 只在使用者提到搬家、遷徙、遷入、換住址時為 true。
-無法對應到任何標籤時，intent 用 "help"。`;
+confirm 只表示「同意往下走」，不表示同意簽署；系統仍會先做目的與法源檢查，再由本人簽章。
+無法對應到任何標籤時，intent 用 "help"。
+
+## Local skills
+`;
 
 // Reasoning models spend this budget thinking before they answer, so a
 // classifier ceiling sized for one line of JSON leaves nothing for the line —
@@ -113,8 +154,14 @@ function parse(raw: string): Classification | null {
     const intent = value.intent;
     if (typeof intent !== "string") return null;
     if (!(INTENTS as readonly string[]).includes(intent)) return null;
+    const skill = isAgentSkillId(value.skill) ? value.skill : undefined;
+    const skillAction = skill && isAgentSkillAction(value.skillAction)
+      ? value.skillAction
+      : undefined;
     return {
       intent: intent as Intent,
+      skill: skillAction ? skill : undefined,
+      skillAction,
       movedRecently: value.movedRecently === true,
       reply: cleanReply(value.reply),
     };
@@ -133,13 +180,14 @@ export async function classify(utterance: string): Promise<Classification | null
   if (!configured) return null;
 
   try {
+    const system = `${SYSTEM}\n\n${agentSkillsPrompt()}`;
     const client = new OpenAI({ baseURL, apiKey, timeout: TIMEOUT_MS, maxRetries: 0 });
     const response = await client.chat.completions.create({
       model,
       max_tokens: MAX_TOKENS,
       temperature: 0,
       messages: [
-        { role: "system", content: SYSTEM },
+        { role: "system", content: system },
         { role: "user", content: utterance },
       ],
     });

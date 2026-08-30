@@ -20,6 +20,10 @@ export async function POST(request: Request) {
       allowedClaims?: string[];
       maxTtlSeconds?: number;
       necessity?: string;
+      retentionPolicy?: string;
+      processingArea?: string;
+      processingMethod?: string;
+      declineEffect?: string;
     };
     id?: string;
   };
@@ -34,6 +38,10 @@ export async function POST(request: Request) {
       allowedClaims: purpose.allowedClaims ?? [],
       maxTtlSeconds: purpose.maxTtlSeconds ?? 0,
       necessity: purpose.necessity ?? "",
+      retentionPolicy: purpose.retentionPolicy ?? "",
+      processingArea: purpose.processingArea ?? "",
+      processingMethod: purpose.processingMethod ?? "",
+      declineEffect: purpose.declineEffect ?? "",
     });
     if (error) return NextResponse.json({ error, ...principalView(state) }, { status: 400 });
     return NextResponse.json(principalView(state));

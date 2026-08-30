@@ -8,8 +8,10 @@ import { ClaimsExplainerCard } from "@/components/agent/claims-explainer-card";
 import { CardBoundary } from "@/components/agent/card-boundary";
 import { EligibilityCard } from "@/components/agent/eligibility-card";
 import { FallbackCard } from "@/components/agent/fallback-card";
+import { LegalCheckCard } from "@/components/agent/legal-check-card";
 import { ProgramPickerCard } from "@/components/agent/program-picker-card";
 import { SignGrantCard } from "@/components/agent/sign-grant-card";
+import { ServiceRequirementCard } from "@/components/agent/service-requirement-card";
 import { SuggestionsCard } from "@/components/agent/suggestions-card";
 import { WorldSearchCard } from "@/components/agent/world-search-card";
 import type { Block } from "@/lib/agent/blocks/types";
@@ -28,6 +30,18 @@ function renderBlock(block: Block, key: string, demo: Demo) {
       return (
         <CardBoundary key={key} label="比對結果">
           <EligibilityCard payload={block.payload} />
+        </CardBoundary>
+      );
+    case "serviceRequirement":
+      return (
+        <CardBoundary key={key} label="服務需求">
+          <ServiceRequirementCard purpose={block.purpose} view={demo.view} />
+        </CardBoundary>
+      );
+    case "legalCheck":
+      return (
+        <CardBoundary key={key} label="目的與法源檢查">
+          <LegalCheckCard purpose={block.purpose} view={demo.view} />
         </CardBoundary>
       );
     case "signGrant":

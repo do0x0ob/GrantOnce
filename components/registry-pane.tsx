@@ -15,6 +15,10 @@ const DEFAULT_BASIS = [
   "個人資料保護法 §16 本文：於執行法定職務必要範圍內利用，並與蒐集之特定目的相符",
   "個人資料保護法 §5：不得逾越特定目的之必要範圍",
 ].join("\n");
+const DEFAULT_RETENTION = "案件辦理期間及依法應保存的期限；期滿後刪除或停止利用。";
+const DEFAULT_AREA = "中華民國境內";
+const DEFAULT_METHOD = "由資料來源機關簽發資格憑證，直接交付本服務機關進行線上審核。";
+const DEFAULT_DECLINE = "不提供則無法由本流程自動查驗資格，仍可改走人工申請。";
 
 const FIELD =
   "w-full rounded-[24px] border-0 bg-white px-5 py-3 text-[15px] leading-6 text-stone-800 shadow-[0_1px_0_rgba(26,24,20,0.04)] outline-none placeholder:text-stone-400 focus-visible:ring-2 focus-visible:ring-stone-300/70 disabled:opacity-50";
@@ -26,6 +30,10 @@ export function RegistryPane({ demo }: { demo: Demo }) {
   const [agency, setAgency] = useState<"jia" | "yi">("jia");
   const [privacyBasis, setPrivacyBasis] = useState(DEFAULT_BASIS);
   const [necessity, setNecessity] = useState("");
+  const [retentionPolicy, setRetentionPolicy] = useState(DEFAULT_RETENTION);
+  const [processingArea, setProcessingArea] = useState(DEFAULT_AREA);
+  const [processingMethod, setProcessingMethod] = useState(DEFAULT_METHOD);
+  const [declineEffect, setDeclineEffect] = useState(DEFAULT_DECLINE);
   const [ttl, setTtl] = useState("600");
   const [claims, setClaims] = useState<string[]>([]);
 
@@ -43,14 +51,18 @@ export function RegistryPane({ demo }: { demo: Demo }) {
     setAgency(purpose.agency);
     setPrivacyBasis(purpose.privacyBasis.join("\n"));
     setNecessity(purpose.necessity);
+    setRetentionPolicy(purpose.retentionPolicy);
+    setProcessingArea(purpose.processingArea);
+    setProcessingMethod(purpose.processingMethod);
+    setDeclineEffect(purpose.declineEffect);
     setTtl(String(purpose.maxTtlSeconds));
     setClaims([...purpose.allowedClaims]);
   }
 
   return (
     <div className="mx-auto w-full max-w-[40rem] space-y-10 px-6 py-10 sm:px-8">
-      <PageIntro kicker="兌現機關維護" title="登記台">
-        掛上目的、改允許述詞、下架。發證端已上線的述詞才能勾。不能發明還沒 adapter 的欄位。
+      <PageIntro kicker="服務／請求機關維護" title="登記台">
+        登記服務目的、最小述詞與個資告知事項。資料來源已上線的述詞才能勾，模型不能新增欄位。
       </PageIntro>
 
       <section className="space-y-4">
@@ -69,6 +81,9 @@ export function RegistryPane({ demo }: { demo: Demo }) {
               </StatusChip>
             </header>
             <p className="text-[14px] leading-6 text-stone-600">{purpose.agencyName}</p>
+            <p className="text-[14px] leading-6 text-stone-500">
+              資料來源：{purpose.dataSources.map((source) => source.name).join("、")}
+            </p>
             <p className="text-[14px] leading-6 text-stone-500">述詞：{purpose.allowedClaims.join("、")}</p>
             <div className="flex flex-wrap gap-2">
               <Button
@@ -96,7 +111,7 @@ export function RegistryPane({ demo }: { demo: Demo }) {
 
       {registry.retiredPurposes.length > 0 ? (
         <p className="text-[14px] leading-6 text-stone-400">
-          已下架：{registry.retiredPurposes.join("、")}。重設後回到內建兩筆。
+          已下架：{registry.retiredPurposes.join("、")}。重設後回到內建三筆。
         </p>
       ) : null}
 
@@ -112,6 +127,10 @@ export function RegistryPane({ demo }: { demo: Demo }) {
             allowedClaims: claims,
             maxTtlSeconds: Number(ttl),
             necessity,
+            retentionPolicy,
+            processingArea,
+            processingMethod,
+            declineEffect,
           });
         }}
       >
@@ -168,6 +187,36 @@ export function RegistryPane({ demo }: { demo: Demo }) {
           disabled={demo.busy}
           className={FIELD}
         />
+        <textarea
+          value={retentionPolicy}
+          onChange={(e) => setRetentionPolicy(e.target.value)}
+          rows={2}
+          placeholder="資料保存期間，以及期限屆滿後如何處理。"
+          disabled={demo.busy}
+          className={FIELD}
+        />
+        <Input
+          value={processingArea}
+          onChange={(e) => setProcessingArea(e.target.value)}
+          placeholder="資料利用地區"
+          disabled={demo.busy}
+        />
+        <textarea
+          value={processingMethod}
+          onChange={(e) => setProcessingMethod(e.target.value)}
+          rows={2}
+          placeholder="資料來源如何交付、服務機關如何利用。"
+          disabled={demo.busy}
+          className={FIELD}
+        />
+        <textarea
+          value={declineEffect}
+          onChange={(e) => setDeclineEffect(e.target.value)}
+          rows={2}
+          placeholder="不提供資料對使用者權益的影響。"
+          disabled={demo.busy}
+          className={FIELD}
+        />
         <Input value={ttl} onChange={(e) => setTtl(e.target.value)} placeholder="效期秒數" disabled={demo.busy} />
         <fieldset className="space-y-2">
           <legend className="text-[13px] leading-5 text-stone-400">已上線述詞（不能自己加 ID）</legend>
@@ -201,7 +250,16 @@ export function RegistryPane({ demo }: { demo: Demo }) {
         <Button
           type="submit"
           size="lg"
-          disabled={demo.busy || !id.trim() || !title.trim() || claims.length === 0 || necessity.trim().length < 8}
+          disabled={
+            demo.busy ||
+            !id.trim() ||
+            !title.trim() ||
+            claims.length === 0 ||
+            necessity.trim().length < 8 ||
+            retentionPolicy.trim().length < 8 ||
+            processingMethod.trim().length < 8 ||
+            declineEffect.trim().length < 8
+          }
         >
           寫入登記表
         </Button>

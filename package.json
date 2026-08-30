@@ -12,8 +12,9 @@
     "mcp:http": "tsx mcp/server.ts --http",
     "test:mcp": "GRANTONCE_STORE=/tmp/grantonce-mcp-test.json tsx mcp/test.ts",
     "test:flow": "GRANTONCE_STORE=/tmp/grantonce-test.json tsx test/flow.ts",
+    "test:docs": "tsx test/docs.ts",
     "test:rehearsal": "tsx test/rehearsal.ts",
-    "test:all": "npm run test:flow && npm run test:mcp && npm run test:agent && npm run test:race",
+    "test:all": "npm run test:flow && npm run test:mcp && npm run test:agent && npm run test:docs && npm run test:race && npm run test:rehearsal",
     "test:race": "tsx test/race.ts",
     "test:mutate": "tsx test/mutate.ts",
     "test:agent": "GRANTONCE_STORE=/tmp/grantonce-agent-test.json tsx test/agent.ts"

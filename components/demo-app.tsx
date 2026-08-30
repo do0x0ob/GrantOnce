@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { AgencyPane } from "@/components/agency-pane";
 import { BrandMark } from "@/components/brand-mark";
@@ -58,18 +59,26 @@ export function DemoApp({ initialView }: { initialView: PrincipalView }) {
                 <p className="text-[12px] text-stone-400">分匣授權</p>
               </div>
             </div>
-            <Button
-              variant="ghost"
-              size="sm"
-              className="rounded-full text-stone-400 hover:text-stone-700 sm:hidden"
-              disabled={demo.busy}
-              onClick={() => {
-                setViewId("authorize");
-                void demo.reset();
-              }}
-            >
-              重設
-            </Button>
+            <div className="flex items-center sm:hidden">
+              <Link
+                href="/docs"
+                className="inline-flex min-h-10 items-center rounded-full px-3 text-[13px] text-stone-500 focus-visible:ring-2 focus-visible:ring-stone-400"
+              >
+                文件
+              </Link>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="min-h-10 rounded-full text-stone-400 hover:text-stone-700"
+                disabled={demo.busy}
+                onClick={() => {
+                  setViewId("authorize");
+                  void demo.reset();
+                }}
+              >
+                重設
+              </Button>
+            </div>
           </div>
 
           <nav className="flex items-center gap-0.5 self-start rounded-full bg-white/70 p-1 shadow-[0_1px_0_rgba(26,24,20,0.04)] sm:self-auto">
@@ -103,6 +112,12 @@ export function DemoApp({ initialView }: { initialView: PrincipalView }) {
               {demo.view.lastTickAt ? formatTime(demo.view.lastTickAt) : "尚未巡檢"}
             </p>
             <p className="text-[13px] text-stone-400">{demo.view.principal.name}</p>
+            <Link
+              href="/docs"
+              className="inline-flex min-h-10 items-center rounded-full px-3 text-[13px] text-stone-500 transition-colors hover:bg-white/60 hover:text-stone-800 focus-visible:ring-2 focus-visible:ring-stone-400"
+            >
+              文件
+            </Link>
             <Button
               variant="ghost"
               size="sm"

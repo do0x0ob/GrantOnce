@@ -24,7 +24,7 @@ const UA = "GrantOnce/0.1 (research; https://github.com/do0x0ob/GrantOnce)";
 const TIMEOUT_MS = 8_000;
 const CACHE_MS = 5 * 60_000;
 const NOTE =
-  "這是公開資料，不是授權，也不讀金庫。搜到補助 ≠ 可以 mint Grant。本 runtime 能不能發票只看目的登記表與 issuer adapter。";
+  "這些是公開資料，只供查找方案；不代表符合資格，也不會建立授權。只有已完成系統綁定的方案才能進入申請流程。";
 
 const cache = new Map<string, { at: number; result: ResearchResult }>();
 
@@ -189,7 +189,7 @@ function termsFor(query: string): string[] {
   return [...new Set(terms)].slice(0, 3);
 }
 
-function relevance(text: string): number {
+function relevance(text: string, query: string): number {
   let score = 0;
   for (const [keyword, weight] of [
     ["災害救助", 8],
@@ -199,11 +199,36 @@ function relevance(text: string): number {
     ["社會救助", 8],
     ["育兒津貼", 5],
     ["補助", 2],
+    ["補貼", 2],
     ["津貼", 2],
+    ["福利", 1],
+    ["方案", 1],
+    ["計畫", 1],
+    ["辦法", 1],
   ] as const) {
     if (text.includes(keyword)) score += weight;
   }
+
+  const topicKeywords = /水災|淹水|洪水|受災|風災/.test(query)
+    ? ["水災", "洪水", "災害", "救助", "慰助"]
+    : /育兒|托育|幼兒|小孩|孩子/.test(query)
+      ? ["育兒", "托育", "幼兒", "兒童"]
+      : /冷氣|空調|節能/.test(query)
+        ? ["冷氣", "空調", "節能"]
+        : /搬家|遷入|遷徙|遷居/.test(query)
+          ? ["搬家", "遷入", "遷居", "住宅"]
+          : [];
+  for (const keyword of topicKeywords) {
+    if (text.includes(keyword)) score += 4;
+  }
   return score;
+}
+
+export function isRelevantProgramTitle(title: string, query: string): boolean {
+  if (!/補助|補貼|津貼|救助金|慰助|社會救助|災害救助|福利|方案|計畫|辦法/.test(title)) {
+    return false;
+  }
+  return relevance(title, query) > 0;
 }
 
 function dedupe(findings: ResearchFinding[]): ResearchFinding[] {
@@ -215,7 +240,7 @@ function dedupe(findings: ResearchFinding[]): ResearchFinding[] {
     seen.add(key);
     if (!item.snippet && !item.title) continue;
     out.push(item);
-    if (out.length >= 8) break;
+    if (out.length >= 3) break;
   }
   return out;
 }
@@ -228,43 +253,56 @@ async function liveResearch(query: string): Promise<ResearchResult> {
 
   const hits: { title: string; snippet: string; pageid: number }[] = [];
   const errors: string[] = [];
+  let completedSearches = 0;
   for (const term of terms) {
     try {
       hits.push(...(await wikiSearch(term)));
+      completedSearches += 1;
     } catch (error) {
       errors.push(error instanceof Error ? error.message : String(error));
     }
   }
-  const ranked = [...hits].sort(
-    (a, b) => relevance(`${b.title} ${b.snippet}`) - relevance(`${a.title} ${a.snippet}`),
-  );
+  const ranked = [...hits]
+    .map((hit) => ({ hit, score: relevance(`${hit.title} ${hit.snippet}`, query) }))
+    .filter(({ score }) => score > 0)
+    .sort((a, b) => b.score - a.score)
+    .map(({ hit }) => hit);
   const uniqueIds = [...new Set(ranked.map((h) => h.pageid))];
   if (uniqueIds.length === 0) {
-    return unavailable(query, errors[0] ?? "沒有公開條目");
+    if (completedSearches > 0) {
+      return { query, source: "live", findings: [], note: NOTE };
+    }
+    return unavailable(query, errors[0] ?? "沒有足夠相關的公開條目");
   }
 
   try {
     const fromPages = await wikiPages(uniqueIds);
-    const fromSearch = hits.map((hit) => ({
+    const fromSearch = ranked.map((hit) => ({
       title: hit.title,
       url: `https://zh.wikipedia.org/wiki/${encodeURIComponent(hit.title)}`,
       snippet: stripTags(hit.snippet).slice(0, 220),
       publisher: "維基百科",
     }));
     const findings = dedupe(
-      [...fromPages, ...fromSearch].sort(
-        (a, b) => relevance(`${b.title} ${b.snippet}`) - relevance(`${a.title} ${a.snippet}`),
-      ),
+      [...fromPages, ...fromSearch]
+        .filter((item) => isRelevantProgramTitle(item.title, query))
+        .sort(
+        (a, b) =>
+          relevance(`${b.title} ${b.snippet}`, query) -
+          relevance(`${a.title} ${a.snippet}`, query),
+        ),
     );
     return { query, source: "live", findings, note: NOTE };
   } catch (error) {
     const fallback = dedupe(
-      hits.map((hit) => ({
-        title: hit.title,
-        url: `https://zh.wikipedia.org/wiki/${encodeURIComponent(hit.title)}`,
-        snippet: stripTags(hit.snippet).slice(0, 220),
-        publisher: "維基百科",
-      })),
+      ranked
+        .map((hit) => ({
+          title: hit.title,
+          url: `https://zh.wikipedia.org/wiki/${encodeURIComponent(hit.title)}`,
+          snippet: stripTags(hit.snippet).slice(0, 220),
+          publisher: "維基百科",
+        }))
+        .filter((item) => isRelevantProgramTitle(item.title, query)),
     );
     if (fallback.length > 0) return { query, source: "live", findings: fallback, note: NOTE };
     return unavailable(query, error instanceof Error ? error.message : String(error));
@@ -286,7 +324,7 @@ export async function researchWorld(query: string): Promise<ResearchResult> {
 
 export function formatResearchLines(research: ResearchResult): string[] {
   if (research.source === "disabled") {
-    return ["公開搜尋在此環境關閉。宿主請用自己的網搜；不要把目的登記表當成全世界。"];
+    return ["公開搜尋目前未啟用；系統內建方案不代表所有可申請的補助。"];
   }
   if (research.findings.length === 0) {
     return [
@@ -295,7 +333,7 @@ export function formatResearchLines(research: ResearchResult): string[] {
     ];
   }
   return [
-    "公開資料（不是授權，也不是本 runtime 發明的補助）：",
+    "公開找到的方案（僅供查找，不代表符合資格）：",
     ...research.findings.flatMap((item, index) => [
       `${index + 1}. ${item.title} — ${item.publisher}`,
       `   ${item.snippet || "（無摘要）"}`,

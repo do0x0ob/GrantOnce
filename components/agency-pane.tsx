@@ -86,7 +86,7 @@ function InboxDesk({ demo, purposeId }: { demo: Demo; purposeId: PurposeId }) {
         ) : inbox.receivedAt ? (
           <StatusChip tone="mint">已收件</StatusChip>
         ) : (
-          <StatusChip tone="stone">等待兩把鑰匙</StatusChip>
+          <StatusChip tone="stone">等待授權</StatusChip>
         )}
       </header>
 
@@ -116,7 +116,7 @@ function InboxDesk({ demo, purposeId }: { demo: Demo; purposeId: PurposeId }) {
         </ul>
       ) : (
         <p className="text-[15px] leading-7 text-stone-400">
-          尚未收到任何述詞。需要委託人簽章與本機關的持有證明同時成立。
+          尚未收到任何資格證明。使用者簽署後，本機關還要出示持有證明，資料來源機關才會直接交付。
         </p>
       )}
 
@@ -129,7 +129,7 @@ function InboxDesk({ demo, purposeId }: { demo: Demo; purposeId: PurposeId }) {
           disabled={demo.busy}
           onClick={() => void demo.redeem(grantId, agency)}
         >
-          兌現本匣
+          持 Grant 向資料來源機關取證
         </Button>
       ) : null}
       {inbox.receivedAt && !inbox.submittedAt ? (
@@ -139,7 +139,7 @@ function InboxDesk({ demo, purposeId }: { demo: Demo; purposeId: PurposeId }) {
           disabled={demo.busy}
           onClick={() => void demo.submit(grantId)}
         >
-          送出申請
+          使用收到的證明開始處理
         </Button>
       ) : null}
       {inbox.grantDigest ? (
@@ -216,8 +216,8 @@ export function AgencyPane({ demo }: { demo: Demo }) {
 
   return (
     <div className="mx-auto w-full max-w-[40rem] space-y-10 px-6 py-10 sm:px-8">
-      <PageIntro kicker="機關收件匣" title={demo.view.inboxes[current].name}>
-        要拿到東西，必須自己出示金鑰證明身分，而且該目的要在法定職務範圍內。
+      <PageIntro kicker="請求機關工作台" title={demo.view.inboxes[current].name}>
+        請求機關持使用者簽署的 Grant 向資料來源機關取證。資料直接進本服務收件匣，不提供給語言模型。
       </PageIntro>
 
       <div className="flex gap-1 rounded-full bg-white/70 p-1 shadow-[0_1px_0_rgba(26,24,20,0.04)]">

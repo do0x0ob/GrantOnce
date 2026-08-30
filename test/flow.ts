@@ -74,6 +74,11 @@ function resign(id: GrantId, edit: (body: Grant["body"]) => void) {
     g.signMethod = "software";
     g.status = "signed";
     g.redeemedAt = null;
+    const request = s.serviceRequests.find((item) => item.id === g.body.requestId);
+    if (request) {
+      request.status = "authorized";
+      request.authorizedAt = new Date().toISOString();
+    }
     s.usedJti = s.usedJti.filter((j) => j !== g.body.jti);
   });
 }
@@ -143,6 +148,19 @@ const g = grantOf(jia);
 check("綁定受眾 aud", g.body.aud === "jia");
 check("綁定機關金鑰指紋 cnf.jkt", g.body.cnf.jkt === AGENCY_KEYS.jia.jkt);
 {
+  const request = getState().serviceRequests.find((item) => item.id === g.body.requestId);
+  const expectedSources = [...new Set(g.body.claims.map((claim) => CLAIM_DEFS[claim].issuer))];
+  check("Grant 綁定一筆已登記服務需求", Boolean(request) && request?.grantId === g.id);
+  check("服務需求明確區分請求機關與資料來源", request?.requester === g.body.aud &&
+    JSON.stringify(request.dataSources.sort()) === JSON.stringify(expectedSources.sort()));
+  check("資料只允許來源機關直接交付請求機關", g.body.delivery.mode === "issuer-to-requester" &&
+    g.body.delivery.recipient === g.body.aud && g.body.delivery.recipientJkt === g.body.cnf.jkt);
+  check("個資告知事項隨 Grant 一起待簽", Boolean(g.body.notice.collector && g.body.notice.purpose &&
+    g.body.notice.dataCategories.length && g.body.notice.period && g.body.notice.area &&
+    g.body.notice.recipients.length && g.body.notice.method && g.body.notice.rights &&
+    g.body.notice.declineEffect));
+}
+{
   // Uniqueness is the property that matters; a fixed prefix is not.
   const before = g.body.jti;
   mutate((st) => proposeGrantsFromPlan(st, matchPrograms(sit)));
@@ -190,8 +208,16 @@ section("未簽署不得兌現");
 
 section("委託人簽署");
 check("錯誤簽章被拒", Boolean(signGrant({ grantId: jia, signature: sign("別的內容", principal.secret), publicKey: pk }).error));
+mutate((s) => {
+  const requestId = s.grants.find((grant) => grant.id === jia)!.body.requestId;
+  s.serviceRequests = s.serviceRequests.filter((request) => request.id !== requestId);
+});
+check("沒有服務需求單時不能簽署", Boolean(signGrant({ grantId: jia, signature: sign(grantOf(jia).serialized, principal.secret), publicKey: pk }).error));
+freshProposal();
 check("正確簽章通過", !signGrant({ grantId: jia, signature: sign(grantOf(jia).serialized, principal.secret), publicKey: pk }).error);
 check("狀態變 signed", grantOf(jia).status === "signed");
+check("服務需求同步變成已授權", getState().serviceRequests.find((request) =>
+  request.id === grantOf(jia).body.requestId)?.status === "authorized");
 
 section("第二把鑰匙：機關");
 {
@@ -208,6 +234,12 @@ section("兌現");
 {
   const r = redeemGrant(jia, makeAgencyProof("jia", jia));
   check("雙鑰匙齊備 → 通過", r.result.ok, JSON.stringify(r.result));
+  check("回傳實際釋放資料的來源機關", r.result.ok && r.result.releasedBy.includes("household-office"));
+  check("服務需求同步變成資料已直送", getState().serviceRequests.find((request) =>
+    request.id === grantOf(jia).body.requestId)?.status === "data-delivered");
+  check("每個來源機關都留下直接交付稽核", getState().audit.some((entry) =>
+    entry.action === "release" && entry.actorRole === "issuer" && entry.grantId === jia &&
+    entry.detail.includes("語言模型 Agent 未接收資料內容")));
   const inbox = getState().inboxes["childcare-allowance"];
   check("收件匣有四項述詞", inbox.claims.length === 4);
   check("收件匣不含姓名/地址/戶號/生日", !JSON.stringify(inbox.claims).match(/林小禾|板橋|HH-DEMO|2025-07-15/), JSON.stringify(inbox.claims));
@@ -293,6 +325,7 @@ section("竄改：憑證的值必須是發證機構簽過的值");
   mutate((s) => {
     const g = s.grants.find((x) => x.id === yi)!;
     g.status = "signed";
+    s.serviceRequests.find((request) => request.id === g.body.requestId)!.status = "authorized";
     s.usedJti = [];
   });
   const r = redeemGrant(yi, makeAgencyProof("yi", yi));
@@ -386,6 +419,10 @@ section("登記台");
     allowedClaims: ["disaster.floodVictim"],
     maxTtlSeconds: 600,
     necessity: "核定災害救助需要受災事實，但本 runtime 還沒有這項述詞。",
+    retentionPolicy: "案件辦理期間及依法應保存的期限。",
+    processingArea: "中華民國境內",
+    processingMethod: "由資料來源機關直接交付服務機關。",
+    declineEffect: "不提供則無法自動查驗，仍可改走人工申請。",
   });
   check("不能發明 disaster.* 述詞", Boolean(invented.error), invented.error);
   check("發明述詞的錯誤指向 adapter", Boolean(invented.error?.includes("adapter")), invented.error);
@@ -398,6 +435,10 @@ section("登記台");
     allowedClaims: ["resident.inNewTaipei"],
     maxTtlSeconds: 600,
     necessity: "這不應該被當成合法目的寫進登記表。",
+    retentionPolicy: "案件辦理期間及依法應保存的期限。",
+    processingArea: "中華民國境內",
+    processingMethod: "由資料來源機關直接交付服務機關。",
+    declineEffect: "不提供則無法自動查驗，仍可改走人工申請。",
   });
   check("toString 不能當目的 ID", Boolean(proto.error));
 
@@ -409,6 +450,10 @@ section("登記台");
     allowedClaims: ["resident.inNewTaipei", "resident.movedWithin12m"],
     maxTtlSeconds: 600,
     necessity: "只要確認設籍本市與一年內遷入，不需要地址本身。",
+    retentionPolicy: "案件辦理期間及依法應保存的期限。",
+    processingArea: "中華民國境內",
+    processingMethod: "由戶政簽發述詞並直接交付服務機關。",
+    declineEffect: "不提供則無法自動查驗，仍可改走人工申請。",
   });
   check("既有述詞可以掛上新目的", !hung.error && isLivePurposeId("move-bonus"), hung.error);
   check("委託範圍跟著掛上的目的打開", getState().delegation.purposes.includes("move-bonus"));
@@ -483,6 +528,14 @@ section("每一道防線各自都擋得住");
   const scope = redeemGrant(jia, makeAgencyProof("jia", jia));
   check("委託人簽了超範圍的述詞 → OUTSIDE_PURPOSE", !scope.result.ok && scope.result.code === "OUTSIDE_PURPOSE", JSON.stringify(scope.result));
   check("超範圍時不交付任何欄位", getState().inboxes["childcare-allowance"].claims.every((c) => c.claimId !== "raw.income.annual"));
+
+  freshProposal();
+  resign(jia, (b) => {
+    b.notice.period = "永久保存";
+  });
+  const notice = redeemGrant(jia, makeAgencyProof("jia", jia));
+  check("簽過被竄改的告知事項仍會拒絕 → INVALID_SERVICE_REQUEST",
+    !notice.result.ok && notice.result.code === "INVALID_SERVICE_REQUEST", JSON.stringify(notice.result));
 
   freshProposal();
   resign(yi, () => {});
@@ -608,6 +661,12 @@ section("特種個資是獨立的一道，不是靠其他檢查順便擋掉");
 
 section("高風險攔截");
 {
+  const r = requestClaims("jia", "childcare-allowance", ["resident.inNewTaipei"]);
+  check("服務端的合法最小需求會建立待簽 Grant", !r.blocked && Boolean(r.grantId && r.requestId));
+  check("服務端請求仍然只是等待使用者簽署", getState().serviceRequests.find((request) =>
+    request.id === r.requestId)?.status === "awaiting-signature");
+}
+{
   const r = requestClaims("jia", "childcare-allowance", ["raw.income.annual", "raw.household.address"]);
   check("機關索取所得 → 提案即攔截", r.blocked);
   check("攔截理由指出法定職務範圍", r.notes.some((n) => n.includes("§15")), r.notes.join("|"));
@@ -653,6 +712,8 @@ section("送件");
   signGrant({ grantId: jia, signature: sign(grantOf(jia).serialized, principal.secret), publicKey: pk });
   redeemGrant(jia, makeAgencyProof("jia", jia));
   check("送件成功", !submitApplication(jia).error);
+  check("服務需求同步變成機關處理中", getState().serviceRequests.find((request) =>
+    request.id === grantOf(jia).body.requestId)?.status === "processing");
   check("重複送件被擋", Boolean(submitApplication(jia).error));
 }
 

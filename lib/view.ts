@@ -1,8 +1,8 @@
-import { CLAIM_DEFS, isClaimId } from "./claims";
+import { CLAIM_DEFS, ISSUERS, isClaimId } from "./claims";
 import { PURPOSES } from "./purposes";
 import { purposesFrom, registryView } from "./registry";
 import { RISK_LABEL } from "./risk";
-import type { DemoState, GrantStatus } from "./types";
+import type { DemoState, GrantStatus, ServiceRequestStatus } from "./types";
 import { isCredentialValid, verifyCredential } from "./wallet";
 
 export const GRANT_STATUS_LABEL: Record<GrantStatus, string> = {
@@ -11,6 +11,17 @@ export const GRANT_STATUS_LABEL: Record<GrantStatus, string> = {
   redeemed: "已兌現 · 耗用",
   revoked: "已撤銷",
   expired: "已逾效期",
+};
+
+export const SERVICE_REQUEST_LABEL: Record<ServiceRequestStatus, string> = {
+  "awaiting-confirmation": "等你確認",
+  "awaiting-signature": "已通過檢查 · 待你簽署",
+  authorized: "已簽署 · 待機關兌現",
+  "data-delivered": "資料已交付辦理機關",
+  processing: "機關辦理中",
+  completed: "已辦結",
+  blocked: "檢查未通過",
+  cancelled: "已作廢",
 };
 
 /**
@@ -129,6 +140,18 @@ export function principalView(state: DemoState) {
       presentedCount: c.presentedCount,
       derivedFrom: CLAIM_DEFS[c.claimId].derivedFrom,
     })),
+    serviceRequests: state.serviceRequests.map((request) => ({
+      ...request,
+      claims: request.claims.map((claim) => ({
+        claimId: claim,
+        label: claimLabel(claim),
+        shape: CLAIM_DEFS[claim].shape,
+      })),
+      dataSources: request.dataSources.map((source) => ({
+        id: source,
+        name: ISSUERS[source].name,
+      })),
+    })),
     grants: state.grants.map((g) => {
       const expired = new Date(g.body.exp).getTime() < now.getTime();
       // A capsule that has run out reads as expired even before anything tries
@@ -146,6 +169,14 @@ export function principalView(state: DemoState) {
         purposesFrom(state)[g.body.purpose]?.agencyName ??
         PURPOSES[g.body.purpose]?.agencyName ??
         g.body.aud,
+      requestId: g.body.requestId,
+      requester: g.body.requester,
+      dataSources: g.body.dataSources.map((source) => ({
+        id: source,
+        name: ISSUERS[source].name,
+      })),
+      delivery: g.body.delivery,
+      notice: g.body.notice,
       privacyBasis:
         purposesFrom(state)[g.body.purpose]?.privacyBasis ??
         PURPOSES[g.body.purpose]?.privacyBasis ??

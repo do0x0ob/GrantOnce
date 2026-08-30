@@ -7,7 +7,7 @@ import type { EligibilityPayload } from "@/lib/agent/blocks/types";
 export function EligibilityCard({ payload }: { payload: EligibilityPayload }) {
   return (
     <section className={cn(SURFACE, "space-y-4 px-6 py-5")}>
-      <CardHead title="比對結果" sub="規則引擎判定 · 模型不決定授權" />
+      <CardHead title="找到已登記服務" sub="規則比對 · 尚未調閱資料" />
 
       <ul className="space-y-1.5">
         {payload.reasons.map((reason) => (

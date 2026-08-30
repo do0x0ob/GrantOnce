@@ -69,6 +69,21 @@ export function applicationStatusOf(o: unknown): { purpose: PurposeId } | null {
   return purpose && isPurposeId(purpose) ? { purpose } : null;
 }
 
+export function serviceRequirementOf(o: unknown): { purpose: PurposeId } | null {
+  const v = asObj(o);
+  if (!v) return null;
+  const purpose = str(v.serviceRequirement);
+  return purpose && isPurposeId(purpose) ? { purpose } : null;
+}
+
+/** Stage 3 made visible: whether the registry and 個資法 check let this through. */
+export function legalCheckOf(o: unknown): { purpose: PurposeId } | null {
+  const v = asObj(o);
+  if (!v) return null;
+  const purpose = str(v.legalCheck);
+  return purpose && isPurposeId(purpose) ? { purpose } : null;
+}
+
 export function programPickerOf(o: unknown): ProgramPickerPayload | null {
   const v = asObj(o);
   if (!v) return null;
@@ -219,6 +234,16 @@ export function toBlocks(outputs: unknown[]): Block[] {
     const sign = signGrantOf(o);
     if (sign) {
       out.push({ kind: "signGrant", grantId: sign.grantId });
+      continue;
+    }
+    const requirement = serviceRequirementOf(o);
+    if (requirement) {
+      out.push({ kind: "serviceRequirement", purpose: requirement.purpose });
+      continue;
+    }
+    const legal = legalCheckOf(o);
+    if (legal) {
+      out.push({ kind: "legalCheck", purpose: legal.purpose });
       continue;
     }
     const status = applicationStatusOf(o);

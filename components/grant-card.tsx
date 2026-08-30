@@ -130,6 +130,16 @@ export function GrantCard({
           </StatusChip>
         </header>
 
+        <section className="rounded-2xl bg-white/45 px-4 py-3.5">
+          <p className="text-[12px] leading-5 text-stone-400">資料交付路徑</p>
+          <p className="mt-1 text-[14px] leading-6 text-stone-700">
+            {grant.dataSources.map((source) => source.name).join("、")} → {grant.requester.name}
+          </p>
+          <p className="mt-1 text-[12px] leading-5 text-stone-500">
+            Agent 只協調授權與狀態，不接收資料內容。
+          </p>
+        </section>
+
         <section className="space-y-5">
           <p className="text-[13px] leading-5 tracking-[0.04em] text-stone-400">機關會收到</p>
           <ul className="space-y-5">
@@ -192,7 +202,7 @@ export function GrantCard({
                     : undefined
               }
             >
-              以生物辨識簽署
+              簽署並授權來源機關交付
             </Button>
           ) : null}
           <div className="flex flex-wrap items-center justify-between gap-2">
@@ -232,6 +242,16 @@ export function GrantCard({
               <dd className="truncate font-mono">cnf.jkt {grant.cnfJkt.slice(0, 16)}…</dd>
               <dt>一次性編號</dt>
               <dd className="truncate font-mono">{grant.jti}</dd>
+              <dt>服務需求單</dt>
+              <dd className="truncate font-mono">{grant.requestId}</dd>
+              <dt>資料來源</dt>
+              <dd>{grant.dataSources.map((source) => source.name).join("、")}</dd>
+              <dt>利用期間</dt>
+              <dd>{grant.notice.period}</dd>
+              <dt>利用地區</dt>
+              <dd>{grant.notice.area}</dd>
+              <dt>不提供的影響</dt>
+              <dd>{grant.notice.declineEffect}</dd>
               <dt>個資依據</dt>
               <dd className="space-y-1">
                 {grant.privacyBasis.map((basis) => (

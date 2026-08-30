@@ -38,10 +38,13 @@ export type GrantStatus = "proposed" | "signed" | "redeemed" | "revoked" | "expi
 
 export type AuditAction =
   | "register"
+  | "request"
   | "issue"
+  | "release"
   | "sign"
   | "redeem"
   | "submit"
+  | "complete"
   | "revoke"
   | "deny"
   | "notify"
@@ -75,6 +78,29 @@ export type GrantBody = {
   aud: AgencyId;
   claims: ClaimId[];
   cnf: { jkt: string };
+  /** Registered service request this grant authorizes. */
+  requestId: string;
+  requester: { agency: AgencyId; name: string };
+  /** Authorities holding the source records needed to derive the claims. */
+  dataSources: IssuerId[];
+  /** Payload bypasses the language model and is cryptographically bound to the requester. */
+  delivery: {
+    mode: "issuer-to-requester";
+    recipient: AgencyId;
+    recipientJkt: string;
+  };
+  /** Structured 個資法 notice, signed together with the machine-readable scope. */
+  notice: {
+    collector: string;
+    purpose: string;
+    dataCategories: string[];
+    period: string;
+    area: string;
+    recipients: string[];
+    method: string;
+    rights: string;
+    declineEffect: string;
+  };
   displayText: string;
   exp: string;
   iat: string;
@@ -191,6 +217,48 @@ export type ProgramPlan = {
   hint?: string;
 };
 
+export type ServiceRequestStatus =
+  /**
+   * The service has stated what it needs and nothing has been minted yet. This
+   * is the beat the flow used to skip: a requirement was born already waiting
+   * for a signature, so a signable capsule existed for a service the person had
+   * not yet said they wanted.
+   */
+  | "awaiting-confirmation"
+  | "awaiting-signature"
+  | "authorized"
+  | "data-delivered"
+  | "processing"
+  | "completed"
+  | "blocked"
+  | "cancelled";
+
+/** A registered service's concrete requirements for one user request. */
+export type ServiceRequest = {
+  id: string;
+  /** Null until confirmed — an unconfirmed requirement has no capsule behind it. */
+  grantId: GrantId | null;
+  purpose: PurposeId;
+  title: string;
+  requester: AgencyId;
+  requesterName: string;
+  claims: ClaimId[];
+  dataSources: IssuerId[];
+  privacyBasis: string[];
+  necessity: string;
+  status: ServiceRequestStatus;
+  /** What the registry and 個資法 check found, kept because it is the evidence
+   *  shown between confirmation and signing. */
+  checkNotes: string[];
+  requestedAt: string;
+  confirmedAt: string | null;
+  authorizedAt: string | null;
+  deliveredAt: string | null;
+  processingAt: string | null;
+  completedAt: string | null;
+  resultSummary: string | null;
+};
+
 /** Only the utterance is read back, to re-match when the demo clock moves. */
 export type AgentPlan = {
   utterance: string;
@@ -287,6 +355,7 @@ export type DemoState = {
   };
   vaultCatalog: VaultCatalogEntry[];
   wallet: Credential[];
+  serviceRequests: ServiceRequest[];
   grants: Grant[];
   /** One inbox per purpose: an agency running two programmes keeps them apart. */
   inboxes: Record<PurposeId, AgencyInbox>;
@@ -325,6 +394,7 @@ export type DenyCode =
   | "WRONG_AUDIENCE"
   | "KEY_NOT_BOUND"
   | "BAD_AGENCY_PROOF"
+  | "INVALID_SERVICE_REQUEST"
   | "OUTSIDE_PURPOSE"
   | "RISK_BLOCKED"
   | "MISSING_CREDENTIAL"
@@ -336,6 +406,7 @@ export type RedeemResult =
       grantId: GrantId;
       claimIds: ClaimId[];
       deliveredTo: AgencyId;
+      releasedBy: IssuerId[];
     }
   | {
       ok: false;
