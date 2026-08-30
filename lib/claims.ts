@@ -53,10 +53,10 @@ export type ClaimDef = {
    * Why this claim is never released, when it never is.
    *
    * The two withheld claims are withheld on different grounds and saying so
-   * matters: 健保 is 個資法 §6 特種個資, which the law forbids outright, while
-   * 所得 is ordinary personal data that this design excludes itself under the
-   * §5 proportionality rule. Calling both "特種個資" would dress a policy choice
-   * up as a legal prohibition.
+   * matters. §6 enumerates categories of data content — 病歷, 醫療, 基因, 性生活,
+   * 健康檢查, 犯罪前科. A 健保 card number is none of those; it is the key into
+   * them. Both fields are therefore withheld under §5 necessity rather than a
+   * §6 prohibition, and saying otherwise dresses a design choice up as one.
    */
   withholdBasis?: string;
   /**
@@ -224,7 +224,12 @@ export const CLAIM_DEFS: Record<ClaimId, ClaimDef> = {
     issuer: "nhia",
     derivedFrom: ["nhi.cardId"],
     ttlDays: 1,
-    withholdBasis: "個資法 §6 第 1 項列舉之特種個資（醫療、健康檢查），法律禁止蒐集處理利用",
+    // §6 第 1 項列舉的是資料「內容」——病歷、醫療、基因、性生活、健康檢查、
+    // 犯罪前科。卡號本身不在其中；它是進入那些資料的識別碼。說它是特種個資把
+    // 一個設計選擇說成法律禁令，而真正的理由更站得住：這些補助不需要它，而它
+    // 會讓機關之間得以串接就醫紀錄。
+    withholdBasis:
+      "卡號本身不是 §6 列舉的特種個資，而是進入醫療紀錄的識別碼。依 §5 必要範圍排除：補助核定不需要它，交出去等於給了串接就醫紀錄的鑰匙",
     compute: () => VAULT.records["nhi.cardId"],
   },
   "raw.income.annual": {

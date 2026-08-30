@@ -737,7 +737,7 @@ section("Codex 找到的四個缺口");
   }
 }
 
-section("特種個資是獨立的一道，不是靠其他檢查順便擋掉");
+section("永不授權的欄位是獨立的一道，不是靠其他檢查順便擋掉");
 {
   // Give the delegation the widest ceiling and a purpose that would allow the
   // claim, so neither the ceiling nor the registry can mask this.
@@ -770,9 +770,17 @@ section("特種個資是獨立的一道，不是靠其他檢查順便擋掉");
     recentAudit: [],
     now: new Date(),
   });
+  // §6 第 1 項列舉的是資料內容——病歷、醫療、基因、性生活、健康檢查、犯罪前科。
+  // 卡號是進入那些資料的識別碼，不是那些內容本身。把它說成特種個資，是把一個
+  // 設計選擇說成法律禁令。
   check(
-    "健保的扣留理由引 §6 第 1 項（法律禁止）",
-    nhiVerdict.notes.some((n) => n.includes("健保") && n.includes("§6 第 1 項")),
+    "健保卡號沒有被說成法律禁止",
+    !nhiVerdict.notes.some((n) => n.includes("健保") && n.includes("法律禁止")),
+    nhiVerdict.notes.join(" | "),
+  );
+  check(
+    "但仍然說得出它為什麼永不授權",
+    nhiVerdict.notes.some((n) => n.includes("健保") && n.includes("§5")),
     nhiVerdict.notes.join(" | "),
   );
 }
