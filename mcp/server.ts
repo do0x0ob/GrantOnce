@@ -164,7 +164,7 @@ export function createGrantOnceServer(): McpServer {
     {
       title: "機關索取述詞",
       description:
-        "機關主動索取一組述詞。逾越該目的法定職務範圍、或涉及特種個資，在提案階段就攔截，委託人不會看到同意按鈕。",
+        "機關主動索取一組述詞。逾越該目的法定職務範圍、或逾越必要範圍的原始欄位，在提案階段就攔截，委託人不會看到同意按鈕。",
       inputSchema: {
         agency: z.string().describe("jia / yi"),
         purpose: z
