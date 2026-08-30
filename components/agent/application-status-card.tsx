@@ -31,7 +31,7 @@ export function ApplicationStatusCard({
   view: PrincipalView;
 }) {
   const def = PURPOSES[purpose];
-  const inbox = view.inboxes[def.agency];
+  const inbox = view.inboxes[purpose];
   const grant = view.grants.find((g) => g.purpose === purpose);
 
   const reached = new Set<string>(["matched"]);

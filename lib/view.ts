@@ -68,6 +68,13 @@ export function formatDate(iso: string): string {
   return `${p.year}/${Number(p.month)}/${Number(p.day)}`;
 }
 
+/** `2026/08/30 00:05:09` — the expiry written into the consent text the
+ * principal signs, so it must be zero-padded and stable on both sides. */
+export function formatStamp(iso: string): string {
+  const p = parts(iso, { ...YMD, ...HMS });
+  return `${p.year}/${p.month}/${p.day} ${p.hour}:${p.minute}:${p.second}`;
+}
+
 export function claimLabel(id: string): string {
   return isClaimId(id) ? CLAIM_DEFS[id].label : id;
 }
@@ -135,8 +142,18 @@ export function principalView(state: DemoState) {
       purpose: g.body.purpose,
       programTitle: purposesFrom(state)[g.body.purpose]?.title ?? PURPOSES[g.body.purpose]?.title ?? g.body.purpose,
       agencyId: g.body.aud,
-      agencyName: purposesFrom(state)[g.body.purpose]?.agencyName ?? PURPOSES[g.body.purpose]?.agencyName ?? g.body.aud,
-      legalBasis: purposesFrom(state)[g.body.purpose]?.legalBasis ?? PURPOSES[g.body.purpose]?.legalBasis ?? [],
+      agencyName:
+        purposesFrom(state)[g.body.purpose]?.agencyName ??
+        PURPOSES[g.body.purpose]?.agencyName ??
+        g.body.aud,
+      privacyBasis:
+        purposesFrom(state)[g.body.purpose]?.privacyBasis ??
+        PURPOSES[g.body.purpose]?.privacyBasis ??
+        [],
+      programBasis:
+        purposesFrom(state)[g.body.purpose]?.programBasis ??
+        PURPOSES[g.body.purpose]?.programBasis ??
+        [],
       claims: g.body.claims.map((c) => ({
         claimId: c,
         label: claimLabel(c),

@@ -25,7 +25,13 @@ export const FIELD_IDS = [
 
 export type FieldId = (typeof FIELD_IDS)[number];
 
-export type GrantId = "G-甲" | "G-乙" | "G-丙";
+/**
+ * A capsule's display label. The protocol identity is `jti`; this is the slot a
+ * purpose occupies in the UI and is reused across proposals, so nothing may
+ * derive authority from it.
+ */
+export type GrantId = string;
+
 export type AgencyId = "jia" | "yi";
 
 export type GrantStatus = "proposed" | "signed" | "redeemed" | "revoked" | "expired";
@@ -138,6 +144,7 @@ export type AgencyInbox = {
   name: string;
   programTitle: string;
   purpose: PurposeId;
+  slot: GrantId;
   claims: DeliveredClaim[];
   grantDigest: string | null;
   receivedAt: string | null;
@@ -281,7 +288,8 @@ export type DemoState = {
   vaultCatalog: VaultCatalogEntry[];
   wallet: Credential[];
   grants: Grant[];
-  inboxes: Record<AgencyId, AgencyInbox>;
+  /** One inbox per purpose: an agency running two programmes keeps them apart. */
+  inboxes: Record<PurposeId, AgencyInbox>;
   usedJti: string[];
   delegation: Delegation;
   notifications: Notification[];

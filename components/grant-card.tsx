@@ -232,12 +232,22 @@ export function GrantCard({
               <dd className="truncate font-mono">cnf.jkt {grant.cnfJkt.slice(0, 16)}…</dd>
               <dt>一次性編號</dt>
               <dd className="truncate font-mono">{grant.jti}</dd>
-              <dt>法定依據</dt>
+              <dt>個資依據</dt>
               <dd className="space-y-1">
-                {grant.legalBasis.map((basis) => (
+                {grant.privacyBasis.map((basis) => (
                   <div key={basis}>{basis}</div>
                 ))}
               </dd>
+              {grant.programBasis.length ? (
+                <>
+                  <dt>作用法</dt>
+                  <dd className="space-y-1">
+                    {grant.programBasis.map((basis) => (
+                      <div key={basis}>{basis}</div>
+                    ))}
+                  </dd>
+                </>
+              ) : null}
               <dt>有效至</dt>
               <dd className={grant.expired ? "text-[var(--orchid-deep)]" : undefined}>
                 {formatTime(grant.exp)}

@@ -86,7 +86,7 @@ async function main() {
       id: "move-bonus",
       title: "遷入獎勵",
       agency: "jia",
-      legalBasis: ["個人資料保護法 §15 第 1 款：執行法定職務必要範圍"],
+      privacyBasis: ["個人資料保護法 §15 第 1 款：執行法定職務必要範圍"],
       allowedClaims: ["resident.inNewTaipei", "resident.movedWithin12m"],
       maxTtlSeconds: 600,
       necessity: "只要確認設籍本市與一年內遷入，不需要地址本身。",
@@ -131,7 +131,13 @@ async function main() {
   {
     const { data } = await call("get_grant_for_signature", { grantId: "G-甲" });
     check("提供待簽 bytes", typeof data.bytesToSign === "string");
-    check("提供同意畫面文字", String(data.consentText).includes("法定依據"));
+    // The consent text must carry the privacy grounds, since those bytes are
+    // what the principal signs.
+    check(
+      "同意畫面文字帶著個資依據",
+      String(data.consentText).includes("個資依據") && String(data.consentText).includes("§15"),
+      String(data.consentText).slice(0, 120),
+    );
     check("明講模型不能代簽", String(data.note).includes("不能代簽"));
   }
 

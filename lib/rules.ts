@@ -30,6 +30,18 @@ export function effectiveToday(state: DemoState): string {
   return shifted.toISOString().slice(0, 10);
 }
 
+/**
+ * Wall-clock now, shifted by the demo clock.
+ *
+ * The offset simulates calendar time, so anything measured in days — credential
+ * lifetimes, the child's age band — must move with it. A capsule's own expiry is
+ * measured in seconds of the current session and deliberately does not, or
+ * winding the clock forward would kill a grant the presenter just signed.
+ */
+export function effectiveNow(state: DemoState): Date {
+  return new Date(Date.now() + (state.clockOffsetDays ?? 0) * 86_400_000);
+}
+
 export function childAgeMonthsAt(today: string): number {
   return monthsBetween(PERSONA_DECLARED.childBirthDate, today);
 }
@@ -70,7 +82,7 @@ export function matchPrograms(situation: DeclaredSituation): ProgramPlan[] {
   if (situation.wantsChildcare && band === "0-2") {
     const purpose = PURPOSES["childcare-allowance"];
     programs.push({
-      grantId: "G-甲",
+      grantId: purpose.slot,
       purpose: purpose.id,
       title: purpose.title,
       agencyId: purpose.agency,
@@ -90,7 +102,7 @@ export function matchPrograms(situation: DeclaredSituation): ProgramPlan[] {
   if (situation.wantsChildcare && band === "2-6") {
     const purpose = PURPOSES["childcare-service-subsidy"];
     programs.push({
-      grantId: "G-丙",
+      grantId: purpose.slot,
       purpose: purpose.id,
       title: purpose.title,
       agencyId: purpose.agency,
@@ -107,7 +119,7 @@ export function matchPrograms(situation: DeclaredSituation): ProgramPlan[] {
   if (situation.wantsAircon && situation.hasResidentialMeter) {
     const purpose = PURPOSES["aircon-subsidy"];
     programs.push({
-      grantId: "G-乙",
+      grantId: purpose.slot,
       purpose: purpose.id,
       title: purpose.title,
       agencyId: purpose.agency,
@@ -172,7 +184,7 @@ export function scanForChanges(state: DemoState, now: Date): NotificationDraft[]
         "幼兒已滿 2 歲，離開 0-2 年齡帶。原「育兒津貼」匣宣告的年齡帶述詞已不再成立，該匣不對應正確的補助；需要重新比對並簽一張新的匣。",
       summaryForAgent:
         "幼兒年齡帶已離開育兒津貼的適用範圍，原匣不再對應正確的補助，需要重新比對。",
-      grantId: "G-甲",
+      grantId: PURPOSES["childcare-allowance"].slot,
       suggestedAction: {
         tool: "plan_applications",
         args: { utterance: state.plan?.utterance ?? HAPPY_PATH_UTTERANCE },
@@ -190,7 +202,7 @@ export function scanForChanges(state: DemoState, now: Date): NotificationDraft[]
       body: "幼兒即將滿 2 歲，屆時改適用未滿 5 歲幼兒托育補助，需要不同的述詞組合。先提醒，不預先取得任何資料。",
       summaryForAgent:
         "幼兒將在三個月內離開育兒津貼的適用範圍，屆時要改用另一組述詞。目前不需要動作。",
-      grantId: "G-甲",
+      grantId: PURPOSES["childcare-allowance"].slot,
       suggestedAction: null,
       // Stops being true the day the child turns two; the aged-out notice
       // takes over from here.

@@ -80,7 +80,7 @@ function programLines(programs: ProgramPlan[]): string[] {
       `${index + 1}. ${program.title} — ${program.agencyName}`,
       `   原因：${program.reasons.join("；")}`,
       `   本匣述詞：${program.claims.map((id) => CLAIM_DEFS[id].label).join("、")}`,
-      `   法定依據：${purpose.legalBasis[0]}`,
+      `   個資依據：${purpose.privacyBasis[0]}`,
     ];
     if (program.hint) lines.push(`   提示：${program.hint}`);
     return lines;
@@ -143,7 +143,8 @@ export function inquiryPayload(
       reasons: program.reasons,
       claimIds: program.claims,
       claimLabels: program.claims.map((id) => CLAIM_DEFS[id].label),
-      legalBasis: PURPOSES[program.purpose].legalBasis,
+      privacyBasis: PURPOSES[program.purpose].privacyBasis,
+      programBasis: PURPOSES[program.purpose].programBasis ?? [],
       hint: program.hint,
     })),
     catalog: result.catalog,

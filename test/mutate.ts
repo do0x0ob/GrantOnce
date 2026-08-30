@@ -92,9 +92,9 @@ const MUTATIONS: Mutation[] = [
     replace: "    if (false) {",
   },
   {
-    label: "特種個資不再攔截",
+    label: "不得授權的欄位不再攔截",
     file: "lib/risk.ts",
-    find: "  if (special.length) {",
+    find: "  if (withheld.length) {",
     replace: "  if (false) {",
   },
   {
@@ -190,6 +190,44 @@ const MUTATIONS: Mutation[] = [
     file: "lib/agent/turn.ts",
     find: '        { question: "你可以問我這些", suggestions: MENU.suggestions },',
     replace: "        { text: \"我聽不懂。\" },",
+  },
+  {
+    label: "把所得說成 §6 特種個資（法律誤植）",
+    file: "lib/claims.ts",
+    find: '      "非 §6 特種個資，但依 §5 比例原則由本設計自行排除：這些補助的核定不需要所得",',
+    replace: '      "個資法 §6 第 1 項特種個資，法律禁止",',
+  },
+  {
+    label: "同意畫面不再引個資依據",
+    file: "lib/authz.ts",
+    find: '    `個資依據：${def.privacyBasis.join("；")}`,',
+    replace: '    "個資依據：（略）",',
+  },
+  {
+    label: "匣編號改回硬編",
+    file: "lib/purposes.ts",
+    find: "  const purpose = purposeOfSlot(raw);\n  return purpose ? PURPOSES[purpose].slot : null;",
+    replace: '  const t = raw.trim();\n  return t === "G-甲" || t === "G-jia" ? "G-甲" : t === "G-乙" || t === "G-yi" ? "G-乙" : null;',
+  },
+  {
+    label: "述詞從凍結的日期推導",
+    file: "lib/claims.ts",
+    find: "    compute: ({ today }) => ageBandOf(childAgeMonths(today)),",
+    replace: "    compute: () => ageBandOf(childAgeMonths()),",
+  },
+  {
+    label: "憑證效期不跟著演示時鐘",
+    file: "lib/authz.ts",
+    find: "    const credentialNow = effectiveNow(s);",
+    replace: "    const credentialNow = now;",
+  },
+  {
+    // Only builtins get an inbox at reset, so a purpose hung on the registry
+    // desk must have one made on first touch.
+    label: "登記台掛上的目的沒有自己的收件匣",
+    file: "lib/authz.ts",
+    find: "  const existing = state.inboxes[purpose];\n  if (existing) return existing;",
+    replace: "  const existing = state.inboxes[purpose];\n  if (!existing) return {} as AgencyInbox;",
   },
   {
     label: "述詞換回原始欄位",

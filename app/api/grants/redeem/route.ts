@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { makeAgencyProof, redeemGrant } from "@/lib/authz";
-import { normalizeGrantId } from "@/lib/fields";
+import { normalizeGrantId } from "@/lib/purposes";
 import { isKnownAgency } from "@/lib/parties";
 import { principalView } from "@/lib/view";
 

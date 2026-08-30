@@ -191,14 +191,14 @@ export function useDemo(initialView: PrincipalView) {
     setClock: (offsetDays: number) => post("/api/clock", { offsetDays }),
     scanNotifications: () => post("/api/notifications"),
     acknowledge: (id: string) => post("/api/notifications/ack", { id }),
-    advanceApplication: (agency: AgencyId, status: ApplicationStatus) =>
-      post("/api/agency/advance", { agency, status }),
+    advanceApplication: (purpose: string, status: ApplicationStatus) =>
+      post("/api/agency/advance", { purpose, status }),
     reset: () => post("/api/reset"),
     upsertPurpose: (purpose: {
       id: string;
       title: string;
       agency: string;
-      legalBasis: string[];
+      privacyBasis: string[];
       allowedClaims: string[];
       maxTtlSeconds: number;
       necessity: string;

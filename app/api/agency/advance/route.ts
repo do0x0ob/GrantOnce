@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { isKnownAgency } from "@/lib/parties";
+import { isPurposeId } from "@/lib/purposes";
 import { mutate, nowIso } from "@/lib/store";
 import { isApplicationStatus } from "@/lib/types";
 import { principalView } from "@/lib/view";
@@ -13,21 +13,21 @@ export const dynamic = "force-dynamic";
  */
 export async function POST(request: Request) {
   const body = (await request.json().catch(() => ({}))) as {
-    agency?: string;
+    purpose?: string;
     status?: string;
   };
-  if (!body.agency || !isKnownAgency(body.agency)) {
-    return NextResponse.json({ error: "未登記的機關" }, { status: 400 });
+  if (!body.purpose || !isPurposeId(body.purpose)) {
+    return NextResponse.json({ error: "未登記的目的" }, { status: 400 });
   }
   if (!body.status || !isApplicationStatus(body.status)) {
     return NextResponse.json({ error: "未知的申辦狀態" }, { status: 400 });
   }
-  const agency = body.agency;
+  const purpose = body.purpose;
   const status = body.status;
 
   const state = mutate((s) => {
-    s.inboxes[agency].applicationStatus = status;
-    s.inboxes[agency].statusChangedAt = nowIso();
+    s.inboxes[purpose].applicationStatus = status;
+    s.inboxes[purpose].statusChangedAt = nowIso();
   });
   return NextResponse.json(principalView(state));
 }

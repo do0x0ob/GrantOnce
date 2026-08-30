@@ -10,7 +10,8 @@ import { SENSITIVITY_TEXT } from "@/components/tone";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import type { Demo } from "@/hooks/use-demo";
-import type { AgencyId, ApplicationStatus, GrantId } from "@/lib/types";
+import { PURPOSE_IDS, PURPOSES, type PurposeId } from "@/lib/purposes";
+import type { ApplicationStatus, GrantId } from "@/lib/types";
 
 /** Demo fixture: nothing past 「已送件」 comes from a real agency. */
 const STATUS_LABEL: Record<ApplicationStatus, string> = {
@@ -25,57 +26,49 @@ const STATUS_LABEL: Record<ApplicationStatus, string> = {
 
 const ADVANCEABLE: ApplicationStatus[] = ["under-review", "needs-more", "approved", "paid"];
 
-const DESKS: {
-  agency: AgencyId;
-  fallbackGrantId: GrantId;
-  short: string;
-  overscope: { purpose: string; claims: string[]; label: string };
-}[] = [
-  {
-    agency: "jia",
-    fallbackGrantId: "G-甲",
-    short: "社會局",
-    overscope: {
-      purpose: "childcare-allowance",
-      claims: ["raw.income.annual", "raw.household.address"],
-      label: "索取所得與地址",
-    },
-  },
-  {
-    agency: "yi",
-    fallbackGrantId: "G-乙",
-    short: "經濟部",
-    overscope: {
-      purpose: "aircon-subsidy",
-      claims: ["raw.household.householdId"],
-      label: "索取戶號",
-    },
-  },
-];
+/**
+ * The overscope button per desk. Both entries are raw fields outside every
+ * purpose's ceiling, so the refusal is about scope rather than about the field
+ * happening to be missing from this one purpose.
+ */
+const OVERSCOPE: Record<string, { claims: string[]; label: string }> = {
+  jia: { claims: ["raw.income.annual", "raw.household.address"], label: "索取所得與地址" },
+  yi: { claims: ["raw.household.householdId"], label: "索取戶號" },
+};
 
-function InboxDesk({
-  demo,
-  agency,
-  fallbackGrantId,
-  overscope,
-}: {
-  demo: Demo;
-  agency: AgencyId;
-  fallbackGrantId: GrantId;
-  overscope: { purpose: string; claims: string[]; label: string };
-}) {
-  const inbox = demo.view.inboxes[agency];
-  // Follow whichever capsule is actually addressed to this agency. Pinning the
-  // id here left the desk wired to 育兒津貼 after the child aged out of it and
-  // 托育補助 took its place.
+/** Short desk label: the purpose's own title, trimmed to fit a tab. */
+function tabLabel(purposeId: PurposeId): string {
+  return PURPOSES[purposeId].title.replace(/^未滿 5 歲幼兒/, "");
+}
+
+/**
+ * A purpose at a different agency, so presenting its capsule here is a genuine
+ * audience mismatch rather than a merely unsigned capsule. Derived, because with
+ * two purposes at 甲 the old 「甲 or 乙」 ternary could pick a sibling.
+ */
+function otherAgencyPurpose(purposeId: PurposeId): PurposeId {
+  const mine = PURPOSES[purposeId].agency;
+  return PURPOSE_IDS.find((id) => PURPOSES[id].agency !== mine) ?? purposeId;
+}
+
+function InboxDesk({ demo, purposeId }: { demo: Demo; purposeId: PurposeId }) {
+  const purpose = PURPOSES[purposeId];
+  const agency = purpose.agency;
+  const inbox = demo.view.inboxes[purposeId];
+  // Follow this purpose's own capsule. Matching on the agency instead left the
+  // desk wired to 育兒津貼 after the child aged out of it and 托育補助 took its
+  // place — the two share an agency, so only the purpose tells them apart.
   const grant =
-    demo.view.grants.find((g) => g.agencyId === agency && g.status !== "revoked") ??
-    demo.view.grants.find((g) => g.agencyId === agency);
-  const grantId = (grant?.id ?? fallbackGrantId) as GrantId;
-  const other = demo.view.grants.find((g) => g.agencyId !== agency);
-  const otherGrant = (other?.id ?? (agency === "jia" ? "G-乙" : "G-甲")) as GrantId;
-  const otherLabel = agency === "jia" ? "乙" : "甲";
+    demo.view.grants.find((g) => g.purpose === purposeId && g.status !== "revoked") ??
+    demo.view.grants.find((g) => g.purpose === purposeId);
+  const grantId = (grant?.id ?? purpose.slot) as GrantId;
+
+  const otherId = otherAgencyPurpose(purposeId);
+  const other = demo.view.grants.find((g) => g.purpose === otherId);
+  const otherGrant = (other?.id ?? PURPOSES[otherId].slot) as GrantId;
+  const otherLabel = PURPOSES[otherId].agencyName;
   const canRedeem = grant?.status === "signed";
+  const overscope = OVERSCOPE[agency];
 
   return (
     <article className={cn(SURFACE, GRANT_WASH[agency], "space-y-8 p-7 sm:p-9")}>
@@ -84,7 +77,9 @@ function InboxDesk({
           <h2 className="text-[22px] font-medium leading-7 tracking-tight text-stone-900">
             {inbox.programTitle}
           </h2>
-          <p className="text-[14px] leading-5 text-stone-400">{inbox.name}</p>
+          <p className="text-[14px] leading-5 text-stone-400">
+            {inbox.slot} · {inbox.name}
+          </p>
         </div>
         {inbox.submittedAt ? (
           <StatusChip tone="mint">已送件</StatusChip>
@@ -166,7 +161,7 @@ function InboxDesk({
               variant="ghost"
               className="h-7 rounded-full px-2.5 text-[12px] text-stone-400 hover:text-stone-700"
               disabled={demo.busy || !inbox.submittedAt}
-              onClick={() => void demo.advanceApplication(agency, status)}
+              onClick={() => void demo.advanceApplication(purposeId, status)}
               title={inbox.submittedAt ? undefined : "要先送件"}
             >
               {STATUS_LABEL[status]}
@@ -187,7 +182,7 @@ function InboxDesk({
             disabled={demo.busy}
             onClick={() => void demo.redeem(otherGrant, agency)}
           >
-            拿{otherLabel}的匣來兌現
+            拿「{otherLabel}」的匣來兌現
           </Button>
           <Button
             size="lg"
@@ -203,7 +198,7 @@ function InboxDesk({
             variant="ghost"
             className="justify-start text-[14px] text-[var(--orchid-deep)] hover:bg-[var(--wash-risk)] hover:text-[var(--orchid-deep)]"
             disabled={demo.busy}
-            onClick={() => void demo.requestClaims(agency, overscope.purpose, overscope.claims)}
+            onClick={() => void demo.requestClaims(agency, purposeId, overscope.claims)}
           >
             {overscope.label}
           </Button>
@@ -214,31 +209,33 @@ function InboxDesk({
 }
 
 export function AgencyPane({ demo }: { demo: Demo }) {
-  const [desk, setDesk] = useState<AgencyId>("jia");
-  const current = DESKS.find((item) => item.agency === desk) ?? DESKS[0];
+  // One desk per purpose, straight off the registry — a new subsidy shows up
+  // here without an edit.
+  const [desk, setDesk] = useState<PurposeId>(PURPOSE_IDS[0]);
+  const current = (PURPOSE_IDS as readonly string[]).includes(desk) ? desk : PURPOSE_IDS[0];
 
   return (
     <div className="mx-auto w-full max-w-[40rem] space-y-10 px-6 py-10 sm:px-8">
-      <PageIntro kicker="機關收件匣" title={demo.view.inboxes[desk].name}>
+      <PageIntro kicker="機關收件匣" title={demo.view.inboxes[current].name}>
         要拿到東西，必須自己出示金鑰證明身分，而且該目的要在法定職務範圍內。
       </PageIntro>
 
       <div className="flex gap-1 rounded-full bg-white/70 p-1 shadow-[0_1px_0_rgba(26,24,20,0.04)]">
-        {DESKS.map((item) => {
-          const box = demo.view.inboxes[item.agency];
+        {PURPOSE_IDS.map((id) => {
+          const box = demo.view.inboxes[id];
           return (
             <button
-              key={item.agency}
+              key={id}
               type="button"
-              onClick={() => setDesk(item.agency)}
+              onClick={() => setDesk(id)}
               className={cn(
-                "flex-1 rounded-full px-4 py-2.5 text-[14px] leading-5 transition-colors",
-                desk === item.agency
+                "flex-1 rounded-full px-3 py-2.5 text-[13px] leading-5 transition-colors",
+                current === id
                   ? "bg-[var(--ink)] text-[var(--primary-foreground)]"
                   : "text-stone-500 hover:text-stone-800",
               )}
             >
-              {item.short}
+              {tabLabel(id)}
               {box.receivedAt ? (
                 <span className="ml-1.5 text-[11px] opacity-70">已收件</span>
               ) : null}
@@ -247,12 +244,7 @@ export function AgencyPane({ demo }: { demo: Demo }) {
         })}
       </div>
 
-      <InboxDesk
-        demo={demo}
-        agency={current.agency}
-        fallbackGrantId={current.fallbackGrantId}
-        overscope={current.overscope}
-      />
+      <InboxDesk demo={demo} purposeId={current} />
 
       <AuditTimeline view={demo.view} />
     </div>

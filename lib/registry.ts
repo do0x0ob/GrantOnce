@@ -9,7 +9,7 @@ export type PurposeDraft = {
   id: string;
   title: string;
   agency: string;
-  legalBasis: string[];
+  privacyBasis: string[];
   allowedClaims: string[];
   maxTtlSeconds: number;
   necessity: string;
@@ -52,8 +52,8 @@ export function validatePurposeDraft(draft: PurposeDraft): { def?: PurposeDef; e
   const title = draft.title.trim();
   if (title.length < 2) return { error: "請填目的名稱。" };
   if (!isKnownAgency(draft.agency)) return { error: "只能掛到已上線的兌現機關（jia / yi）。" };
-  const basis = draft.legalBasis.map((line) => line.trim()).filter(Boolean);
-  if (basis.length === 0) return { error: "至少要有一條法定依據。" };
+  const basis = draft.privacyBasis.map((line) => line.trim()).filter(Boolean);
+  if (basis.length === 0) return { error: "至少要有一條個資法依據。" };
   const claims: ClaimId[] = [];
   for (const raw of draft.allowedClaims) {
     if (!isClaimId(raw)) {
@@ -72,9 +72,13 @@ export function validatePurposeDraft(draft: PurposeDraft): { def?: PurposeDef; e
   const def: PurposeDef = {
     id,
     title,
+    // Builtins carry the 甲／乙／丙 labels; a runtime purpose gets one off its
+    // own id rather than a hand-picked character.
+    slot: `G-${id}`,
+    slotAliases: [id],
     agency: draft.agency as AgencyId,
     agencyName: AGENCY_NAMES[draft.agency as AgencyId],
-    legalBasis: basis,
+    privacyBasis: basis,
     allowedClaims: claims,
     maxTtlSeconds: ttl,
     necessity,
