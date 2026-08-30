@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { AuditTimeline } from "@/components/audit-timeline";
 import { DenialBanner } from "@/components/denial-banner";
+import { PageFrame, PageSplit } from "@/components/page-frame";
 import { PageIntro } from "@/components/page-intro";
 import { StatusChip } from "@/components/status-chip";
 import { GRANT_WASH, SURFACE } from "@/components/surface";
@@ -215,38 +216,40 @@ export function AgencyPane({ demo }: { demo: Demo }) {
   const current = (PURPOSE_IDS as readonly string[]).includes(desk) ? desk : PURPOSE_IDS[0];
 
   return (
-    <div className="mx-auto w-full max-w-[40rem] space-y-10 px-6 py-10 sm:px-8">
+    <PageFrame className="space-y-10">
       <PageIntro kicker="請求機關工作台" title={demo.view.inboxes[current].name}>
         請求機關持使用者簽署的 Grant 向資料來源機關取證。資料直接進本服務收件匣，不提供給語言模型。
       </PageIntro>
 
-      <div className="flex gap-1 rounded-full bg-white/70 p-1 shadow-[0_1px_0_rgba(26,24,20,0.04)]">
-        {PURPOSE_IDS.map((id) => {
-          const box = demo.view.inboxes[id];
-          return (
-            <button
-              key={id}
-              type="button"
-              onClick={() => setDesk(id)}
-              className={cn(
-                "flex-1 rounded-full px-3 py-2.5 text-[13px] leading-5 transition-colors",
-                current === id
-                  ? "bg-[var(--ink)] text-[var(--primary-foreground)]"
-                  : "text-stone-500 hover:text-stone-800",
-              )}
-            >
-              {tabLabel(id)}
-              {box.receivedAt ? (
-                <span className="ml-1.5 text-[11px] opacity-70">已收件</span>
-              ) : null}
-            </button>
-          );
-        })}
-      </div>
-
-      <InboxDesk demo={demo} purposeId={current} />
-
-      <AuditTimeline view={demo.view} />
-    </div>
+      <PageSplit>
+        <div className="space-y-6">
+          <div className="flex gap-1 rounded-full bg-white/70 p-1 shadow-[0_1px_0_rgba(26,24,20,0.04)]">
+            {PURPOSE_IDS.map((id) => {
+              const box = demo.view.inboxes[id];
+              return (
+                <button
+                  key={id}
+                  type="button"
+                  onClick={() => setDesk(id)}
+                  className={cn(
+                    "flex-1 rounded-full px-3 py-2.5 text-[13px] leading-5 transition-colors",
+                    current === id
+                      ? "bg-[var(--ink)] text-[var(--primary-foreground)]"
+                      : "text-stone-500 hover:text-stone-800",
+                  )}
+                >
+                  {tabLabel(id)}
+                  {box.receivedAt ? (
+                    <span className="ml-1.5 text-[11px] opacity-70">已收件</span>
+                  ) : null}
+                </button>
+              );
+            })}
+          </div>
+          <InboxDesk demo={demo} purposeId={current} />
+        </div>
+        <AuditTimeline view={demo.view} />
+      </PageSplit>
+    </PageFrame>
   );
 }

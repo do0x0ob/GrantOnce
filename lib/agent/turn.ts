@@ -301,7 +301,7 @@ export function runTurn(state: DemoState, utterance: string, ctx?: TurnContext):
       opens: [],
       outputs: [
         ...lead,
-        { text: "目前的進度如下。送件之後的階段本演示沒有接真實機關，不會亮起。" },
+        { text: "目前的進度在左側。送件之後的階段本演示沒有接真實機關，不會亮起。" },
         ...live.map((purpose) => ({ purpose })),
       ],
     };
@@ -317,7 +317,7 @@ export function runTurn(state: DemoState, utterance: string, ctx?: TurnContext):
       outputs: [
         ...lead,
         {
-          text: "停止委託後，這個流程不再接受新的簽署，尚未兌現的 Grant 也會一併作廢。已經交給機關的述詞收不回來——這點我不會假裝做得到。\n\n下面「我的委託設定」裡有停止的按鈕。",
+          text: "停止委託後，這個流程不再接受新的簽署，尚未兌現的 Grant 也會一併作廢。已經交給機關的述詞收不回來——這點我不會假裝做得到。\n\n頂欄「委託設定」裡有停止的按鈕。",
         },
         { suggestions: MENU.suggestions },
       ],
