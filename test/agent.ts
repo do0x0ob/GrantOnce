@@ -8,8 +8,10 @@
  */
 import { toBlocks } from "../lib/agent/blocks/of";
 import type { Block, BlockKind } from "../lib/agent/blocks/types";
+import { modelAvailable } from "../lib/agent/intent";
 import { runTurn } from "../lib/agent/turn";
 import { proposeGrantsFromPlan } from "../lib/authz";
+import { PURPOSES } from "../lib/purposes";
 import { getState, mutate, resetState } from "../lib/store";
 
 let pass = 0;
@@ -103,6 +105,41 @@ console.log("\nmatcher 永遠不丟例外");
   }
   check("餵垃圾進去不會炸", !threw);
   check("認不得的東西不會硬塞成卡片", toBlocks(junk).length === 0, JSON.stringify(kinds(toBlocks(junk))));
+}
+
+console.log("\n模型只當「聽懂」那一層");
+{
+  // The classifier's output must be able to change which intent runs, and
+  // nothing else. Claim it says "apply" for a sentence the patterns would not
+  // match, and the rule engine still governs what gets asked for.
+  const forced = runTurn(getState(), "隨便講一句不相干的話", {
+    intent: "apply",
+    movedRecently: true,
+  });
+  const blocks = toBlocks(forced.outputs);
+  check("模型可以決定走哪個意圖", kinds(blocks).includes("signGrant"), kinds(blocks).join(","));
+  check(
+    "但述詞仍然只來自目的登記表",
+    forced.programs.every((p) =>
+      p.claims.every((c) => PURPOSES[p.purpose].allowedClaims.includes(c)),
+    ),
+  );
+
+  // An unrecognised label must be ignored rather than fall through to whichever
+  // branch happens to be last. Use a sentence the patterns do not match, so the
+  // only thing that could produce a capsule is trusting the bogus label.
+  const bogus = runTurn(getState(), "隨便講一句不相干的話", {
+    intent: "not-an-intent" as never,
+    movedRecently: true,
+  });
+  check(
+    "不認識的意圖被忽略，退回正則",
+    !kinds(toBlocks(bogus.outputs)).includes("signGrant"),
+    kinds(toBlocks(bogus.outputs)).join(","),
+  );
+
+  // No router configured in the test environment: everything must still work.
+  check("沒有設定 router 時模型不參與", !modelAvailable());
 }
 
 console.log(`\n${pass} passed, ${failures.length} failed`);

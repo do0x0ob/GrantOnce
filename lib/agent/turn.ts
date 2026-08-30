@@ -6,6 +6,7 @@ import {
   effectiveToday,
   HAPPY_PATH_UTTERANCE,
   matchPrograms,
+  PERSONA_DECLARED,
   situationFromUtterance,
 } from "@/lib/rules";
 import type { DemoState, ProgramPlan } from "@/lib/types";
@@ -48,7 +49,9 @@ function withheldFrom(programs: ProgramPlan[]): string[] {
  * undercut it. The cost is that the vocabulary is finite — which is why an
  * unrecognised question answers with buttons instead of an apology.
  */
-type Intent = "apply" | "status" | "audit" | "privacy" | "revoke" | "help";
+export type Intent = "apply" | "status" | "audit" | "privacy" | "revoke" | "help";
+
+const INTENT_VALUES: Intent[] = ["apply", "status", "audit", "privacy", "revoke", "help"];
 
 const INTENT_PATTERNS: [Intent, RegExp][] = [
   ["status", /進度|到哪|辦得?怎麼樣|狀態|審核|送出了嗎|好了沒/],
@@ -97,10 +100,27 @@ function claimsExplainer() {
   };
 }
 
-export function runTurn(state: DemoState, utterance: string): TurnResult {
+/** The persona's standing facts, independent of how the request was phrased. */
+function DECLARED_SITUATION(today: string) {
+  return {
+    movedRecently: false,
+    childAgeMonths: childAgeMonthsAt(today),
+    hasResidentialMeter: PERSONA_DECLARED.hasResidentialMeter,
+  };
+}
+
+export function runTurn(
+  state: DemoState,
+  utterance: string,
+  resolved?: { intent: Intent; movedRecently: boolean } | null,
+): TurnResult {
   const message = utterance.trim();
   const today = effectiveToday(state);
-  const intent = intentOf(message);
+  // Never trust a caller-supplied intent blindly: an unknown label falls back
+  // to the patterns rather than dropping through to whatever branch is last.
+  const supplied =
+    resolved && INTENT_VALUES.includes(resolved.intent) ? resolved : null;
+  const intent = supplied?.intent ?? intentOf(message);
 
   if (intent === "privacy") {
     return {
@@ -179,7 +199,14 @@ export function runTurn(state: DemoState, utterance: string): TurnResult {
     };
   }
 
-  const situation = situationFromUtterance(message, today);
+  // The classifier reports what was said; the rule engine decides what it means.
+  // When it reported a move, build the situation from that rather than re-running
+  // keyword matching over the same sentence — otherwise the patterns silently
+  // overrule the thing that was brought in to understand phrasings they miss.
+  const situation = supplied
+    ? { ...DECLARED_SITUATION(today), movedRecently: supplied.movedRecently }
+    : situationFromUtterance(message, today);
+
   if (!situation?.movedRecently) {
     return {
       programs: [],
