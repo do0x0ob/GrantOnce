@@ -24,7 +24,7 @@ import type {
   NotificationDraft,
   NotificationSeverity,
 } from "./types";
-import { FIELD_IDS } from "./types";
+import { APPLICATION_STATUSES, FIELD_IDS } from "./types";
 
 const STORE_PATH = process.env.GRANTONCE_STORE ?? "/tmp/grantonce-runtime.json";
 /**
@@ -388,8 +388,14 @@ export function reconcileApplications(state: DemoState): void {
         ? "received"
         : null;
     if (!reached) continue;
-    const order = ["none", "received", "submitted"];
-    if (order.indexOf(inbox.applicationStatus) < order.indexOf(reached)) {
+    // `APPLICATION_STATUSES`, not a second copy of it. The local list stopped at
+    // "submitted", so `indexOf` returned -1 for every status past it — and -1 is
+    // less than everything. The watch loop therefore read 審核中／需補件／已核定
+    // as *behind* 已送件 and knocked each one back on its next pass, roughly
+    // every 15 seconds. Advancing the progress track on stage would have looked
+    // like the agency changing its mind.
+    const reachedAt = APPLICATION_STATUSES.indexOf(reached);
+    if (APPLICATION_STATUSES.indexOf(inbox.applicationStatus) < reachedAt) {
       inbox.applicationStatus = reached;
       inbox.statusChangedAt = nowIso();
     }

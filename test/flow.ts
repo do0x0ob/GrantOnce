@@ -854,6 +854,35 @@ section("送件");
   check("重複送件被擋", Boolean(submitApplication(jia).error));
 }
 
+section("申辦進度不會被巡檢打回去");
+{
+  // The whole point of the progress track is what happens *after* 已送件. The
+  // watch loop runs every 15 seconds, so a status it knocks backwards is a
+  // status nobody can demonstrate.
+  for (const status of ["under-review", "needs-more", "approved", "paid"] as const) {
+    mutate((s) => {
+      s.inboxes["childcare-allowance"].applicationStatus = status;
+    });
+    runAgentTick();
+    check(
+      `巡檢過後「${status}」還在`,
+      getState().inboxes["childcare-allowance"].applicationStatus === status,
+      getState().inboxes["childcare-allowance"].applicationStatus,
+    );
+  }
+  // Forward is still allowed: an inbox that has been submitted but says it is
+  // only 已收到 is behind, and the reconcile is what catches that up.
+  mutate((s) => {
+    s.inboxes["childcare-allowance"].applicationStatus = "received";
+  });
+  runAgentTick();
+  check(
+    "落後的狀態仍然會被補到 submitted",
+    getState().inboxes["childcare-allowance"].applicationStatus === "submitted",
+    getState().inboxes["childcare-allowance"].applicationStatus,
+  );
+}
+
 section("逾期");
 {
   mutate((s) => openAndConfirm(s, matchPrograms(sit)));

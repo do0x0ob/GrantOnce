@@ -494,6 +494,14 @@ const MUTATIONS: Mutation[] = [
     find: '    if (response.status === 400) return { status: "pending" };',
     replace: '    if (response.status === 400) return { status: "failed", reason: "HTTP 400" };',
   },
+  {
+    // The status order lived in two places and the copy stopped at "submitted",
+    // so everything past it read as -1 and got knocked backwards every tick.
+    label: "申辦進度改用另一份寫死的狀態順序",
+    file: "lib/store.ts",
+    find: "    const reachedAt = APPLICATION_STATUSES.indexOf(reached);\n    if (APPLICATION_STATUSES.indexOf(inbox.applicationStatus) < reachedAt) {",
+    replace: '    const order = ["none", "received", "submitted"];\n    if (order.indexOf(inbox.applicationStatus) < order.indexOf(reached)) {',
+  },
 ];
 
 /**
