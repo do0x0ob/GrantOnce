@@ -1,9 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { ChatTranscript } from "@/components/chat-transcript";
+import { AgentThread } from "@/components/agent/thread";
 import { DelegationCard } from "@/components/delegation-card";
-import { GrantCard } from "@/components/grant-card";
 import { NotificationList } from "@/components/notification-list";
 import { PageIntro } from "@/components/page-intro";
 import { WalletKeyCard } from "@/components/wallet-key-card";
@@ -12,11 +11,10 @@ import { Button } from "@/components/ui/button";
 import { FLOOD_UTTERANCE } from "@/lib/catalog";
 import { HAPPY_PATH_UTTERANCE } from "@/lib/rules";
 import type { Demo } from "@/hooks/use-demo";
-import type { GrantId } from "@/lib/types";
 
 function authorizePhase(demo: Demo) {
   const { view } = demo;
-  if (!view.principal.key.registered || !demo.localKeyUsable) return "onboard" as const;
+  if (!view.principal.key.registered) return "onboard" as const;
   if (view.grants.length === 0) return "ask" as const;
   if (view.grants.some((g) => g.status === "proposed" || g.status === "expired")) {
     return "review" as const;
@@ -119,20 +117,7 @@ export function PrincipalPane({
               onScan={() => void demo.scanNotifications()}
             />
 
-            {view.chat.length ? <ChatTranscript chat={view.chat} compact /> : null}
-
-            <div className="space-y-8">
-              {view.grants.map((grant) => (
-                <GrantCard
-                  key={grant.id}
-                  grant={grant}
-                  busy={busy}
-                  canSign={view.principal.key.registered}
-                  onSign={() => void demo.signGrant(grant.id as GrantId)}
-                  onRevoke={() => void demo.revoke(grant.id as GrantId)}
-                />
-              ))}
-            </div>
+            <AgentThread demo={demo} />
 
             <DelegationCard
               delegation={view.delegation}
@@ -147,7 +132,7 @@ export function PrincipalPane({
 
       </div>
 
-      {phase === "ask" ? (
+      {phase !== "onboard" ? (
         <div className="sticky bottom-0 bg-gradient-to-t from-[#E8E4DE] via-[#E8E4DE] to-transparent pb-5 pt-8">
           <form
             className="mx-auto flex w-full max-w-[40rem] items-center gap-2 px-6 sm:px-8"

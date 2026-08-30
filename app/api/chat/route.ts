@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { pushChanges } from "@/lib/agent";
+import { toBlocks } from "@/lib/agent/blocks/of";
+import { runTurn } from "@/lib/agent/turn";
 import { proposeGrantsFromPlan } from "@/lib/authz";
-import { evaluateInquiry, formatInquiryMessage } from "@/lib/inquiry";
 import { researchWorld } from "@/lib/research";
 import { effectiveToday } from "@/lib/rules";
 import { appendChat, mutate } from "@/lib/store";
@@ -16,18 +17,28 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "請輸入訊息" }, { status: 400 });
   }
 
+  // Public search reaches the outside world, so it happens before the store is
+  // touched — a slow lookup must not hold the lock.
   const world = await researchWorld(message);
 
   const state = mutate((s) => {
     appendChat(s, "user", message);
-    const today = effectiveToday(s);
-    const inquiry = evaluateInquiry(message, today);
-    appendChat(s, "agent", formatInquiryMessage(inquiry, today, world));
 
-    if (!inquiry.canIssue) return;
+    // The rule engine runs first and grants are proposed before the blocks are
+    // assembled, so a signing card always names a grant that already exists.
+    const turn = runTurn(s, message, { today: effectiveToday(s), world });
+    if (turn.programs.length) {
+      s.plan = { utterance: message, matchedAt: new Date().toISOString() };
+      proposeGrantsFromPlan(s, turn.programs);
+    }
 
-    s.plan = { utterance: message, matchedAt: new Date().toISOString() };
-    proposeGrantsFromPlan(s, inquiry.programs);
+    const blocks = toBlocks(turn.outputs);
+    const text = blocks
+      .filter((b) => b.kind === "text")
+      .map((b) => (b as { text: string }).text)
+      .join("\n\n");
+    appendChat(s, "agent", text, blocks);
+
     pushChanges(s, new Date());
   });
 

@@ -146,6 +146,28 @@ const MUTATIONS: Mutation[] = [
     replace: "  if (false) {",
   },
   {
+    label: "matcher 讀原型鏈上的屬性",
+    file: "lib/agent/blocks/of.ts",
+    find: "  return Object.fromEntries(Object.entries(o as Obj));",
+    replace: "  return o as Obj;",
+  },
+  {
+    // "Cards carry ids, not snapshots" is enforced by the Block union itself, so
+    // no single-file edit can violate it — that one is guarded by the compiler.
+    // This checks the other half: unrecognised output must be dropped, not
+    // forced into a text card where junk would render as if it were a reply.
+    label: "認不得的輸出被硬塞成文字卡",
+    file: "lib/agent/blocks/of.ts",
+    find: "    // Unrecognised output is dropped rather than forced into a card.",
+    replace: '    out.push({ kind: "text", text: JSON.stringify(o) });',
+  },
+  {
+    label: "聽不懂時不給下一步",
+    file: "lib/agent/turn.ts",
+    find: '        { question: "你可以問我這些", suggestions: MENU.suggestions },',
+    replace: "        { text: \"我聽不懂。\" },",
+  },
+  {
     label: "述詞換回原始欄位",
     file: "lib/purposes.ts",
     find: '      "parentChild.verified",',
@@ -169,6 +191,7 @@ const MUTATIONS: Mutation[] = [
 const SUITES = [
   { name: "flow", file: "test/flow.ts" },
   { name: "mcp", file: "mcp/test.ts" },
+  { name: "agent", file: "test/agent.ts" },
   { name: "race", file: "test/race.ts" },
 ];
 

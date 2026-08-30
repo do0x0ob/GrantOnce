@@ -1,4 +1,5 @@
 import type { ClaimId, IssuerId, Sensitivity } from "./claims";
+import type { Block } from "./agent/blocks/types";
 import type { PurposeDef, PurposeId } from "./purposes";
 
 /** Raw MyData vault fields. Only ever read when issuing a credential. */
@@ -132,6 +133,11 @@ export type ChatMessage = {
   role: "user" | "agent" | "system";
   text: string;
   at: string;
+  /**
+   * Cards this turn produced. They name live objects by id, so a restored
+   * thread renders the current state rather than a snapshot of an old one.
+   */
+  blocks?: Block[];
 };
 
 export type ProgramPlan = {
