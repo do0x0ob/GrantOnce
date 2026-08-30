@@ -134,6 +134,59 @@ export function useDemo(initialView: PrincipalView) {
   );
 
   /**
+   * Same as `post`, but hands the parsed body back.
+   *
+   * The SD-JWT and 皮夾 routes return two shapes: some are a full view, some are
+   * a one-off answer (a presentation string, a verification verdict, a polling
+   * result). This applies the first and returns either, so the panel can show
+   * what came back without inventing a second copy of it in the store.
+   */
+  const call = useCallback(
+    async (url: string, body?: unknown): Promise<Record<string, unknown>> => {
+      setBusy(true);
+      setError(null);
+      try {
+        const res = await fetch(
+          url,
+          body === undefined
+            ? { method: "POST" }
+            : {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(body),
+              },
+        );
+        const data = (await res.json()) as Record<string, unknown>;
+        const failure = typeof data.error === "string" ? data.error : null;
+        if (isView(data)) setView(data as unknown as PrincipalView);
+        if (!res.ok) setError(failure ?? `請求失敗（${res.status}）`);
+        return data;
+      } catch (e) {
+        const text = e instanceof Error ? e.message : String(e);
+        setError(text);
+        return { error: text };
+      } finally {
+        setBusy(false);
+      }
+    },
+    [],
+  );
+
+  const read = useCallback(
+    async (url: string): Promise<Record<string, unknown>> => {
+      try {
+        const res = await fetch(url);
+        const data = (await res.json()) as Record<string, unknown>;
+        if (isView(data)) setView(data as unknown as PrincipalView);
+        return data;
+      } catch (e) {
+        return { error: e instanceof Error ? e.message : String(e) };
+      }
+    },
+    [],
+  );
+
+  /**
    * Signing happens in the browser, over the exact serialized grant the server
    * sent. The private key is re-derived from the authenticator for this one
    * signature and never leaves the page.
@@ -208,6 +261,14 @@ export function useDemo(initialView: PrincipalView) {
       declineEffect: string;
     }) => post("/api/state", { action: "registry.upsert", purpose }),
     retirePurpose: (id: string) => post("/api/state", { action: "registry.retire", id }),
+    issueSdJwt: () => call("/api/sdjwt/issue"),
+    presentSdJwt: (disclose: string[]) => call("/api/sdjwt/present", { disclose }),
+    verifySdJwt: (combined: string) => call("/api/sdjwt/verify", { combined }),
+    twdiwIssue: () => call("/api/twdiw/issue"),
+    twdiwCredential: (transactionId: string) => read(`/api/twdiw/credential/${transactionId}`),
+    twdiwRevoke: (cid: string) => call("/api/twdiw/revoke", { cid }),
+    twdiwPresent: (vp: string) => call("/api/twdiw/present", { vp }),
+    twdiwResult: (txId: string) => read(`/api/twdiw/present/${txId}`),
   };
 }
 

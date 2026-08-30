@@ -12,15 +12,17 @@ GrantOnce 的語言模型 Agent 負責理解問題、找到已登記服務與協
 npm install
 npm run dev            # http://localhost:43127
 
+npm run test:sdjwt     # SD-JWT（RFC 9901）與皮夾 adapter
 npm run test:flow      # 授權層與巡檢檢查
+npm run test:agent     # 理解層與卡片管線
 npm run test:mcp       # MCP 檢查
 npm run test:race      # 跨 process 檢查（會開子行程）
-npm run test:all       # 以上三個
-npm run test:rehearsal # 77 項，逐句對照演示腳本，需先開 dev
-npm run test:mutate    # 29 個注入的 bug，每個都必須被上面某個測試抓到
+npm run test:all       # 以上五個
+npm run test:rehearsal # 逐句對照演示腳本，需先開 dev
+npm run test:mutate    # 51 個注入的 bug，每個都必須被上面某個測試抓到
 ```
 
-需要 Node 20+。沒有環境變數、沒有資料庫、沒有真實 MyData。
+需要 Node 20+。沒有資料庫、沒有真實 MyData。環境變數全部是選用的：不填就跑本地路徑（理解層退回規則、皮夾沙盒停用），一個 socket 都不會開。
 
 ⚠️ **請用 `localhost`，不要用 `127.0.0.1`。** WebAuthn 不接受 IP 位址當 RP ID，在 `127.0.0.1` 上按 passkey 會直接失敗。畫面會擋下按鈕並說明，但省得你在台上才發現。
 
@@ -96,15 +98,18 @@ npm run test:mutate    # 29 個注入的 bug，每個都必須被上面某個測
 
 這就是「把 MyData 與數位憑證串起來」：MyData 是取得資料的管道，皮夾是出示資料的方式。
 
-## 撤銷：分成三件事，誠實回答
+## 撤銷：分成四件事，誠實回答
 
 | 撤銷什麼 | 怎麼做到的 |
 | --- | --- |
 | 停止 Agent 協調委託 | ✅ 即時。停用後流程不再接受新的 Grant 簽署，未兌現的一併作廢 |
 | 撤銷還沒兌現的匣 | ✅ 短效（600 秒）＋ 一次性 `jti` 清單，兌現端擋下 |
+| 撤銷已經發到皮夾裡的憑證 | ✅ `PUT /api/credential/{cid}/revocation`，發證機構那一側真的撤得掉 |
 | 撤銷已交付給機關的述詞 | ❌ **收不回來** |
 
-第三項收不回來，所以唯一的防線是一開始就少給。育兒津貼那四個述詞就算收不回來也無所謂——它本來就不含個資。
+第三格是接上數位憑證皮夾之後才有的：卡片已經在人家手機裡，發證機構仍然撤得掉——不過 action 的 enum 只有 `revocation`，**不可逆**，沒有暫停也沒有復原。
+
+最後一格還是收不回來，所以唯一的防線是一開始就少給。育兒津貼那四個述詞就算收不回來也無所謂——它本來就不含個資。
 
 ## 高風險攔截
 
@@ -217,6 +222,61 @@ MCP 工具清單裡沒有任何簽署工具，而且 `mcp/test.ts` 不是用名�
 - 成對假名用 HMAC，跨機關無法比對
 - 上一版 schema 的 store 檔會被隔離而不是讓整個 app 崩掉
 
+## 憑證層：SD-JWT 與數位憑證皮夾
+
+頂欄「憑證」。這一層在**授權匣旁邊**，不在它裡面：`lib/authz.ts` 與 `redeemGrant` 一個字都沒有動，兌現路徑仍然是兩把鑰匙。這裡回答的是另一個問題——同一份述詞，怎麼交到一個公民真的拿得到的皮夾裡，而且出示時由持有人決定給幾題。
+
+**`lib/sdjwt.ts`（RFC 9901）**。戶政用 ed25519 簽一張 SD-JWT，四個述詞各自是一筆 disclosure，payload 裡只有摘要加兩筆 decoy：
+
+```
+<JWT>~<D1>~<D2>~<D3>~<D4>~          發證，必須以 ~ 結尾
+<JWT>~<選中的D>~…~<KB-JWT>          出示，KB-JWT 後不再加 ~
+```
+
+整層最要緊的一行紀律，和 `grant.serialized` 是同一條：**disclosure 一旦產生就原封保存、原封傳遞**，digest 取的是那串 base64url 字串本身的 US-ASCII 位元組，輸出是位元組的 base64url。反序列化後重新序列化、或改雜湊解碼後的位元組，自己驗自己都會過，跟世界上任何一個實作都對不起來。所以測試不是自己跟自己往返，而是餵 RFC 9901 附錄「Simple Structured SD-JWT」的原始向量（`test/fixtures/`）：十筆 digest 一字不差，ES256 簽章驗得過，`_sd` 巢狀在 `address` 底下也還原得出來，只出示兩題時的結果與 RFC 的 `verified_contents` 逐欄相同。
+
+`verify()` 用 header 的 `alg` **挑驗證函式**，金鑰由呼叫端指定——反過來就是演算法混淆。白名單只有 `ES256`（沙盒）與 `EdDSA`（我們自己），`none` 不在裡面。key binding 的驗證做完整了（`sd_hash` 只算到最後那個 `~`，不含 KB-JWT 本身）；**產生** KB-JWT 這一端沒做，因為委託人的私鑰由 passkey PRF 在瀏覽器裡派生，伺服器拿不到，畫面上有標。
+
+**`lib/twdiw.ts`（數位憑證皮夾沙盒）**。`FixtureTwdiw` 完整、離線、測試用；`SandboxTwdiw` 打真的沙盒——發證端三支（`/api/qrcode/data`、`/api/credential/nonce/{tx}`、`PUT /api/credential/{cid}/revocation`）與驗證端兩支（`GET /api/oidvp/qrcode`、`POST /api/oidvp/result`）。撤銷不可逆，沙盒的 action enum 只有 `revocation`。
+
+四個述詞的值只有一個來源：`CLAIM_DEFS[claimId].compute()`，跟 `lib/wallet.ts` 同一個函式，不各算一份。卡片效期取四個 `ttlDays` 的最小值（30 天），不是親子關係那張的 365。
+
+預設關著，關著就不會發出任何網路請求：
+
+```
+TWDIW_ENABLED=false
+TWDIW_API_KEY=                       # 唯一要自己填的；其餘都有預設
+TWDIW_ISSUER_BASE=https://issuer-sandbox.wallet.gov.tw
+TWDIW_VERIFIER_BASE=https://verifier-sandbox.wallet.gov.tw
+TWDIW_VC_UID=0038403010_childcare_predicates_demo
+TWDIW_VP_FULL_REF=0038403010_childcare_full      # 驗證服務代碼，不是 VP 代碼
+TWDIW_VP_PARTIAL_REF=0038403010_childcare_partial
+TWDIW_API_KEY_HEADER=Access-Token    # 不是 Authorization: Bearer，也不是 X-API-KEY
+```
+
+模板、欄位與每個欄位的 regex 都只能在沙盒 console 裡建，沒有 API，所以 `vcUid` 是常數不是這個程式能開的東西。`TWDIW_ENABLED=true` 一個人說了不算：沒有 api key 就過不了認證，缺項讓整區停用而不是送出一個必然被拒的請求。停用時畫面不隱藏，會寫出缺哪一項。
+
+### 沙盒實測踩到的七件事
+
+真的發了一張卡、真的叫了一次驗證端，把七個「照理說應該是」打掉。每一個現在都有一條測試釘著（`test/sdjwt.ts` 的「發行端／驗證端的請求形狀」用 stub 過的 `fetch` 檢查，不出網路）：
+
+1. **沙盒簽 ES256，不是 EdDSA**，而且 `cnf.jwk` 是 EC P-256。`verify()` 依 header 的 `alg` 分派驗章函式，金鑰由呼叫端給；key binding 則反過來，由 `cnf.jwk` 自己的 `kty`／`crv` 決定能用哪個演算法簽，KB header 宣告的 alg 必須對得上。JWS 的 ECDSA signature 是 `r||s` 原始 64 bytes，**不是 DER**。
+2. **`_sd` 摘要在 `vc.credentialSubject` 裡**，不在 payload 頂層——W3C VC data model 包在 SD-JWT 外面。`_sd_alg` 則是三個層級都找。
+3. **認證 header 是 `Access-Token`**。Bearer 與 X-API-KEY 都是會被拒的猜法。
+4. **`deepLink` 是 HTTPS 包裝**（`https://frontend-uat.wallet.gov.tw/api/moda/vcqrcode?…`），內層 base64 才是 `modadigitalwallet://`。原封放進 `<a href>`，不要解碼重組；`qrCode` 已經是 data URI PNG，不要自己畫。`/api/qrcode/nodata` 的 schema 只有 `vcUid`，帶不了任何欄位值，所以只能走 `/api/qrcode/data`。
+
+5. **驗證端的交易序號由呼叫端產生**，不是伺服器回的——跟發行端**相反**。UUID v4、≤ 50 字元、不可重複。
+6. **`POST /api/oidvp/result` 回 400 是「使用者尚未上傳資料」**，是正常的等待狀態。spec 明列 200 = 有結果、400 = 尚未上傳、500 = 系統錯誤。把 400 當成 error，第一次輪詢就會失敗，結果永遠拿不到——而且看起來會像皮夾壞了。
+7. **`ref` 是「驗證服務代碼」不是 VP 代碼**，值含機構前綴（`0038403010_childcare_full`）。而且 QR 欄位叫 **`qrcodeImage`**，不是發行端那個 `qrCode`。
+
+`POST /api/oidvp/result` 的回應 schema（`DWverifierVP301iResponse`）內部結構還沒看到，所以**不做任何欄位對映**：原樣帶在 `raw` 裡並印一行 debug log，等實測後再補。照名字猜一套對映比不對映更糟，因為它看起來會像成功了。
+
+### 互通測試為什麼還是 skip
+
+`GET /api/credential/nonce/{transactionId}` 會回原始憑證 JWT，所以這條路本身是通的。但沙盒發出的卡片加進數位憑證皮夾 APP 之後會立刻顯示「已失效」、發卡單位顯示「不明」，把模板的「對外顯示」勾起來也沒有改善。研判是 moda 端的設計——皮夾 APP 只有一套，沙盒與正式環境共用，所以沙盒發出的憑證被刻意標記為無效，避免有人拿測試卡冒充真憑證。**這不是設定錯誤，也不是協定問題**：發證 API 本身成功（`POST /api/qrcode/data` 回 201），正規表示法在發證時確實生效（送 `childAgeBand=0-3` 會被拒），憑證格式與簽章都不受影響。
+
+所以那條測試維持 `skip`，**不會為了讓它變綠而放寬任何驗證**。之後若拿得到憑證字串，把它放進 `test/fixtures/sandbox-sdjwt.txt`、把發證機構公鑰放進 `test/fixtures/sandbox-issuer-jwk.json`（單一 JWK 或整份 JWKS 都可以），那條 skip 就會自動變成一條真的斷言。
+
 ## MCP（協定客戶端）
 
 MCP 是 GrantOnce 的非信任客戶端：可規劃、兌現、攔截、稽核，**不能簽署**。可貼進 Grok Bot／Cursor 的協定說明：[`docs/grok-bot.md`](docs/grok-bot.md)。專案已帶 `.cursor/mcp.json`（stdio）。
@@ -235,7 +295,7 @@ npm run mcp
 
 ## 登記台
 
-頂欄膠囊「授權 | 金庫 | 機關 | 登記台」。服務／請求機關在登記台掛目的、改允許述詞與告知事項、下架。發證端已上線的述詞才能勾；不能發明 `disaster.*` 這類還沒 adapter 的欄位。
+頂欄膠囊「授權 | 金庫 | 機關 | 憑證 | 登記台」。服務／請求機關在登記台掛目的、改允許述詞與告知事項、下架。發證端已上線的述詞才能勾；不能發明 `disaster.*` 這類還沒 adapter 的欄位。
 
 寫入走既有的 `POST /api/state`：
 

@@ -37,8 +37,14 @@ const STORE_PATH = process.env.GRANTONCE_STORE ?? "/tmp/grantonce-runtime.json";
  *
  * 5 re-keys `inboxes` by purpose instead of by agency, so a v4 file's `jia`/`yi`
  * keys no longer name anything the loader can find.
+ *
+ * 7 rather than 6 because it happened again, exactly as the v3 note above
+ * describes: the service-request gate shipped a 6 with `serviceRequests`, and
+ * the credential layer shipped a 6 with `sdJwtDemo` and `twdiwTicket`. Either
+ * file satisfied the other's version check. The number is only worth anything
+ * if every field it promises is checked below, so both sets are now checked.
  */
-const STORE_VERSION = 6;
+const STORE_VERSION = 7;
 export function nowIso(): string {
   return new Date().toISOString();
 }
@@ -121,6 +127,8 @@ export function createInitialState(): DemoState {
     registeredPurposes: {},
     retiredPurposes: [],
     lastTickAt: null,
+    sdJwtDemo: null,
+    twdiwTicket: null,
   };
 }
 let memory: DemoState | null = null;
@@ -149,6 +157,9 @@ function isCurrentSchema(value: unknown): value is DemoState {
       s.principal?.key &&
       Array.isArray(s.grants) &&
       Array.isArray(s.serviceRequests) &&
+      // Nullable, so presence is what is checked — not truthiness.
+      "sdJwtDemo" in s &&
+      "twdiwTicket" in s &&
       Array.isArray(s.wallet) &&
       Array.isArray(s.audit) &&
       Array.isArray(s.usedJti) &&
