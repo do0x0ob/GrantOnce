@@ -1,4 +1,4 @@
-import { normalizeGrantId } from "@/lib/fields";
+import { normalizeGrantId } from "@/lib/purposes";
 import { isPurposeId, PURPOSES } from "@/lib/purposes";
 import type { PurposeId } from "@/lib/purposes";
 import type { GrantId } from "@/lib/types";

@@ -13,9 +13,9 @@ import { dirname } from "node:path";
 import { randomId } from "./crypto";
 import { FIELD_META } from "./fields";
 import { AGENCY_NAMES } from "./parties";
-import { PURPOSES } from "./purposes";
+import { PURPOSE_IDS, PURPOSES, purposeOfSlot, type PurposeDef, type PurposeId } from "./purposes";
 import type {
-  AgencyId,
+  AgencyInbox,
   AuditEntry,
   ChatMessage,
   DemoState,
@@ -34,19 +34,22 @@ const STORE_PATH = process.env.GRANTONCE_STORE ?? "/tmp/grantonce-runtime.json";
  * desk added `registeredPurposes`, the watch loop added `lastTickAt` and the
  * inbox status. Either file would satisfy the other's version check and then
  * fail on a field that is not there.
+ *
+ * 5 re-keys `inboxes` by purpose instead of by agency, so a v4 file's `jia`/`yi`
+ * keys no longer name anything the loader can find.
  */
-const STORE_VERSION = 4;
+const STORE_VERSION = 5;
 export function nowIso(): string {
   return new Date().toISOString();
 }
-function emptyInbox(agencyId: AgencyId): DemoState["inboxes"][AgencyId] {
-  const purpose =
-    agencyId === "jia" ? PURPOSES["childcare-allowance"] : PURPOSES["aircon-subsidy"];
+export function emptyInbox(purposeId: PurposeId, def?: PurposeDef): AgencyInbox {
+  const purpose = def ?? PURPOSES[purposeId];
   return {
-    agencyId,
-    name: AGENCY_NAMES[agencyId],
+    agencyId: purpose.agency,
+    name: AGENCY_NAMES[purpose.agency],
     programTitle: purpose.title,
-    purpose: purpose.id,
+    purpose: purposeId,
+    slot: purpose.slot,
     claims: [],
     grantDigest: null,
     receivedAt: null,
@@ -56,6 +59,14 @@ function emptyInbox(agencyId: AgencyId): DemoState["inboxes"][AgencyId] {
     applicationStatus: "none",
     statusChangedAt: null,
   };
+}
+
+/** Every registered purpose gets an inbox; adding one needs no code here. */
+function emptyInboxes(): Record<PurposeId, AgencyInbox> {
+  return Object.fromEntries(PURPOSE_IDS.map((id) => [id, emptyInbox(id)])) as Record<
+    PurposeId,
+    AgencyInbox
+  >;
 }
 export function createInitialState(): DemoState {
   const at = nowIso();
@@ -77,12 +88,12 @@ export function createInitialState(): DemoState {
     })),
     wallet: [],
     grants: [],
-    inboxes: { jia: emptyInbox("jia"), yi: emptyInbox("yi") },
+    inboxes: emptyInboxes(),
     usedJti: [],
     delegation: {
       active: true,
       agencies: ["jia", "yi"],
-      purposes: ["childcare-allowance", "childcare-service-subsidy", "aircon-subsidy"],
+      purposes: [...PURPOSE_IDS],
       // Default ceiling stops at pairwise pseudonyms: raw personal data needs an
       // explicit widening by the principal, it is never the default.
       maxSensitivity: "pseudonym",
@@ -140,13 +151,15 @@ function isCurrentSchema(value: unknown): value is DemoState {
       Array.isArray(s.audit) &&
       Array.isArray(s.usedJti) &&
       Array.isArray(s.vaultCatalog) &&
-      s.inboxes?.jia &&
-      s.inboxes?.yi &&
+      // Every registered purpose must have an inbox, so a store written before
+      // a purpose was added is rejected rather than half-loaded.
+      PURPOSE_IDS.every(
+        (id) => s.inboxes?.[id] && typeof s.inboxes[id]?.applicationStatus === "string",
+      ) &&
       s.delegation &&
       s.registeredPurposes &&
       Array.isArray(s.retiredPurposes) &&
-      Array.isArray(s.notifications) &&
-      typeof s.inboxes?.jia?.applicationStatus === "string",
+      Array.isArray(s.notifications),
   );
 }
 function diskMtime(): number {
@@ -344,8 +357,9 @@ export function notify(state: DemoState, input: NotificationInput): Notification
 export function grantById(state: DemoState, grantId: string) {
   return state.grants.find((g) => g.id === grantId) ?? null;
 }
-export function agencyOf(grantId: GrantId): AgencyId {
-  return grantId === "G-乙" ? "yi" : "jia";
+/** The purpose a slot label belongs to, or null when the label is unknown. */
+export function purposeOf(grantId: GrantId): PurposeId | null {
+  return purposeOfSlot(grantId);
 }
 
 /**
@@ -355,8 +369,11 @@ export function agencyOf(grantId: GrantId): AgencyId {
  */
 export function reconcileApplications(state: DemoState): void {
   for (const inbox of Object.values(state.inboxes)) {
-    const reached: DemoState["inboxes"][AgencyId]["applicationStatus"] | null =
-      inbox.submittedAt ? "submitted" : inbox.receivedAt ? "received" : null;
+    const reached: AgencyInbox["applicationStatus"] | null = inbox.submittedAt
+      ? "submitted"
+      : inbox.receivedAt
+        ? "received"
+        : null;
     if (!reached) continue;
     const order = ["none", "received", "submitted"];
     if (order.indexOf(inbox.applicationStatus) < order.indexOf(reached)) {

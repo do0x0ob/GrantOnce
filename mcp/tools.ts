@@ -10,10 +10,9 @@ import {
 import { pushChanges, runAgentTick } from "../lib/agent";
 import { catalogPublic, searchCatalog } from "../lib/catalog";
 import { CLAIM_DEFS, isClaimId, SENSITIVITY_LABEL } from "../lib/claims";
-import { normalizeGrantId } from "../lib/fields";
 import { evaluateInquiry, formatInquiryMessage, inquiryPayload } from "../lib/inquiry";
 import { isKnownAgency } from "../lib/parties";
-import { isPurposeId, PURPOSES } from "../lib/purposes";
+import { isPurposeId, normalizeGrantId, PURPOSES } from "../lib/purposes";
 import { isLivePurposeId, livePurpose, livePurposes } from "../lib/registry-io";
 import { researchWorld } from "../lib/research";
 import { AGENT_NAME, AGENT_NOTES, effectiveToday, HAPPY_PATH_UTTERANCE } from "../lib/rules";
@@ -517,7 +516,7 @@ export function getPendingActions() {
         deadline: grant.body.exp,
       });
     }
-    if (grant.status === "redeemed" && !state.inboxes[grant.body.aud].submittedAt) {
+    if (grant.status === "redeemed" && !state.inboxes[grant.body.purpose].submittedAt) {
       actions.push({
         id: `awaiting-submit:${grant.id}:${grant.body.jti}`,
         blockedOn: "agent",

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { submitApplication } from "@/lib/authz";
-import { normalizeGrantId } from "@/lib/fields";
+import { normalizeGrantId } from "@/lib/purposes";
 import { mutate, reconcileApplications } from "@/lib/store";
 import { principalView } from "@/lib/view";
 

@@ -68,6 +68,13 @@ export function formatDate(iso: string): string {
   return `${p.year}/${Number(p.month)}/${Number(p.day)}`;
 }
 
+/** `2026/08/30 00:05:09` — the expiry written into the consent text the
+ * principal signs, so it must be zero-padded and stable on both sides. */
+export function formatStamp(iso: string): string {
+  const p = parts(iso, { ...YMD, ...HMS });
+  return `${p.year}/${p.month}/${p.day} ${p.hour}:${p.minute}:${p.second}`;
+}
+
 export function claimLabel(id: string): string {
   return isClaimId(id) ? CLAIM_DEFS[id].label : id;
 }

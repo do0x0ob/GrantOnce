@@ -72,6 +72,10 @@ export function validatePurposeDraft(draft: PurposeDraft): { def?: PurposeDef; e
   const def: PurposeDef = {
     id,
     title,
+    // Builtins carry the 甲／乙／丙 labels; a runtime purpose gets one off its
+    // own id rather than a hand-picked character.
+    slot: `G-${id}`,
+    slotAliases: [id],
     agency: draft.agency as AgencyId,
     agencyName: AGENCY_NAMES[draft.agency as AgencyId],
     privacyBasis: basis,

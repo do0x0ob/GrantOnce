@@ -194,7 +194,7 @@ async function main() {
 
     const redeemed = await post("/api/grants/redeem", { grantId: "G-甲", agency: "jia" });
     check("redemption succeeds", redeemed.status === 200, JSON.stringify(redeemed.view.error ?? redeemed.view.code));
-    const inbox = redeemed.view.inboxes.jia;
+    const inbox = redeemed.view.inboxes["childcare-allowance"];
     check("inbox holds four claims", inbox.claims.length === 4);
     check("every claim has a valid issuer signature", inbox.claims.every((c) => c.issuerSignatureValid));
     check(
@@ -247,7 +247,7 @@ async function main() {
     check("reason cites the statute", note.body.includes("§15"), note.body);
     check("reason cites special-category data", note.body.includes("特種"), note.body);
     check("reason cites the delegation ceiling", note.body.includes("委託設定"), note.body);
-    check("the inbox gained nothing", r.view.inboxes.jia.claims.length === 4);
+    check("the inbox gained nothing", r.view.inboxes["childcare-allowance"].claims.length === 4);
     check("blocked response leaks no vault value", leaksIn(r.view).length === 0, leaksIn(r.view).join(","));
   }
 
@@ -289,9 +289,9 @@ async function main() {
     });
     const r = await post("/api/grants/redeem", { grantId: "G-乙", agency: "yi" });
     check("energy capsule redeems", r.status === 200, String(r.view.code));
-    const ref = r.view.inboxes.yi.claims.find((c) => c.claimId === "power.accountRef")!;
+    const ref = r.view.inboxes["aircon-subsidy"].claims.find((c) => c.claimId === "power.accountRef")!;
     check("what it received is a pseudonym", ref.value.startsWith("PP-"), ref.value);
-    check("the other agency never saw that identifier", !JSON.stringify(r.view.inboxes.jia).includes(ref.value));
+    check("the other agency never saw that identifier", !JSON.stringify(r.view.inboxes["childcare-allowance"]).includes(ref.value));
   }
 
   say("STEP 8 - the child turns two: eligibility is pushed, and the old capsule is not carried over");
@@ -351,7 +351,7 @@ async function main() {
   say("STEP 9 - stopping the delegation is instant; what was already delivered cannot be recalled");
   {
     await post("/api/chat", { message: "我剛搬家，看我能申請什麼。" });
-    const beforeInbox = (await get()).inboxes.jia.claims.length;
+    const beforeInbox = (await get()).inboxes["childcare-allowance"].claims.length;
     const r = await post("/api/delegation", { action: "revoke", reason: "彩排" });
     check("delegation stopped", !r.view.delegation.active);
     check(
@@ -361,7 +361,7 @@ async function main() {
     );
     const blocked = await post("/api/grants/redeem", { grantId: "G-乙", agency: "yi" });
     check("no redemption succeeds afterwards", blocked.status === 403, String(blocked.status));
-    check("already-delivered claims remain with the agency", r.view.inboxes.jia.claims.length === beforeInbox);
+    check("already-delivered claims remain with the agency", r.view.inboxes["childcare-allowance"].claims.length === beforeInbox);
     await post("/api/delegation", { action: "restore" });
   }
 

@@ -12,6 +12,10 @@ export type PurposeId = string;
 export type PurposeDef = {
   id: PurposeId;
   title: string;
+  /** Display label for the capsule. Carries no authority; see GrantId. */
+  slot: string;
+  /** Aliases accepted on the wire, since HTTP headers must be ASCII. */
+  slotAliases: string[];
   agency: AgencyId;
   agencyName: string;
   /**
@@ -44,6 +48,8 @@ export const PURPOSES: Record<PurposeId, PurposeDef> = {
   "childcare-allowance": {
     id: "childcare-allowance",
     title: "育兒津貼",
+    slot: "G-甲",
+    slotAliases: ["G-jia", "G-A"],
     agency: "jia",
     agencyName: "新北市政府社會局",
     privacyBasis: [
@@ -75,6 +81,8 @@ export const PURPOSES: Record<PurposeId, PurposeDef> = {
   "childcare-service-subsidy": {
     id: "childcare-service-subsidy",
     title: "未滿 5 歲幼兒托育補助",
+    slot: "G-丙",
+    slotAliases: ["G-bing", "G-C"],
     agency: "jia",
     agencyName: "新北市政府社會局",
     privacyBasis: [
@@ -89,11 +97,13 @@ export const PURPOSES: Record<PurposeId, PurposeDef> = {
     allowedClaims: ["resident.inNewTaipei", "parentChild.verified", "child.ageBand"],
     maxTtlSeconds: 600,
     necessity:
-      "核定托育補助只需確認「設籍本市」「具法定親子關係」「幼兒尚未滿 5 歲」三件事，不需要姓名、地址或出生日期本身。",
+      "幼兒滿 2 歲後改適用本項補助。核定同樣只需確認「設籍本市」「具法定親子關係」「幼兒年齡帶」，而親子關係可直接沿用皮夾裡既有的憑證，不必再調一次戶政資料。",
   },
   "aircon-subsidy": {
     id: "aircon-subsidy",
     title: "住宅冷氣汰換補助",
+    slot: "G-乙",
+    slotAliases: ["G-yi", "G-B"],
     agency: "yi",
     agencyName: "經濟部能源署 × 台灣電力公司",
     privacyBasis: [
@@ -114,6 +124,30 @@ export const PURPOSES: Record<PurposeId, PurposeDef> = {
 export function isPurposeId(value: string, table: Record<string, PurposeDef> = PURPOSES): value is PurposeId {
   if (value === "__proto__" || value === "constructor" || value === "toString") return false;
   return Object.hasOwn(table, value);
+}
+
+/** Canonical slot label for a raw input, or null when no purpose owns it. */
+export function normalizeGrantId(raw: string): string | null {
+  const purpose = purposeOfSlot(raw);
+  return purpose ? PURPOSES[purpose].slot : null;
+}
+
+/** Resolves a slot label or alias back to the purpose that owns it. */
+export function purposeOfSlot(raw: string): PurposeId | null {
+  const trimmed = raw.trim();
+  const candidates = [trimmed];
+  try {
+    candidates.push(decodeURIComponent(trimmed));
+  } catch {
+    // ignore malformed percent-encoding
+  }
+  for (const value of candidates) {
+    for (const id of PURPOSE_IDS) {
+      const def = PURPOSES[id];
+      if (value === def.slot || def.slotAliases.includes(value)) return id;
+    }
+  }
+  return null;
 }
 
 /** Claims outside the statutory scope of this purpose. Empty means compliant. */

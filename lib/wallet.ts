@@ -53,7 +53,11 @@ export function issueCredential(
 ): Credential {
   const def = CLAIM_DEFS[claimId];
   const audience = audienceFor(claimId, agency);
-  const value = def.compute({ subject: state.principal.id, audience: agency });
+  const value = def.compute({
+    subject: state.principal.id,
+    audience: agency,
+    today: now.toISOString().slice(0, 10),
+  });
 
   const body = {
     aud: audience,
