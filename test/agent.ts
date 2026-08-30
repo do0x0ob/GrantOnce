@@ -10,6 +10,7 @@ import { toBlocks } from "../lib/agent/blocks/of";
 import type { Block, BlockKind } from "../lib/agent/blocks/types";
 import { cleanReply, modelAvailable } from "../lib/agent/intent";
 import { runTurn } from "../lib/agent/turn";
+import { evaluateInquiry } from "../lib/inquiry";
 import { effectiveToday } from "../lib/rules";
 import { proposeGrantsFromPlan } from "../lib/authz";
 import { PURPOSES } from "../lib/purposes";
@@ -128,6 +129,26 @@ console.log("\n指名一項補助時，不會多給別的");
     "指名不存在的東西不會憑空生出匣",
     bogus.programs.every((p) => all.programs.some((a) => a.purpose === p.purpose)),
   );
+}
+
+console.log("\n拒絕的理由要講真正的原因");
+{
+  // The reason a matched purpose did not issue is a fact about this person.
+  // Naming a precondition that is no longer one told someone whose child had
+  // turned two that they needed to declare a move.
+  mutate((s) => {
+    s.clockOffsetDays = 400;
+  });
+  const aged = evaluateInquiry("要搞育兒津貼", effectiveToday(getState()));
+  check("滿兩歲後不能發票", !aged.canIssue);
+  check("理由講年齡，不講遷徙", Boolean(aged.closeReason?.includes("2 歲")), aged.closeReason ?? "");
+  check("不會再叫人去聲明遷徙", !aged.closeReason?.includes("聲明遷徙"), aged.closeReason ?? "");
+  mutate((s) => {
+    s.clockOffsetDays = 0;
+  });
+
+  const named = evaluateInquiry("要搞育兒津貼", effectiveToday(getState()));
+  check("年齡符合時直接可以發票", named.canIssue && named.closeReason === null);
 }
 
 console.log("\n模型寫的那句話擋得住什麼");

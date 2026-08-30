@@ -164,6 +164,12 @@ const MUTATIONS: Mutation[] = [
     replace: '  if (situation.wantsChildcare && situation.movedRecently && band === "0-2") {',
   },
   {
+    label: "拒絕理由改回講遷徙",
+    file: "lib/inquiry.ts",
+    find: "    return `本 runtime 有對得上的可發票目的，但這個人目前不符合它的資格條件。${ageHint(",
+    replace: '    return "本 runtime 有對得上的可發票目的，但這句話還沒對上資格條件（育兒津貼需要聲明遷徙）。模型不能改條件。"; // eslint-disable-line\n    return `x${(',
+  },
+  {
     label: "模型可以宣稱動作已經完成",
     file: "lib/agent/intent.ts",
     find: "  if (FORBIDDEN.test(text)) return undefined;",
