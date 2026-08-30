@@ -112,6 +112,30 @@ console.log("done");
 `,
 );
 
+/**
+ * Two watch loops, one store. The web app and the MCP server both tick, so
+ * "pushed once" has to survive them landing together — dedupe by key is a
+ * check-then-act like every other, and without the lock both passes see an
+ * empty outbox and both write.
+ */
+const tick = script(
+  "tick",
+  `${BARRIER}
+import { runAgentTick } from "${LIB}/agent";
+barrier(process.argv[2], Number(process.argv[3]));
+console.log(String(runAgentTick().length));
+`,
+);
+
+const ageOut = script(
+  "ageOut",
+  `
+import { mutate } from "${LIB}/store";
+mutate((s) => { s.clockOffsetDays = 400; s.notifications = []; s.lastTickAt = null; });
+console.log("aged");
+`,
+);
+
 const readState = script(
   "readState",
   `
@@ -131,6 +155,8 @@ console.log(JSON.stringify({
   usedJti: s.usedJti.length,
   redeems: s.audit.filter((a) => a.action === "redeem").length,
   entries: s.audit.filter((a) => a.detail === "race").map((a) => a.actor).sort(),
+  notificationKeys: s.notifications.map((n) => n.key).sort(),
+  lastTickAt: s.lastTickAt,
 }));
 `,
 );
@@ -160,6 +186,27 @@ async function main() {
   await Promise.all(tags.map((t) => run(audit, [t, auditGate, String(tags.length)])));
   const after = JSON.parse(await run(inspect)) as { entries: string[] };
   check("六筆都保留，沒有互相覆蓋", after.entries.join(",") === tags.join(","), after.entries.join(","));
+
+  console.log("\n六個 process 同時巡檢");
+  await run(setup);
+  await run(ageOut);
+  const tickGate = barrierDir("tick");
+  const pushedCounts = await Promise.all(
+    Array.from({ length: 6 }, () => run(tick, [tickGate, "6"])),
+  );
+  const ticked = JSON.parse(await run(inspect)) as {
+    notificationKeys: string[];
+    lastTickAt: string | null;
+  };
+  const keys = ticked.notificationKeys;
+  check("同一個 key 只產生一則推播", new Set(keys).size === keys.length, keys.join(","));
+  check("條件確實有東西可推", keys.length > 0, keys.join(","));
+  check(
+    "只有一輪真的推出去，其他五輪什麼都沒推",
+    pushedCounts.filter((n) => Number(n) > 0).length === 1,
+    pushedCounts.join(","),
+  );
+  check("巡檢留下了時間戳", Boolean(ticked.lastTickAt));
 
   console.log("\n上一版 schema 的 store 檔");
   // A leftover /tmp/grantonce-runtime.json from an older build used to take the

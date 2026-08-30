@@ -61,10 +61,20 @@ type View = {
     presentedCount: number;
   }[];
   vaultCatalog: { fieldId: string; label: string; sealed: boolean; neverLeft: boolean }[];
-  notifications: { title: string; body: string; kind: string }[];
+  notifications: {
+    id: string;
+    key: string;
+    title: string;
+    body: string;
+    kind: string;
+    severity: string;
+    acknowledged: boolean;
+    suggestedAction: { tool: string; label: string } | null;
+  }[];
   delegation: { active: boolean; grantTtlSeconds: number };
   audit: { action: string; detail: string }[];
   usedJtiCount: number;
+  lastTickAt: string | null;
   error?: string;
   code?: string;
 };
@@ -297,6 +307,44 @@ async function main() {
       r.view.notifications.some((n) => n.kind === "eligibility-change"),
       JSON.stringify(r.view.notifications.map((n) => n.kind)),
     );
+
+    say("STEP 8b - and the same pass says what the principal has become eligible FOR");
+    check(
+      "a gained-eligibility notice is pushed too",
+      r.view.notifications.some((n) => n.key === "eligibility:gained:childcare-service-subsidy"),
+      JSON.stringify(r.view.notifications.map((n) => n.key)),
+    );
+    check(
+      "the childcare-service capsule is proposed in its place",
+      r.view.grants.some((g) => g.id === "G-丙"),
+      r.view.grants.map((g) => g.id).join(","),
+    );
+    check(
+      "its claims are predicates only, and one fewer than the allowance capsule",
+      grantOf(r.view, "G-丙").claims.length === 3 &&
+        grantOf(r.view, "G-丙").claims.every((c) => c.sensitivity === "predicate"),
+      JSON.stringify(grantOf(r.view, "G-丙").claims.map((c) => [c.claimId, c.sensitivity])),
+    );
+    check("the push carries a suggested next step", 
+      r.view.notifications.some((n) => n.suggestedAction !== null),
+      JSON.stringify(r.view.notifications.map((n) => n.suggestedAction)),
+    );
+    check("no notification leaks a vault value", leaksIn(r.view.notifications).length === 0, leaksIn(r.view.notifications).join(","));
+
+    say("STEP 8c - the header can show when the agent last looked, and a notice can be signed off");
+    check("the watch pass left a timestamp", Boolean(r.view.lastTickAt), String(r.view.lastTickAt));
+    const target = r.view.notifications.find((n) => !n.acknowledged)!;
+    const acked = await post("/api/notifications/ack", { id: target.id });
+    check("acknowledging succeeds", acked.status === 200, String(acked.view.error));
+    check(
+      "the notice is marked acknowledged rather than deleted",
+      acked.view.notifications.find((n) => n.id === target.id)?.acknowledged === true,
+    );
+    check(
+      "acknowledging is audited",
+      acked.view.audit.some((a) => a.action === "acknowledge"),
+    );
+
     await post("/api/clock", { offsetDays: 0 });
   }
 
@@ -327,7 +375,17 @@ async function main() {
     check("submission succeeds", r.status === 200, String(r.view.error));
 
     const actions = new Set(r.view.audit.map((a) => a.action));
-    for (const a of ["register", "issue", "sign", "redeem", "submit", "revoke", "deny", "notify"]) {
+    for (const a of [
+      "register",
+      "issue",
+      "sign",
+      "redeem",
+      "submit",
+      "revoke",
+      "deny",
+      "notify",
+      "acknowledge",
+    ]) {
       check("audit records " + a, actions.has(a));
     }
     check("the audit trail leaks no vault value", leaksIn(r.view.audit).length === 0, leaksIn(r.view.audit).join(","));

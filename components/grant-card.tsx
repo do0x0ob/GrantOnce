@@ -9,6 +9,24 @@ import { cn } from "@/lib/utils";
 
 type GrantView = PrincipalView["grants"][number];
 
+/**
+ * What each capsule is *not* carrying, in one line per purpose.
+ *
+ * Keyed rather than branched: as a two-way `=== "childcare-allowance"` check,
+ * the third programme fell into the else and told the reader the energy
+ * ministry was getting a usage band. A purpose hung on the registry desk has no
+ * hand-written line, so it falls back to what is true of every capsule rather
+ * than borrowing someone else's sentence.
+ */
+const MINIMISATION: Record<string, string> = {
+  "childcare-allowance": "就這樣。姓名、地址、戶號、出生日期都不在這張匣裡。",
+  "childcare-service-subsidy":
+    "比育兒津貼還少一項——連「一年內遷入」都不需要。姓名、地址、出生日期一樣不在匣裡。",
+  "aircon-subsidy": "經濟部拿到的是用電級距，加上一個只屬於它的帳戶代號——不是電號。",
+};
+
+const MINIMISATION_FALLBACK = "匣裡放的是述詞，不是原始欄位。上面列的就是機關會拿到的全部。";
+
 const CHIP: Record<GrantView["status"], "stone" | "rose" | "mint" | "amber"> = {
   proposed: "amber",
   signed: "mint",
@@ -68,7 +86,6 @@ export function GrantCard({
   const blocked = grant.risk === "blocked";
   const elevated = grant.risk === "elevated";
   const signable = grant.status === "proposed" && !blocked && !grant.expired;
-  const childcare = grant.purpose === "childcare-allowance";
   const compact =
     !signable && !blocked && grant.status !== "expired" && !showConsent;
 
@@ -121,9 +138,7 @@ export function GrantCard({
             ))}
           </ul>
           <p className="text-[14px] leading-6 text-stone-400">
-            {childcare
-              ? "就這樣。姓名、地址、戶號、出生日期都不在這張匣裡。"
-              : "經濟部拿到的是用電級距，加上一個只屬於它的帳戶代號——不是電號。"}
+            {MINIMISATION[grant.purpose] ?? MINIMISATION_FALLBACK}
           </p>
         </section>
 

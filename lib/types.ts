@@ -1,5 +1,6 @@
 import type { ClaimId, IssuerId, Sensitivity } from "./claims";
 import type { PurposeDef, PurposeId } from "./purposes";
+import type { ToolName } from "./tools";
 
 /** Raw MyData vault fields. Only ever read when issuing a credential. */
 export const FIELD_IDS = [
@@ -23,7 +24,7 @@ export const FIELD_IDS = [
 
 export type FieldId = (typeof FIELD_IDS)[number];
 
-export type GrantId = "G-甲" | "G-乙";
+export type GrantId = "G-甲" | "G-乙" | "G-丙";
 export type AgencyId = "jia" | "yi";
 
 export type GrantStatus = "proposed" | "signed" | "redeemed" | "revoked" | "expired";
@@ -36,7 +37,8 @@ export type AuditAction =
   | "submit"
   | "revoke"
   | "deny"
-  | "notify";
+  | "notify"
+  | "acknowledge";
 
 export type RiskLevel = "low" | "elevated" | "blocked";
 
@@ -102,6 +104,34 @@ export type DeliveredClaim = {
   issuerSignatureValid: boolean;
 };
 
+/**
+ * Demo fixture. Nothing past "submitted" is driven by a real agency — the demo
+ * advances it by hand through `POST /api/agency/advance`. It exists so progress
+ * tracking has a place in the protocol, not to pretend the connection is real.
+ */
+export type ApplicationStatus =
+  | "none"
+  | "received"
+  | "submitted"
+  | "under-review"
+  | "needs-more"
+  | "approved"
+  | "paid";
+
+export const APPLICATION_STATUSES: ApplicationStatus[] = [
+  "none",
+  "received",
+  "submitted",
+  "under-review",
+  "needs-more",
+  "approved",
+  "paid",
+];
+
+export function isApplicationStatus(value: string): value is ApplicationStatus {
+  return (APPLICATION_STATUSES as string[]).includes(value);
+}
+
 export type AgencyInbox = {
   agencyId: AgencyId;
   name: string;
@@ -113,6 +143,9 @@ export type AgencyInbox = {
   submittedAt: string | null;
   lastDenial: string | null;
   lastDeniedAt: string | null;
+  /** Demo-only. See ApplicationStatus. */
+  applicationStatus: ApplicationStatus;
+  statusChangedAt: string | null;
 };
 
 export type AuditEntry = {
@@ -167,15 +200,52 @@ export type Delegation = {
   revokedReason: string | null;
 };
 
+export type NotificationKind =
+  | "eligibility-gained"
+  | "eligibility-change"
+  | "credential-expiry"
+  | "credential-expiring"
+  | "grant-expiring"
+  | "delegation-expiring"
+  | "denial-followup"
+  | "awaiting-signature"
+  | "risk"
+  | "info";
+
+export type NotificationSeverity = "info" | "action-required" | "risk";
+
+/** Advisory only. There is no signing tool, so this can never mint authority. */
+export type SuggestedAction = {
+  tool: ToolName;
+  args: Record<string, string>;
+  label: string;
+};
+
 export type Notification = {
   id: string;
+  /** Stable dedupe key. Two scans of the same condition produce the same key. */
+  key: string;
   at: string;
-  kind: "eligibility-change" | "credential-expiry" | "risk" | "info";
+  kind: NotificationKind;
+  severity: NotificationSeverity;
   title: string;
+  /** Human-facing. MAY contain predicate values. Never sent to the model. */
   body: string;
+  /** Model-facing. MUST NOT contain any vault value or predicate value. */
+  summaryForAgent: string;
   grantId: GrantId | null;
+  suggestedAction: SuggestedAction | null;
+  /** When this notice stops being true; null means it does not self-expire. */
+  staleAfter: string | null;
   acknowledged: boolean;
+  acknowledgedAt: string | null;
 };
+
+/** What a detector produces: the store fills in id, timestamp and ack state. */
+export type NotificationDraft = Omit<
+  Notification,
+  "id" | "at" | "acknowledged" | "acknowledgedAt"
+>;
 
 export type VaultCatalogEntry = {
   fieldId: FieldId;
@@ -217,6 +287,8 @@ export type DemoState = {
   /** Agency-maintained purpose rows. Overlay on the builtin table. */
   registeredPurposes: Record<string, PurposeDef>;
   retiredPurposes: string[];
+  /** Last time the agent's watch loop ran. Drives "since" and the UI's 巡檢時間. */
+  lastTickAt: string | null;
 };
 
 export type RedeemProof = {

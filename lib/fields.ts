@@ -88,7 +88,7 @@ export const FIELD_META: Record<
   },
 };
 
-/** Accepts the display ids (G-甲 / G-乙) and their ASCII aliases. */
+/** Accepts the display ids (G-甲 / G-乙 / G-丙) and their ASCII aliases. */
 export function normalizeGrantId(raw: string): GrantId | null {
   const trimmed = raw.trim();
   const candidates = [trimmed];
@@ -100,6 +100,7 @@ export function normalizeGrantId(raw: string): GrantId | null {
   for (const value of candidates) {
     if (value === "G-甲" || value === "G-jia" || value === "G-A") return "G-甲";
     if (value === "G-乙" || value === "G-yi" || value === "G-B") return "G-乙";
+    if (value === "G-丙" || value === "G-bing" || value === "G-C") return "G-丙";
   }
   return null;
 }

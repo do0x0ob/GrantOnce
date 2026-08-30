@@ -12,12 +12,12 @@
 npm install
 npm run dev            # http://localhost:43127
 
-npm run test:flow      # 104 項授權層檢查
-npm run test:mcp       # 33 項 MCP 檢查
-npm run test:race      # 6 項跨 process 檢查（會開子行程）
+npm run test:flow      # 授權層與巡檢檢查
+npm run test:mcp       # MCP 檢查
+npm run test:race      # 跨 process 檢查（會開子行程）
 npm run test:all       # 以上三個
-npm run test:rehearsal # 67 項，逐句對照演示腳本，需先開 dev
-npm run test:mutate    # 24 個注入的 bug，每個都必須被上面某個測試抓到
+npm run test:rehearsal # 77 項，逐句對照演示腳本，需先開 dev
+npm run test:mutate    # 29 個注入的 bug，每個都必須被上面某個測試抓到
 ```
 
 需要 Node 20+。沒有環境變數、沒有資料庫、沒有真實 MyData。
@@ -58,6 +58,8 @@ npm run test:mutate    # 24 個注入的 bug，每個都必須被上面某個測
 | 是否為法定親子關係 | `true` |
 | 幼兒年齡帶 | `0-2` |
 
+滿 2 歲後改適用的托育補助（G-丙）只要三件事：設籍、親子關係、年齡帶——連「一年內遷入」都不需要。
+
 姓名、地址、戶號、出生日期**都沒有離開金庫**。冷氣補助同理：給的是用電級距與一個對經濟部專屬的帳戶假名，不是電號、不是逐月度數。
 
 **成對假名**：甲與乙拿到的識別碼不同，兩個機關就算私下交換資料庫也拼不回同一個人。假名是 HMAC 而不是純雜湊——身分識別碼的空間小到可以窮舉，無金鑰的雜湊等於沒有保護。
@@ -90,9 +92,39 @@ npm run test:mutate    # 24 個注入的 bug，每個都必須被上面某個測
 - 超過委託設定的敏感度上限 → 攔截
 - 含原始個資、或一分鐘內重複兌現同一目的 → 升為「需額外確認」，簽署按鈕要先勾選確認才會啟用
 
-## 動態授權
+## 動態授權與主動推送
 
 幼兒滿 2 歲後改適用不同補助。金庫欄位面板下方可以把時間往前推，代理人會主動推送資格變更並重新比對——**原本簽過的匣不會自動沿用**，條件變了就要重新簽一張新的（新的 `jti`、新的效期、新的簽章）。
+
+推送不是「有人來讀的時候才算」。`lib/agent.ts` 的 `runAgentTick()` 是一次巡檢，MCP server 每 `GRANTONCE_TICK_MS`（預設 15 秒）跑一次，沒有任何人呼叫工具也會跑：開著 `npm run mcp` 什麼都不做，`get_notifications` 自己會長出東西。標題列的「代理人上次巡檢」讀的就是這一輪留下的時間戳。
+
+偵測器有九條，全部寫在 `lib/rules.ts` 的 `scanForChanges`，是純函式——不讀金庫、不呼叫模型：
+
+| 推播 | 什麼時候 |
+| --- | --- |
+| 育兒津貼資格已改變 | 幼兒滿 24 個月 |
+| 再 N 個月條件會變 | 距 24 個月 ≤ 3 個月 |
+| **你現在符合某個補助** | 規則引擎比對出還沒有匣的方案 |
+| 憑證已到期／即將到期 | 已過期／距到期 ≤ 7 天 |
+| 匣即將逾效期 | 已簽未兌現，距 `exp` ≤ 120 秒 |
+| 委託即將到期 | 距 `validUntil` ≤ 7 天 |
+| 上一次請求被擋下 | 收件匣有拒絕紀錄 |
+| 匣還在等你簽 | 提案超過 60 秒未簽 |
+
+第三條是重點：時鐘前進 13 個月時，代理人**同時**說「育兒津貼不再成立」和「你現在符合未滿 5 歲幼兒托育補助（G-丙），要不要我幫你辦」。主動推送不是只會報壞消息。
+
+每則推播有一個穩定的 `key`，去重就靠它——改標題不會重複推播，而 `key` 裡帶 `jti`，所以換了一張新的匣就會推出屬於它自己的那一則（匣編號會跨提案重複使用）。連跑十次巡檢，推播數量不變；`staleAfter` 過期的未簽收推播會被自動清掉。
+
+## 推播給人看的，和推播給模型看的，是兩段文字
+
+每則推播寫兩份：
+
+- `body` 給委託人，**可以**帶述詞的值（「離開 0-2 年齡帶」）——那本來就是關於他的事實。
+- `summaryForAgent` 給模型，**不含任何值**（「已離開育兒津貼的適用範圍」）。
+
+`get_audit` 一直宣稱「不含述詞的值」。推播是同一份程式寫給同一個讀者的，所以那句話在這裡也要成立：`mcp/tools.ts` 的 `claimValueLeakIn()` 會拿皮夾裡實際持有的述詞值去掃每一份要回給模型的 payload，`get_notifications`／`get_pending_actions`／`get_audit` 三個工具回傳前都跑一次。
+
+一個誠實的邊界：`true`／`false` 這種值和 JSON 裡任何一個布林值長得一模一樣，用字串比對抓不出來，所以它們不在掃描名單裡。這正是 `summaryForAgent` 一開始就寫成不提任何值、而不是指望這道檢查去攔的原因。
 
 ## 簽章金鑰：passkey 的 PRF
 
@@ -114,6 +146,7 @@ MCP 工具清單裡沒有任何簽署工具，而且 `mcp/test.ts` 不是用名�
 - MyData 金庫：本地 JSON
 - 機關與發證機構的金鑰由固定種子派生，方便 demo 重啟後身分不變
 - 送件：只改狀態，不會送到任何機關
+- 申辦進度（`applicationStatus`）：`submitted` 之後的每一格都由 `POST /api/agency/advance` 手動推進。這是 fixture，讓「進度追蹤」在協定裡有位置，不是假裝真的接上了機關
 
 ## 什麼是真的
 
@@ -137,9 +170,9 @@ npm run mcp
 
 與錢包 UI 共用 store（預設 `/tmp/grantonce-runtime.json`）。寫入互斥上鎖，讀取偵測檔案異動。
 
-工具：`search_purposes`、`plan_applications`、`get_grant_for_signature`、`redeem_grant`、`request_claims`、`submit_application`、`revoke_grant`、`stop_delegation`、`get_audit`。
+工具：`search_purposes`、`plan_applications`、`get_grant_for_signature`、`redeem_grant`、`request_claims`、`submit_application`、`revoke_grant`、`stop_delegation`、`get_audit`、`get_notifications`、`acknowledge_notification`、`get_pending_actions`。
 
-`search_purposes` 會做公開搜尋（維基、`*.gov.tw` 連結），並另外標出本 runtime **目前能 mint Grant** 的子集。目的登記表不是全世界；搜到補助 ≠ 授權。`plan_applications` 只有登記表＋資格成立才提案，不能發明述詞。宿主若已有網搜，應先搜，不要被兩筆可發票目的綁死。MCP **沒有**寫入登記表的工具——掛上／下架是人類在前端「登記台」做的。
+`search_purposes` 會做公開搜尋（維基、`*.gov.tw` 連結），並另外標出本 runtime **目前能 mint Grant** 的子集。目的登記表不是全世界；搜到補助 ≠ 授權。`plan_applications` 只有登記表＋資格成立才提案，不能發明述詞。宿主若已有網搜，應先搜，不要被少數幾筆可發票目的綁死。MCP **沒有**寫入登記表的工具——掛上／下架是人類在前端「登記台」做的。
 
 ## 登記台
 
@@ -155,7 +188,16 @@ npm run mcp
 { "action": "registry.retire", "id": "move-bonus" }
 ```
 
-重設會回到內建兩筆（育兒／冷氣）。下架後該目的不能再 mint，已提案的匣不會自動改寫，兌現時若目的已不在登記台會 fail closed。
+重設會回到內建三筆（育兒津貼／托育補助／冷氣補助）。下架後該目的不能再 mint，已提案的匣不會自動改寫，兌現時若目的已不在登記台會 fail closed。
+
+## 推播與待辦的三個工具
+
+- `get_notifications` 先跑一次巡檢再回傳，所以只會輪詢的 client 也一定拿到新鮮狀態；可以帶 `unacknowledgedOnly` 與 `since`。
+- `acknowledge_notification` 簽收一則推播並記一筆稽核。簽收只表示看過了，不會授權任何事。
+- `get_pending_actions` 是衍生值、不落地：現在卡住的每一件事、卡在哪一方（委託人／機關／發證機構／代理人），以及下一步該呼叫哪個工具。**建議的下一步永遠不可能是一個造成授權的動作，因為那種工具不存在**——`mcp/test.ts` 會把每個被建議的工具實際跑一遍，餵進一份會被接受的簽章，然後要求沒有任何匣變成已簽署。
+- `get_audit` 可以帶 `since`（稽核編號或 ISO 時間）只取增量，並回傳 `cursor` 讓長跑的 agent 下次直接續讀。`since` 不合法時退回全量並在 `note` 說明，不丟錯。
+
+除了工具，server 還宣告了 `logging` 與 `resources`（`subscribe` + `listChanged`）兩個能力：巡檢推出新東西時會送一則 logging notification，以及對資源 `grantonce://notifications` 送一次 updated。訂閱與取消訂閱是自己接的 handler——宣告了 `subscribe: true` 就要真的答得出 `resources/subscribe`。Client 不支援時安靜降級，輪詢 `get_notifications` 照樣可用。
 
 ## 這個設計的名字
 

@@ -158,6 +158,36 @@ const MUTATIONS: Mutation[] = [
     replace: "「設籍本市」「具法定親子關係」「幼兒落在 0–2 歲」三件事",
   },
   {
+    label: "推播去重從 key 改回 title",
+    file: "lib/agent.ts",
+    find: "    if (state.notifications.some((n) => n.key === change.key)) continue;",
+    replace: "    if (state.notifications.some((n) => n.title === change.title)) continue;",
+  },
+  {
+    label: "get_notifications 回傳人類版本的 body",
+    file: "mcp/tools.ts",
+    find: "    summary: n.summaryForAgent,",
+    replace: "    summary: n.body,",
+  },
+  {
+    label: "不再檢查述詞值有沒有外洩",
+    file: "mcp/tools.ts",
+    find: "  assertNoClaimValueLeak(payload, where);",
+    replace: "  void payload;",
+  },
+  {
+    label: "推播的 key 不帶 jti（新匣被舊推播擋掉）",
+    file: "lib/rules.ts",
+    find: "        key: `awaiting-sign:${grant.id}:${grant.body.jti}`,",
+    replace: "        key: `awaiting-sign:${grant.id}`,",
+  },
+  {
+    label: "巡檢不留下時間戳",
+    file: "lib/agent.ts",
+    find: "  state.lastTickAt = nowIso();",
+    replace: "  void nowIso();",
+  },
+  {
     label: "時間格式交還給 locale（伺服器與瀏覽器會不一致）",
     file: "lib/view.ts",
     find: '  return `${p.month}/${p.day} ${p.hour}:${p.minute}:${p.second}`;',

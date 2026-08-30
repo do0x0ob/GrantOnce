@@ -1,7 +1,7 @@
 import { searchCatalog, topicsFromUtterance } from "./catalog";
 import { ageBandOf, DEMO_TODAY, monthsBetween } from "./claims";
 import { PURPOSES } from "./purposes";
-import type { DemoState, ProgramPlan } from "./types";
+import type { DemoState, NotificationDraft, ProgramPlan } from "./types";
 
 /**
  * What the principal told the agent in conversation. The rule engine reads only
@@ -79,6 +79,26 @@ export function matchPrograms(situation: DeclaredSituation): ProgramPlan[] {
     });
   }
 
+  // Gated the same way as 育兒津貼: the principal has to have asked about
+  // childcare (or declared a move, which bundles the profile) before the rule
+  // engine offers them the programme the child has aged into.
+  if (situation.wantsChildcare && band === "2-6") {
+    const purpose = PURPOSES["childcare-service-subsidy"];
+    programs.push({
+      grantId: "G-丙",
+      purpose: purpose.id,
+      title: purpose.title,
+      agencyId: purpose.agency,
+      agencyName: `甲｜${purpose.agencyName}`,
+      reasons: [
+        "設籍新北市，且具法定親子關係",
+        "幼兒已離開育兒津貼的年齡帶，落在托育補助的適用範圍",
+      ],
+      claims: [...purpose.allowedClaims],
+      hint: "與育兒津貼是不同的目的，述詞組合也不同——要另外簽一張匣",
+    });
+  }
+
   if (situation.wantsAircon && situation.hasResidentialMeter) {
     const purpose = PURPOSES["aircon-subsidy"];
     programs.push({
@@ -104,52 +124,223 @@ export function ageHint(months: number): string {
   return `幼兒目前約 ${years} 歲又 ${rem} 個月。再 ${24 - months} 個月滿 2 歲，育兒津貼條件會改變。`;
 }
 
-export type PendingChange = {
-  kind: "eligibility-change" | "credential-expiry";
-  title: string;
-  body: string;
-  grantId: ProgramPlan["grantId"] | null;
-};
+/** Kept as an alias: the detectors now produce whole notifications. */
+export type PendingChange = NotificationDraft;
+
+const DAY_MS = 86_400_000;
+/** A credential or a delegation this close to lapsing is worth mentioning. */
+const EXPIRY_WARNING_MS = 7 * DAY_MS;
+/** A signed capsule this close to its expiry will not survive a slow demo. */
+const GRANT_WARNING_MS = 120_000;
+/** A proposal left unsigned this long is waiting on the principal, not on us. */
+const AWAITING_SIGNATURE_MS = 60_000;
+
+function monthsUntilTwo(months: number): number {
+  return 24 - months;
+}
 
 /**
  * The proactive half. Instead of waiting for the principal to re-ask, the agent
  * watches for the conditions that will change their entitlement and pushes.
+ *
+ * Pure: it reads `DemoState` and the clock, never the vault and never the model.
+ *
+ * Every draft carries two texts. `body` is for the principal and may name a
+ * predicate value, because they are the one it is about. `summaryForAgent` is
+ * what the model is allowed to read, and states what changed without ever
+ * naming the value that changed — 「離開適用範圍」, not 「變成 2-6」.
  */
-export function scanForChanges(state: DemoState, now: Date): PendingChange[] {
+export function scanForChanges(state: DemoState, now: Date): NotificationDraft[] {
   const today = effectiveToday(state);
   const months = childAgeMonthsAt(today);
-  const out: PendingChange[] = [];
+  const out: NotificationDraft[] = [];
+  const at = now.getTime();
 
+  // --- eligibility ---------------------------------------------------------
   if (months >= 24) {
     out.push({
+      key: "eligibility:aged-out:G-甲",
       kind: "eligibility-change",
+      severity: "action-required",
       title: "育兒津貼資格已改變",
-      body: `幼兒已滿 2 歲，離開 0–2 歲年齡帶。原「育兒津貼」匣的 child.ageBand 述詞已變成 ${ageBandOf(months)}，該匣不再對應正確補助；需要重新比對並簽一張新的匣。`,
+      body:
+        "幼兒已滿 2 歲，離開 0-2 年齡帶。原「育兒津貼」匣宣告的年齡帶述詞已不再成立，該匣不對應正確的補助；需要重新比對並簽一張新的匣。",
+      summaryForAgent:
+        "幼兒年齡帶已離開育兒津貼的適用範圍，原匣不再對應正確的補助，需要重新比對。",
       grantId: "G-甲",
+      suggestedAction: {
+        tool: "plan_applications",
+        args: { utterance: state.plan?.utterance ?? HAPPY_PATH_UTTERANCE },
+        label: "重新比對可申請的補助",
+      },
+      staleAfter: null,
     });
-  } else if (24 - months <= 3) {
+  } else if (monthsUntilTwo(months) <= 3) {
+    const left = monthsUntilTwo(months);
     out.push({
+      key: "eligibility:aging-soon:G-甲",
       kind: "eligibility-change",
-      title: `再 ${24 - months} 個月育兒津貼條件會變`,
+      severity: "info",
+      title: `再 ${left} 個月育兒津貼條件會變`,
       body: "幼兒即將滿 2 歲，屆時改適用未滿 5 歲幼兒托育補助，需要不同的述詞組合。先提醒，不預先取得任何資料。",
+      summaryForAgent:
+        "幼兒將在三個月內離開育兒津貼的適用範圍，屆時要改用另一組述詞。目前不需要動作。",
       grantId: "G-甲",
+      suggestedAction: null,
+      // Stops being true the day the child turns two; the aged-out notice
+      // takes over from here.
+      staleAfter: monthsAfterBirth(24),
     });
   }
 
-  for (const cred of state.wallet) {
-    if (cred.revoked) continue;
-    const left = new Date(cred.expiresAt).getTime() - now.getTime();
-    if (left <= 0) {
+  // A matched programme with no capsule of its own is the one piece of good
+  // news the watch loop can deliver: you have become eligible for something.
+  // Only offered once the principal has actually engaged — before that there is
+  // no declared situation to watch.
+  if (state.plan || state.grants.length) {
+    const situation = situationFromUtterance(
+      state.plan?.utterance ?? HAPPY_PATH_UTTERANCE,
+      today,
+    );
+    for (const program of situation ? matchPrograms(situation) : []) {
+      if (state.grants.some((g) => g.id === program.grantId)) continue;
       out.push({
-        kind: "credential-expiry",
-        title: `憑證已到期：${cred.label}`,
-        body: `${cred.issuerName} 簽發的「${cred.label}」憑證已過期，下次申請需重新取得。`,
-        grantId: null,
+        key: `eligibility:gained:${program.purpose}`,
+        kind: "eligibility-gained",
+        severity: "action-required",
+        title: `你現在符合「${program.title}」`,
+        body: `規則引擎比對出新的適用補助：${program.title}（${program.agencyName}）。${program.reasons.join("；")}。要不要我提出一張新的匣？述詞只有 ${program.claims.length} 項，仍然不含姓名、地址或出生日期。`,
+        summaryForAgent: `規則引擎比對出新的適用補助「${program.title}」，尚未提出對應的匣。`,
+        grantId: program.grantId,
+        suggestedAction: {
+          tool: "plan_applications",
+          args: { utterance: state.plan?.utterance ?? HAPPY_PATH_UTTERANCE },
+          label: `提出「${program.title}」的匣`,
+        },
+        staleAfter: null,
       });
     }
   }
 
+  // --- credentials ---------------------------------------------------------
+  for (const cred of state.wallet) {
+    if (cred.revoked) continue;
+    const left = new Date(cred.expiresAt).getTime() - at;
+    if (left <= 0) {
+      out.push({
+        key: `credential:expired:${cred.id}`,
+        kind: "credential-expiry",
+        severity: "action-required",
+        title: `憑證已到期：${cred.label}`,
+        body: `${cred.issuerName} 簽發的「${cred.label}」憑證已過期，下次申請需重新取得。`,
+        summaryForAgent: `皮夾裡「${cred.label}」的憑證已到期，需要發證機構重新簽發才能再出示。`,
+        grantId: null,
+        suggestedAction: null,
+        staleAfter: null,
+      });
+    } else if (left <= EXPIRY_WARNING_MS) {
+      out.push({
+        key: `credential:expiring:${cred.id}`,
+        kind: "credential-expiring",
+        severity: "info",
+        title: `憑證即將到期：${cred.label}`,
+        body: `${cred.issuerName} 簽發的「${cred.label}」憑證將在七天內到期。到期後要重新取得才能再出示。`,
+        summaryForAgent: `皮夾裡「${cred.label}」的憑證將在七天內到期。`,
+        grantId: null,
+        suggestedAction: null,
+        staleAfter: cred.expiresAt,
+      });
+    }
+  }
+
+  // --- capsules ------------------------------------------------------------
+  for (const grant of state.grants) {
+    const exp = new Date(grant.body.exp).getTime();
+    const left = exp - at;
+    if (grant.status === "signed" && left > 0 && left <= GRANT_WARNING_MS) {
+      out.push({
+        // The jti belongs in the key: capsule ids are reused across proposals,
+        // so keying on the id alone would let an old notice suppress the new
+        // capsule's own.
+        key: `grant:expiring:${grant.id}:${grant.body.jti}`,
+        kind: "grant-expiring",
+        severity: "action-required",
+        title: `匣 ${grant.id} 兩分鐘內到期`,
+        body: `已簽署但尚未兌現的匣 ${grant.id} 即將逾效期。過期後要重新比對並重新簽一張，編號、效期與簽章都會換新。`,
+        summaryForAgent: `已簽署未兌現的匣 ${grant.id} 即將逾效期，兌現要趕在到期前完成。`,
+        grantId: grant.id,
+        suggestedAction: {
+          tool: "redeem_grant",
+          args: { grantId: grant.id, agency: grant.body.aud },
+          label: `由機關兌現匣 ${grant.id}`,
+        },
+        staleAfter: grant.body.exp,
+      });
+    }
+    if (grant.status === "proposed" && at - new Date(grant.proposedAt).getTime() >= AWAITING_SIGNATURE_MS && left > 0) {
+      out.push({
+        key: `awaiting-sign:${grant.id}:${grant.body.jti}`,
+        kind: "awaiting-signature",
+        severity: "action-required",
+        title: `匣 ${grant.id} 還在等你簽`,
+        body: `匣 ${grant.id} 已提出但尚未簽署。代理人沒有私鑰，簽署一定要由你以生物辨識完成。`,
+        summaryForAgent: `匣 ${grant.id} 仍在等委託人簽署；代理人無法代簽。`,
+        grantId: grant.id,
+        suggestedAction: {
+          tool: "get_grant_for_signature",
+          args: { grantId: grant.id },
+          label: `看匣 ${grant.id} 要簽的內容`,
+        },
+        staleAfter: grant.body.exp,
+      });
+    }
+  }
+
+  // --- delegation ----------------------------------------------------------
+  const delegationLeft = new Date(state.delegation.validUntil).getTime() - at;
+  if (state.delegation.active && delegationLeft > 0 && delegationLeft <= EXPIRY_WARNING_MS) {
+    out.push({
+      key: "delegation:expiring",
+      kind: "delegation-expiring",
+      severity: "action-required",
+      title: "委託即將到期",
+      body: "這份委託將在七天內到期。到期後代理人不能再提出任何新的匣，既有未兌現的匣也會被擋下。",
+      summaryForAgent: "委託將在七天內到期，之後任何兌現都會被擋下，需要委託人重新設定。",
+      grantId: null,
+      suggestedAction: null,
+      staleAfter: state.delegation.validUntil,
+    });
+  }
+
+  // --- agencies ------------------------------------------------------------
+  for (const inbox of Object.values(state.inboxes)) {
+    if (!inbox.lastDenial || !inbox.lastDeniedAt) continue;
+    out.push({
+      key: `denial:${inbox.agencyId}:${inbox.lastDeniedAt}`,
+      kind: "denial-followup",
+      severity: "risk",
+      title: `${inbox.name} 上一次的請求被擋下`,
+      body: `理由：${inbox.lastDenial}\n這筆請求沒有交付任何述詞。要繼續的話得重新比對，簽一張範圍正確的匣。`,
+      summaryForAgent: `對 ${inbox.name} 的上一次請求遭攔截，沒有交付任何述詞，需要重新提案。`,
+      grantId: null,
+      suggestedAction: {
+        tool: "plan_applications",
+        args: { utterance: state.plan?.utterance ?? HAPPY_PATH_UTTERANCE },
+        label: "重新比對後再提一張匣",
+      },
+      staleAfter: null,
+    });
+  }
+
   return out;
+}
+
+/** The instant the declared child reaches `months` months old, in ISO form. */
+function monthsAfterBirth(months: number): string {
+  const born = new Date(`${PERSONA_DECLARED.childBirthDate}T00:00:00Z`);
+  const at = new Date(born);
+  at.setUTCMonth(at.getUTCMonth() + months);
+  return at.toISOString();
 }
 
 /** The three things the agent says about how it works. Kept in one place so the

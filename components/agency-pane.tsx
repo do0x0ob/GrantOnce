@@ -10,17 +10,30 @@ import { SENSITIVITY_TEXT } from "@/components/tone";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import type { Demo } from "@/hooks/use-demo";
-import type { AgencyId, GrantId } from "@/lib/types";
+import type { AgencyId, ApplicationStatus, GrantId } from "@/lib/types";
+
+/** Demo fixture: nothing past 「已送件」 comes from a real agency. */
+const STATUS_LABEL: Record<ApplicationStatus, string> = {
+  none: "尚未開始",
+  received: "已收件",
+  submitted: "已送件",
+  "under-review": "審核中",
+  "needs-more": "要求補件",
+  approved: "已核定",
+  paid: "已撥款",
+};
+
+const ADVANCEABLE: ApplicationStatus[] = ["under-review", "needs-more", "approved", "paid"];
 
 const DESKS: {
   agency: AgencyId;
-  grantId: GrantId;
+  fallbackGrantId: GrantId;
   short: string;
   overscope: { purpose: string; claims: string[]; label: string };
 }[] = [
   {
     agency: "jia",
-    grantId: "G-甲",
+    fallbackGrantId: "G-甲",
     short: "社會局",
     overscope: {
       purpose: "childcare-allowance",
@@ -30,7 +43,7 @@ const DESKS: {
   },
   {
     agency: "yi",
-    grantId: "G-乙",
+    fallbackGrantId: "G-乙",
     short: "經濟部",
     overscope: {
       purpose: "aircon-subsidy",
@@ -43,17 +56,24 @@ const DESKS: {
 function InboxDesk({
   demo,
   agency,
-  grantId,
+  fallbackGrantId,
   overscope,
 }: {
   demo: Demo;
   agency: AgencyId;
-  grantId: GrantId;
+  fallbackGrantId: GrantId;
   overscope: { purpose: string; claims: string[]; label: string };
 }) {
   const inbox = demo.view.inboxes[agency];
-  const grant = demo.view.grants.find((g) => g.id === grantId);
-  const otherGrant: GrantId = agency === "jia" ? "G-乙" : "G-甲";
+  // Follow whichever capsule is actually addressed to this agency. Pinning the
+  // id here left the desk wired to 育兒津貼 after the child aged out of it and
+  // 托育補助 took its place.
+  const grant =
+    demo.view.grants.find((g) => g.agencyId === agency && g.status !== "revoked") ??
+    demo.view.grants.find((g) => g.agencyId === agency);
+  const grantId = (grant?.id ?? fallbackGrantId) as GrantId;
+  const other = demo.view.grants.find((g) => g.agencyId !== agency);
+  const otherGrant = (other?.id ?? (agency === "jia" ? "G-乙" : "G-甲")) as GrantId;
   const otherLabel = agency === "jia" ? "乙" : "甲";
   const canRedeem = grant?.status === "signed";
 
@@ -133,6 +153,28 @@ function InboxDesk({
         </p>
       ) : null}
 
+      <div className="space-y-3 border-t border-stone-100 pt-5">
+        <p className="text-[13px] leading-5 text-stone-400">
+          申辦進度：{STATUS_LABEL[inbox.applicationStatus]}
+          <span className="ml-1">（演示用，未連真實機關）</span>
+        </p>
+        <div className="flex flex-wrap gap-1.5">
+          {ADVANCEABLE.map((status) => (
+            <Button
+              key={status}
+              size="sm"
+              variant="ghost"
+              className="h-7 rounded-full px-2.5 text-[12px] text-stone-400 hover:text-stone-700"
+              disabled={demo.busy || !inbox.submittedAt}
+              onClick={() => void demo.advanceApplication(agency, status)}
+              title={inbox.submittedAt ? undefined : "要先送件"}
+            >
+              {STATUS_LABEL[status]}
+            </Button>
+          ))}
+        </div>
+      </div>
+
       <details className="border-t border-stone-100 pt-5" open={Boolean(inbox.lastDenial)}>
         <summary className="cursor-pointer text-[13px] leading-5 text-stone-400 hover:text-stone-600">
           試著越界
@@ -208,7 +250,7 @@ export function AgencyPane({ demo }: { demo: Demo }) {
       <InboxDesk
         demo={demo}
         agency={current.agency}
-        grantId={current.grantId}
+        fallbackGrantId={current.fallbackGrantId}
         overscope={current.overscope}
       />
 
