@@ -59,7 +59,11 @@ export type ClaimDef = {
    * up as a legal prohibition.
    */
   withholdBasis?: string;
-  compute: (ctx: { subject: string; audience: string }) => string;
+  /**
+   * Derives the claim. `today` is the effective date, so a predicate about age
+   * changes when the calendar does rather than being frozen at build time.
+   */
+  compute: (ctx: { subject: string; audience: string; today: string }) => string;
 };
 
 function usageKwh(raw: string): number {
@@ -76,8 +80,8 @@ export function monthsBetween(isoDate: string, todayIso: string): number {
   return months;
 }
 
-export function childAgeMonths(): number {
-  return monthsBetween(VAULT.records["parentChild.childBirthDate"], DEMO_TODAY);
+export function childAgeMonths(today: string = DEMO_TODAY): number {
+  return monthsBetween(VAULT.records["parentChild.childBirthDate"], today);
 }
 
 export function ageBandOf(months: number): string {
@@ -105,8 +109,7 @@ export const CLAIM_DEFS: Record<ClaimId, ClaimDef> = {
     issuer: "household-office",
     derivedFrom: ["household.moveDate"],
     ttlDays: 30,
-    compute: () =>
-      String(monthsBetween(VAULT.records["household.moveDate"], DEMO_TODAY) < 12),
+    compute: ({ today }) => String(monthsBetween(VAULT.records["household.moveDate"], today) < 12),
   },
   "parentChild.verified": {
     id: "parentChild.verified",
@@ -128,7 +131,7 @@ export const CLAIM_DEFS: Record<ClaimId, ClaimDef> = {
     derivedFrom: ["parentChild.childBirthDate"],
     // Deliberately short: the band itself expires when the child ages out.
     ttlDays: 30,
-    compute: () => ageBandOf(childAgeMonths()),
+    compute: ({ today }) => ageBandOf(childAgeMonths(today)),
   },
   "power.residentialMeter": {
     id: "power.residentialMeter",

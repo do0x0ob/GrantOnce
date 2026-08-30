@@ -1,10 +1,11 @@
 import { CLAIM_DEFS, isClaimId, type ClaimId } from "./claims";
 import { digest, randomId, serializeBody, sign, thumbprint, unb64u, verify } from "./crypto";
-import { normalizeGrantId } from "./fields";
+
 import { AGENCY_KEYS, AGENCY_NAMES, isKnownAgency } from "./parties";
-import { claimsOutsidePurpose, PURPOSES, type PurposeId } from "./purposes";
+import { claimsOutsidePurpose, normalizeGrantId, PURPOSES, type PurposeId } from "./purposes";
 import { assessRisk } from "./risk";
-import { appendAudit, agencyOf, getState, grantById, mutate, notify, nowIso } from "./store";
+import { effectiveNow } from "./rules";
+import { appendAudit, getState, grantById, mutate, notify, nowIso, purposeOf } from "./store";
 import type {
   AgencyId,
   DemoState,
@@ -15,7 +16,7 @@ import type {
   RedeemProof,
   RedeemResult,
 } from "./types";
-import { GRANT_STATUS_LABEL } from "./view";
+import { formatStamp, GRANT_STATUS_LABEL } from "./view";
 import { ensureCredentials, findValidCredential, verifyCredential } from "./wallet";
 
 function actorFor(agency: AgencyId): { name: string; role: "agency-jia" | "agency-yi" } {
@@ -25,10 +26,10 @@ function actorFor(agency: AgencyId): { name: string; role: "agency-jia" | "agenc
   };
 }
 
-function stampDenial(state: DemoState, agency: AgencyId | null, error: string) {
-  if (!agency) return;
-  state.inboxes[agency].lastDenial = error;
-  state.inboxes[agency].lastDeniedAt = nowIso();
+function stampDenial(state: DemoState, purpose: PurposeId | null, error: string) {
+  if (!purpose) return;
+  state.inboxes[purpose].lastDenial = error;
+  state.inboxes[purpose].lastDeniedAt = nowIso();
 }
 
 /** The consent wording, signed alongside everything else so the record proves
@@ -47,7 +48,7 @@ export function buildDisplayText(
     "",
     `個資依據：${def.privacyBasis.join("；")}`,
     ...(def.programBasis ? [`作用法：${def.programBasis.join("；")}`] : []),
-    `有效至 ${new Date(expIso).toLocaleString("zh-TW", { hour12: false, timeZone: "Asia/Taipei" })}，僅能使用一次，且只有「${def.agencyName}」能兌現。`,
+    `有效至 ${formatStamp(expIso)}（台北時間），僅能使用一次，且只有「${def.agencyName}」能兌現。`,
   ];
   return lines.join("\n");
 }
@@ -174,7 +175,7 @@ export function requestClaims(
         deniedClaims: risk.blockedClaims,
         risk: "blocked",
       });
-      stampDenial(s, agency, risk.notes.join(" ") || "請求遭攔截。");
+      stampDenial(s, purpose, risk.notes.join(" ") || "請求遭攔截。");
       notify(s, {
         kind: "risk",
         title: `攔截了 ${AGENCY_NAMES[agency]} 的逾越請求`,
@@ -378,7 +379,7 @@ export function redeemGrant(
         deniedClaims: extra?.deniedClaims,
         risk: "blocked",
       });
-      stampDenial(s, claimer, error);
+      stampDenial(s, purposeOf(grantIdRaw), error);
     };
 
     const grantId = normalizeGrantId(grantIdRaw);
@@ -501,17 +502,21 @@ export function redeemGrant(
 
     // --- present credentials -------------------------------------------------
     const claims = grant.body.claims.filter(isClaimId);
+    // Credential lifetimes are in days, so they are judged against the demo
+    // clock: a 30-day age band issued before the child turned two must not be
+    // reused a year later.
+    const credentialNow = effectiveNow(s);
     // Verify what the wallet already holds *before* issuing anything. Issuing
     // first and validating afterwards left new credentials — and a vault read —
     // behind on a failed redemption, with no issuance recorded in the audit.
     const staleCredential = claims
-      .map((claimId) => findValidCredential(s, claimId, claimer, now))
+      .map((claimId) => findValidCredential(s, claimId, claimer, credentialNow))
       .find((cred) => cred && !verifyCredential(cred));
     if (staleCredential) {
       return fail("MISSING_CREDENTIAL", `憑證「${staleCredential.label}」的發證機構簽章無效。`);
     }
 
-    const { issued, reused, credentials } = ensureCredentials(s, claims, claimer, now);
+    const { issued, reused, credentials } = ensureCredentials(s, claims, claimer, credentialNow);
     const bad = credentials.find((c) => !verifyCredential(c));
     if (bad) {
       return fail("MISSING_CREDENTIAL", `憑證「${bad.label}」的發證機構簽章無效。`);
@@ -522,8 +527,8 @@ export function redeemGrant(
 
     for (const cred of credentials) cred.presentedCount += 1;
 
-    s.inboxes[claimer] = {
-      ...s.inboxes[claimer],
+    s.inboxes[grant.body.purpose] = {
+      ...s.inboxes[grant.body.purpose],
       purpose: grant.body.purpose,
       programTitle: PURPOSES[grant.body.purpose].title,
       claims: credentials.map((c) => ({
@@ -667,9 +672,13 @@ export function submitApplication(grantId: GrantId): { state: DemoState; error?:
       error = `找不到匣 ${grantId}。`;
       return;
     }
-    const agency = agencyOf(grantId);
-    const who = actorFor(agency);
-    const inbox = s.inboxes[agency];
+    const purpose = purposeOf(grantId);
+    if (!purpose) {
+      error = `未知的匣：${grantId}。`;
+      return;
+    }
+    const who = actorFor(PURPOSES[purpose].agency);
+    const inbox = s.inboxes[purpose];
     if (grant.status !== "redeemed" || !inbox.receivedAt) {
       error = "收件匣還沒有已兌現的述詞，無法送件。";
       return;

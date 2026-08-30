@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { submitApplication } from "@/lib/authz";
-import { normalizeGrantId } from "@/lib/fields";
+import { normalizeGrantId } from "@/lib/purposes";
 import { principalView } from "@/lib/view";
 
 export const dynamic = "force-dynamic";

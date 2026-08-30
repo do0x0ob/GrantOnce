@@ -9,9 +9,9 @@ import {
 } from "../lib/authz";
 import { pushChanges } from "../lib/agent";
 import { CLAIM_DEFS, isClaimId, SENSITIVITY_LABEL } from "../lib/claims";
-import { normalizeGrantId } from "../lib/fields";
+
 import { isKnownAgency } from "../lib/parties";
-import { isPurposeId, PURPOSES } from "../lib/purposes";
+import { isPurposeId, normalizeGrantId, PURPOSES } from "../lib/purposes";
 import {
   AGENT_NOTES,
   ageHint,

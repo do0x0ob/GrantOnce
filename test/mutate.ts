@@ -158,6 +158,24 @@ const MUTATIONS: Mutation[] = [
     replace: '    "個資依據：（略）",',
   },
   {
+    label: "匣編號改回硬編",
+    file: "lib/purposes.ts",
+    find: "  const purpose = purposeOfSlot(raw);\n  return purpose ? PURPOSES[purpose].slot : null;",
+    replace: '  const t = raw.trim();\n  return t === "G-甲" || t === "G-jia" ? "G-甲" : t === "G-乙" || t === "G-yi" ? "G-乙" : null;',
+  },
+  {
+    label: "述詞從凍結的日期推導",
+    file: "lib/claims.ts",
+    find: "    compute: ({ today }) => ageBandOf(childAgeMonths(today)),",
+    replace: "    compute: () => ageBandOf(childAgeMonths()),",
+  },
+  {
+    label: "憑證效期不跟著演示時鐘",
+    file: "lib/authz.ts",
+    find: "    const credentialNow = effectiveNow(s);",
+    replace: "    const credentialNow = now;",
+  },
+  {
     label: "述詞換回原始欄位",
     file: "lib/purposes.ts",
     find: '      "parentChild.verified",',

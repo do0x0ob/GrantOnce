@@ -13,9 +13,9 @@ import { dirname } from "node:path";
 import { randomId } from "./crypto";
 import { FIELD_META } from "./fields";
 import { AGENCY_NAMES } from "./parties";
-import { PURPOSES } from "./purposes";
+import { PURPOSE_IDS, PURPOSES, purposeOfSlot, type PurposeId } from "./purposes";
 import type {
-  AgencyId,
+  AgencyInbox,
   AuditEntry,
   ChatMessage,
   DemoState,
@@ -26,18 +26,18 @@ import { FIELD_IDS } from "./types";
 
 const STORE_PATH = process.env.GRANTONCE_STORE ?? "/tmp/grantonce-runtime.json";
 /** Bump when DemoState changes shape. A file from an older build is discarded. */
-const STORE_VERSION = 2;
+const STORE_VERSION = 3;
 export function nowIso(): string {
   return new Date().toISOString();
 }
-function emptyInbox(agencyId: AgencyId): DemoState["inboxes"][AgencyId] {
-  const purpose =
-    agencyId === "jia" ? PURPOSES["childcare-allowance"] : PURPOSES["aircon-subsidy"];
+function emptyInbox(purposeId: PurposeId): AgencyInbox {
+  const purpose = PURPOSES[purposeId];
   return {
-    agencyId,
-    name: AGENCY_NAMES[agencyId],
+    agencyId: purpose.agency,
+    name: AGENCY_NAMES[purpose.agency],
     programTitle: purpose.title,
-    purpose: purpose.id,
+    purpose: purposeId,
+    slot: purpose.slot,
     claims: [],
     grantDigest: null,
     receivedAt: null,
@@ -45,6 +45,14 @@ function emptyInbox(agencyId: AgencyId): DemoState["inboxes"][AgencyId] {
     lastDenial: null,
     lastDeniedAt: null,
   };
+}
+
+/** Every registered purpose gets an inbox; adding one needs no code here. */
+function emptyInboxes(): Record<PurposeId, AgencyInbox> {
+  return Object.fromEntries(PURPOSE_IDS.map((id) => [id, emptyInbox(id)])) as Record<
+    PurposeId,
+    AgencyInbox
+  >;
 }
 export function createInitialState(): DemoState {
   const at = nowIso();
@@ -66,12 +74,12 @@ export function createInitialState(): DemoState {
     })),
     wallet: [],
     grants: [],
-    inboxes: { jia: emptyInbox("jia"), yi: emptyInbox("yi") },
+    inboxes: emptyInboxes(),
     usedJti: [],
     delegation: {
       active: true,
       agencies: ["jia", "yi"],
-      purposes: ["childcare-allowance", "aircon-subsidy"],
+      purposes: [...PURPOSE_IDS],
       // Default ceiling stops at pairwise pseudonyms: raw personal data needs an
       // explicit widening by the principal, it is never the default.
       maxSensitivity: "pseudonym",
@@ -124,8 +132,9 @@ function isCurrentSchema(value: unknown): value is DemoState {
       Array.isArray(s.audit) &&
       Array.isArray(s.usedJti) &&
       Array.isArray(s.vaultCatalog) &&
-      s.inboxes?.jia &&
-      s.inboxes?.yi &&
+      // Every registered purpose must have an inbox, so a store written before
+      // a purpose was added is rejected rather than half-loaded.
+      PURPOSE_IDS.every((id) => s.inboxes?.[id]) &&
       s.delegation,
   );
 }
@@ -301,6 +310,7 @@ export function notify(
 export function grantById(state: DemoState, grantId: string) {
   return state.grants.find((g) => g.id === grantId) ?? null;
 }
-export function agencyOf(grantId: GrantId): AgencyId {
-  return grantId === "G-甲" ? "jia" : "yi";
+/** The purpose a slot label belongs to, or null when the label is unknown. */
+export function purposeOf(grantId: GrantId): PurposeId | null {
+  return purposeOfSlot(grantId);
 }

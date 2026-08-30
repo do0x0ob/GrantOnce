@@ -1,4 +1,4 @@
-import type { FieldId, GrantId } from "./types";
+import type { FieldId } from "./types";
 
 export const FIELD_META: Record<
   FieldId,
@@ -88,18 +88,6 @@ export const FIELD_META: Record<
   },
 };
 
-/** Accepts the display ids (G-甲 / G-乙) and their ASCII aliases. */
-export function normalizeGrantId(raw: string): GrantId | null {
-  const trimmed = raw.trim();
-  const candidates = [trimmed];
-  try {
-    candidates.push(decodeURIComponent(trimmed));
-  } catch {
-    // ignore malformed percent-encoding
-  }
-  for (const value of candidates) {
-    if (value === "G-甲" || value === "G-jia" || value === "G-A") return "G-甲";
-    if (value === "G-乙" || value === "G-yi" || value === "G-B") return "G-乙";
-  }
-  return null;
+export function isFieldId(value: string): value is FieldId {
+  return Object.hasOwn(FIELD_META, value);
 }

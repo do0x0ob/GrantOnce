@@ -12,16 +12,39 @@ export const GRANT_STATUS_LABEL: Record<GrantStatus, string> = {
   expired: "已逾效期",
 };
 
+/**
+ * Formats in Asia/Taipei without Intl.
+ *
+ * `toLocaleString` produced different invisible separators under Node's ICU and
+ * the browser's, which React saw as a hydration mismatch on every timestamp.
+ * Taipei has no DST, so a fixed offset and UTC getters are exact and identical
+ * on both sides.
+ */
+const TAIPEI_OFFSET_MS = 8 * 60 * 60 * 1000;
+
+function taipei(iso: string): Date {
+  return new Date(new Date(iso).getTime() + TAIPEI_OFFSET_MS);
+}
+
+const pad = (n: number) => String(n).padStart(2, "0");
+
 export function formatClock(iso: string): string {
-  return new Date(iso).toLocaleString("zh-TW", {
-    hour12: false,
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-    timeZone: "Asia/Taipei",
-  });
+  const d = taipei(iso);
+  return `${pad(d.getUTCMonth() + 1)}/${pad(d.getUTCDate())} ${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}:${pad(d.getUTCSeconds())}`;
+}
+
+export function formatDate(iso: string): string {
+  const d = taipei(iso);
+  return `${d.getUTCFullYear()}/${pad(d.getUTCMonth() + 1)}/${pad(d.getUTCDate())}`;
+}
+
+export function formatTime(iso: string): string {
+  const d = taipei(iso);
+  return `${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}:${pad(d.getUTCSeconds())}`;
+}
+
+export function formatStamp(iso: string): string {
+  return `${formatDate(iso)} ${formatTime(iso)}`;
 }
 
 export function claimLabel(id: string): string {

@@ -4,10 +4,11 @@
  */
 import { b64u, digest, keyPairFromSeed, pairwiseId, serializeBody, sign, utf8 } from "../lib/crypto";
 import { sha256 } from "@noble/hashes/sha2";
-import { CLAIM_DEFS, isClaimId } from "../lib/claims";
-import { isPurposeId, PURPOSES } from "../lib/purposes";
+import { CLAIM_DEFS, isClaimId, SPECIAL_CLAIMS } from "../lib/claims";
+import { isPurposeId, PURPOSE_IDS, PURPOSES } from "../lib/purposes";
 import { assessRisk } from "../lib/risk";
 import {
+  buildDisplayText,
   makeAgencyProof,
   proposeGrantsFromPlan,
   redeemGrant,
@@ -22,8 +23,9 @@ import {
 } from "../lib/authz";
 import { AGENCY_KEYS } from "../lib/parties";
 import { originBlocker } from "../lib/passkey";
+import { formatDate, formatStamp } from "../lib/view";
 import { effectiveToday, matchPrograms, scanForChanges, situationFromUtterance } from "../lib/rules";
-import { getState, mutate, resetState } from "../lib/store";
+import { getState, mutate, purposeOf, resetState } from "../lib/store";
 import { verifyCredential } from "../lib/wallet";
 import type { Grant, GrantId } from "../lib/types";
 
@@ -98,8 +100,8 @@ check(
 check("冷氣補助用假名代替電號", programs[1].claims.includes("power.accountRef"));
 mutate((s) => proposeGrantsFromPlan(s, programs));
 
-const jia: GrantId = "G-甲";
-const yi: GrantId = "G-乙";
+const jia: GrantId = PURPOSES["childcare-allowance"].slot;
+const yi: GrantId = PURPOSES["aircon-subsidy"].slot;
 const grantOf = (id: GrantId) => getState().grants.find((g) => g.id === id)!;
 
 
@@ -169,7 +171,7 @@ section("兌現");
 {
   const r = redeemGrant(jia, makeAgencyProof("jia", jia));
   check("雙鑰匙齊備 → 通過", r.result.ok, JSON.stringify(r.result));
-  const inbox = getState().inboxes.jia;
+  const inbox = getState().inboxes["childcare-allowance"];
   check("收件匣有四項述詞", inbox.claims.length === 4);
   check("收件匣不含姓名/地址/戶號/生日", !JSON.stringify(inbox.claims).match(/林小禾|板橋|HH-DEMO|2025-07-15/), JSON.stringify(inbox.claims));
   check("述詞值是是非題", inbox.claims.some((c) => c.value === "true") && inbox.claims.some((c) => c.value === "0-2"));
@@ -195,9 +197,9 @@ section("成對假名");
   signGrant({ grantId: yi, signature: sign(grantOf(yi).serialized, principal.secret), publicKey: pk });
   const r = redeemGrant(yi, makeAgencyProof("yi", yi));
   check("乙匣兌現成功", r.result.ok, JSON.stringify(r.result));
-  const yiRef = getState().inboxes.yi.claims.find((c) => c.claimId === "power.accountRef")!;
+  const yiRef = getState().inboxes["aircon-subsidy"].claims.find((c) => c.claimId === "power.accountRef")!;
   check("乙拿到的是假名不是電號", !yiRef.value.includes("TP-DEMO") && yiRef.value.startsWith("PP-"), yiRef.value);
-  const jiaBlob = JSON.stringify(getState().inboxes.jia);
+  const jiaBlob = JSON.stringify(getState().inboxes["childcare-allowance"]);
   check("甲拿不到同一個代號（無法串接）", !jiaBlob.includes(yiRef.value));
 }
 
@@ -225,7 +227,7 @@ section("竄改：欄位與簽署內容必須一致");
   signGrant({ grantId: jia, signature: sign(grantOf(jia).serialized, principal.secret), publicKey: pk });
   const sigBefore = grantOf(jia).signature;
   const serBefore = grantOf(jia).serialized;
-  const yiInboxBefore = JSON.stringify(getState().inboxes.yi.claims);
+  const yiInboxBefore = JSON.stringify(getState().inboxes["aircon-subsidy"].claims);
   // Repoint the fields every downstream check reads, leaving the signed bytes alone.
   mutate((s) => {
     const g = s.grants.find((x) => x.id === jia)!;
@@ -236,7 +238,7 @@ section("竄改：欄位與簽署內容必須一致");
   check("簽章與待簽 bytes 都沒被動過", grantOf(jia).signature === sigBefore && grantOf(jia).serialized === serBefore);
   const r = redeemGrant(jia, makeAgencyProof("yi", jia));
   check("改了 body 卻沒改簽章 → BAD_SIGNATURE", !r.result.ok && r.result.code === "BAD_SIGNATURE", JSON.stringify(r.result));
-  check("乙的收件匣沒有因此改變", JSON.stringify(getState().inboxes.yi.claims) === yiInboxBefore);
+  check("乙的收件匣沒有因此改變", JSON.stringify(getState().inboxes["aircon-subsidy"].claims) === yiInboxBefore);
 }
 
 section("竄改：憑證的值必須是發證機構簽過的值");
@@ -269,12 +271,23 @@ section("成對假名是有金鑰的");
   const unkeyed = `PP-${b64u(sha256(utf8(`grantonce/pairwise/yi/P-lin-demo`))).slice(0, 16)}`;
   check("不能用無金鑰的雜湊算出來", pairwiseId("P-lin-demo", "yi") !== unkeyed);
   check("兩個機關拿到的仍然不同", pairwiseId("P-lin-demo", "yi") !== pairwiseId("P-lin-demo", "jia"));
-  const delivered = getState().inboxes.yi.claims.find((c) => c.claimId === "power.accountRef");
+  const delivered = getState().inboxes["aircon-subsidy"].claims.find((c) => c.claimId === "power.accountRef");
   check(
     "乙收到的就是這個函式算出來的假名",
     !delivered || delivered.value === pairwiseId(getState().principal.id, "yi"),
     delivered?.value,
   );
+}
+
+section("時間顯示不依賴 ICU");
+{
+  // toLocaleString gave Node and the browser different invisible separators,
+  // which React reported as a hydration mismatch on every timestamp.
+  const iso = "2026-08-29T16:05:09.000Z";
+  check("台北時間換算正確", formatStamp(iso) === "2026/08/30 00:05:09", formatStamp(iso));
+  check("格式完全由 ASCII 與數字組成", /^[0-9/: ]+$/.test(formatStamp(iso)), formatStamp(iso));
+  check("跨月補零", formatDate("2026-01-05T00:00:00.000Z") === "2026/01/05", formatDate("2026-01-05T00:00:00.000Z"));
+  check("同意畫面的有效期用同一個格式", buildDisplayText("childcare-allowance", ["child.ageBand"], iso).includes(formatStamp(iso)));
 }
 
 section("passkey 的來源限制");
@@ -335,7 +348,7 @@ section("每一道防線各自都擋得住");
   });
   const scope = redeemGrant(jia, makeAgencyProof("jia", jia));
   check("委託人簽了超範圍的述詞 → OUTSIDE_PURPOSE", !scope.result.ok && scope.result.code === "OUTSIDE_PURPOSE", JSON.stringify(scope.result));
-  check("超範圍時不交付任何欄位", getState().inboxes.jia.claims.every((c) => c.claimId !== "raw.income.annual"));
+  check("超範圍時不交付任何欄位", getState().inboxes["childcare-allowance"].claims.every((c) => c.claimId !== "raw.income.annual"));
 
   freshProposal();
   resign(yi, () => {});
@@ -524,6 +537,71 @@ section("逾期");
   check("逾期的匣兌現 → EXPIRED（不是 UNSIGNED）", !r.result.ok && r.result.code === "EXPIRED", JSON.stringify(r.result));
   check("逾期的匣不需要再撤銷", Boolean(revokeGrant(yi, "測試").error));
   mutate((s) => proposeGrantsFromPlan(s, matchPrograms(sit)));
+}
+
+section("可組合：登記表加一列就是一個新補助");
+{
+  // The structural invariants that make a purpose self-contained. If any of
+  // these needed hand-maintenance, adding a programme would mean touching code.
+  const slots = PURPOSE_IDS.map((id) => PURPOSES[id].slot);
+  check("每個目的都有唯一的匣編號", new Set(slots).size === slots.length, slots.join(","));
+  check("每個目的都有自己的收件匣", PURPOSE_IDS.every((id) => getState().inboxes[id]));
+  check("每個編號都解得回自己的目的", PURPOSE_IDS.every((id) => purposeOf(PURPOSES[id].slot) === id));
+  check("每個目的都有查證過的個資依據", PURPOSE_IDS.every((id) => PURPOSES[id].privacyBasis.length > 0));
+  check(
+    "沒有任何目的允許不得授權的欄位",
+    PURPOSE_IDS.every((id) => !PURPOSES[id].allowedClaims.some((c) => SPECIAL_CLAIMS.includes(c))),
+  );
+}
+
+section("第三個補助走完全程，並沿用皮夾裡的憑證");
+{
+  resetState();
+  registerPrincipalKey({ publicKey: pk, method: "software" });
+
+  // First application while the child is under two: this is what issues the
+  // one-year parent-child credential.
+  freshProposal();
+  resign(jia, () => {});
+  redeemGrant(jia, makeAgencyProof("jia", jia));
+  check("第一次申請發了憑證", getState().audit.some((a) => a.action === "issue"));
+  const pcBefore = getState().wallet.find((c) => c.claimId === "parentChild.verified")!;
+
+  // Age the child out. The rule engine should now offer the successor programme.
+  // Past the child's second birthday, but inside the 365-day parent-child credential.
+  mutate((s) => { s.clockOffsetDays = 340; });
+  const later = situationFromUtterance("我剛搬家，看我能申請什麼。", effectiveToday(getState()))!;
+  const programs = matchPrograms(later);
+  check("育兒津貼不再成立", !programs.some((p) => p.purpose === "childcare-allowance"));
+  check("改提出未滿 5 歲幼兒托育補助", programs.some((p) => p.purpose === "preschool-subsidy"), programs.map((p) => p.purpose).join(","));
+
+  const bing = PURPOSES["preschool-subsidy"].slot;
+  mutate((s) => proposeGrantsFromPlan(s, programs));
+  resign(bing, () => {});
+  const r = redeemGrant(bing, makeAgencyProof("jia", bing));
+  check("新補助兌現成功", r.result.ok, JSON.stringify(r.result));
+
+  const inbox = getState().inboxes["preschool-subsidy"];
+  check("交付到它自己的收件匣", inbox.claims.length === 3, JSON.stringify(inbox.claims.map((c) => c.claimId)));
+  check("育兒津貼的收件匣沒有被覆蓋", getState().inboxes["childcare-allowance"].claims.length === 4);
+  check("年齡帶已經換成 2-6", inbox.claims.some((c) => c.claimId === "child.ageBand" && c.value === "2-6"), JSON.stringify(inbox.claims.map((c) => c.value)));
+  // The expensive fact — the one a birth certificate takes 3–5 working days to
+  // prove — must be the same credential, not a fresh one. The age band legitimately
+  // is re-derived: its 30-day lifetime lapsed and its value actually changed.
+  const pcAfter = getState().wallet.find((c) => c.claimId === "parentChild.verified")!;
+  check("親子關係是同一張憑證，沒有重新調閱", pcAfter.id === pcBefore.id, `${pcBefore.id} → ${pcAfter.id}`);
+  check("而且它被再次出示", pcAfter.presentedCount > pcBefore.presentedCount, `${pcBefore.presentedCount} → ${pcAfter.presentedCount}`);
+  check("皮夾裡親子關係仍然只有一張", getState().wallet.filter((c) => c.claimId === "parentChild.verified").length === 1);
+  check(
+    "年齡帶則是重新派生的（效期到了、值也變了）",
+    getState().wallet.filter((c) => c.claimId === "child.ageBand").some((c) => c.value === "2-6"),
+  );
+  check("第三個補助也不含任何原始個資", !JSON.stringify(inbox.claims).match(/林小禾|板橋|HH-DEMO|2025-07-15/), JSON.stringify(inbox.claims));
+
+  mutate((s) => { s.clockOffsetDays = 0; });
+  resetState();
+  registerPrincipalKey({ publicKey: pk, method: "software" });
+  freshProposal();
 }
 
 section("動態授權：時間前進");
