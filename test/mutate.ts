@@ -263,6 +263,15 @@ const MUTATIONS: Mutation[] = [
     replace: "  request.checkNotes = [];",
   },
   {
+    // The classifier reports whether a move was described and nothing else.
+    // Taking the whole situation from its branch throws away which benefit was
+    // named, and only shows up with a router configured.
+    label: "模型接手後就忘了你指名哪一項",
+    file: "lib/agent/turn.ts",
+    find: "  const situation = supplied\n    ? { ...fromWords, movedRecently: supplied.movedRecently }",
+    replace: "  const situation = supplied\n    ? { ...DECLARED_SITUATION(today), movedRecently: supplied.movedRecently }",
+  },
+  {
     label: "述詞換回原始欄位",
     file: "lib/purposes.ts",
     find: '      "parentChild.verified",',

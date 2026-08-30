@@ -274,6 +274,39 @@ console.log("\n模型寫的那句話擋得住什麼");
   check("不是字串的丟掉", cleanReply({ text: "x" }) === undefined && cleanReply(null) === undefined);
 }
 
+console.log("\n模型接手之後，指名一項仍然只給一項");
+{
+  // Every other test here runs with no router configured, so the whole
+  // classifier branch went uncovered — and that is the branch that dropped the
+  // narrowing: 「要搞育兒津貼」 came back with 冷氣汰換補助 attached.
+  const withModel = (utterance: string, movedRecently: boolean) => {
+    resetState();
+    return runTurn(getState(), utterance, {
+      today: effectiveToday(getState()),
+      resolved: { intent: "apply", movedRecently },
+    }).programs.map((p) => p.purpose);
+  };
+
+  check(
+    "有模型時指名育兒津貼，不會多給冷氣",
+    withModel("要搞育兒津貼", false).join(",") === "childcare-allowance",
+    withModel("要搞育兒津貼", false).join(","),
+  );
+  check(
+    "有模型時指名冷氣，不會多給育兒津貼",
+    withModel("我要換冷氣的補助", false).join(",") === "aircon-subsidy",
+    withModel("我要換冷氣的補助", false).join(","),
+  );
+
+  // The classifier earns its place by reading a move the patterns cannot; that
+  // must keep working, and a bare move still lists everything.
+  const unseen = withModel("我換了個地方住", true);
+  check("正則看不懂的搬家說法，模型仍然能打開兩項", unseen.length === 2, unseen.join(","));
+
+  const patterned = withModel("我剛搬家，看我能申請什麼。", true);
+  check("一般的搬家問法照樣兩項都列", patterned.length === 2, patterned.join(","));
+}
+
 console.log("\n模型只當「聽懂」那一層");
 {
   // The classifier's output must be able to change which intent runs, and

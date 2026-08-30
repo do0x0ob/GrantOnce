@@ -1,4 +1,5 @@
 import { CardHead } from "@/components/agent/card-head";
+import { DataFlowDiagram } from "@/components/agent/data-flow-diagram";
 import { SURFACE } from "@/components/surface";
 import type { PurposeId } from "@/lib/purposes";
 import { cn } from "@/lib/utils";
@@ -21,18 +22,11 @@ export function ServiceRequirementCard({
     <section className={cn(SURFACE, "space-y-5 px-6 py-5")}>
       <CardHead title="服務回傳的必要資料" sub={`${request.title} · ${request.requesterName}`} />
 
-      <div className="grid gap-4 sm:grid-cols-2">
-        <div>
-          <p className="text-[12px] leading-5 text-stone-400">請求機關</p>
-          <p className="mt-1 text-[14px] leading-6 text-stone-700">{request.requesterName}</p>
-        </div>
-        <div>
-          <p className="text-[12px] leading-5 text-stone-400">資料來源機關</p>
-          <p className="mt-1 text-[14px] leading-6 text-stone-700">
-            {request.dataSources.map((source) => source.name).join("、")}
-          </p>
-        </div>
-      </div>
+      <DataFlowDiagram
+        requesterName={request.requesterName}
+        sourceNames={request.dataSources.map((source) => source.name)}
+        claimCount={request.claims.length}
+      />
 
       <div className="border-t border-stone-900/5 pt-4">
         <p className="text-[12px] leading-5 text-stone-400">本次最小需求</p>

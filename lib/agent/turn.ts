@@ -364,13 +364,17 @@ export function runTurn(state: DemoState, utterance: string, ctx?: TurnContext):
   }
 
   // The classifier reports what was said; the rule engine decides what it means.
-  // When it reported a move, build the situation from that rather than re-running
-  // keyword matching over the same sentence — otherwise the patterns silently
-  // overrule the thing that was brought in to understand phrasings they miss.
-  // The classifier reports what was said; the rule engine decides what it means.
+  //
+  // It reports exactly one thing — whether a move was described — because it is
+  // there to read phrasings the patterns miss. It says nothing about which
+  // benefit was named, so that narrowing still has to come from the words. Taking
+  // the whole situation from the classifier's branch dropped it: with a router
+  // configured, 「要搞育兒津貼」 came back with 冷氣汰換補助 attached, which is the
+  // agent deciding on your behalf what else to authorise.
+  const fromWords = situationFromUtterance(message, today) ?? DECLARED_SITUATION(today);
   const situation = supplied
-    ? { ...DECLARED_SITUATION(today), movedRecently: supplied.movedRecently }
-    : (situationFromUtterance(message, today) ?? DECLARED_SITUATION(today));
+    ? { ...fromWords, movedRecently: supplied.movedRecently }
+    : fromWords;
 
   // Eligibility is judged on facts alone — what this person qualifies for,
   // regardless of which benefit they happened to name. Narrowing comes after,
@@ -427,7 +431,7 @@ export function runTurn(state: DemoState, utterance: string, ctx?: TurnContext):
     {
       text:
         programs.length > 1
-          ? `找到 ${programs.length} 項已登記服務。各服務已回傳本次必要資料；目的與最小範圍檢查通過後，才各自請你簽署。`
+          ? `找到 ${programs.length} 項已登記服務，各自回傳了本次必要資料。你確認哪一項，我才把哪一項送去做目的與法源檢查；現在還沒有任何可簽署的匣。`
           : narrowed && eligible.length > 1
             ? `只準備了${programs[0].title}這一張。你其實也符合${eligible
                 .filter((p) => p.purpose !== programs[0].purpose)
