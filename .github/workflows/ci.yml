@@ -26,6 +26,9 @@ jobs:
       # types that do not exist yet.
       - run: npm run typecheck
       - run: npm run build
+      # Cheapest first: pure crypto, and it is the one suite that checks we
+      # interoperate with something other than ourselves.
+      - run: npm run test:sdjwt
       - run: npm run test:flow
       - run: npm run test:mcp
       - run: npm run test:agent
