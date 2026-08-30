@@ -235,8 +235,8 @@ const MUTATIONS: Mutation[] = [
     // The beat this whole split exists for: discovery must not mint.
     label: "比對完就直接鑄匣（需求與授權又黏回去）",
     file: "lib/agent/turn.ts",
-    find: "  for (const program of programs) {\n    outputs.push({ serviceRequirement: program.purpose });\n  }",
-    replace: "  for (const program of programs) {\n    outputs.push({ serviceRequirement: program.purpose });\n    outputs.push({ grantId: program.grantId });\n  }",
+    find: "      for (const program of chosen) outputs.push({ serviceRequirement: program.purpose });",
+    replace: "      for (const program of chosen) {\n        outputs.push({ serviceRequirement: program.purpose });\n        outputs.push({ grantId: program.grantId });\n      }",
   },
   {
     // Confirming names one thing. Falling back to 「唯一還開著的那項」 after
@@ -321,6 +321,28 @@ const MUTATIONS: Mutation[] = [
     label: "過期憑證重發時把舊的留在皮夾裡",
     file: "lib/wallet.ts",
     find: "  state.wallet = state.wallet.filter(\n    (existing) => !(existing.claimId === claimId && existing.audience === audience),\n  );\n",
+    replace: "",
+  },
+  {
+    // Discovery must not leave records behind for services nobody chose.
+    label: "還沒選就替每個比對到的服務開需求",
+    file: "lib/agent/apply.ts",
+    find: "  if (turn.opens.length) openServiceRequests(state, turn.opens);",
+    replace: "  openServiceRequests(state, turn.opens.length ? turn.opens : turn.programs);",
+  },
+  {
+    // The plan is the described situation, not the narrow pick that follows it.
+    label: "選了一項就把當初描述的情境覆蓋掉",
+    file: "lib/agent/apply.ts",
+    find: "  if (turn.programs.length && !turn.opens.length) {",
+    replace: "  if (turn.programs.length) {",
+  },
+  {
+    // A button has to route where it says it goes. 「先不要辦育兒津貼」 matched the
+    // apply pattern on 「津貼」 and quietly restarted discovery.
+    label: "婉拒被 apply 的正則吃掉，變成重新比對",
+    file: "lib/agent/turn.ts",
+    find: '  ["decline", /先不要|不要辦|不想辦|算了|不用了|拒絕/],\n',
     replace: "",
   },
   {

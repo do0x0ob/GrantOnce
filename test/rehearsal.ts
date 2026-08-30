@@ -51,6 +51,9 @@ type View = {
     grantId: string | null;
     confirmedAt: string | null;
     checkNotes: string[];
+    claims: { claimId: string; label: string; shape: string }[];
+    alreadyHeld: { claimId: string; label: string }[];
+    ceilingCount: number;
   }[];
   inboxes: Record<
     string,
@@ -132,7 +135,11 @@ async function applyAndConfirm(offsetDays = 0) {
   // not there.
   if (offsetDays) await post("/api/clock", { offsetDays });
   await post("/api/chat", { message: "我剛搬家，看我能申請什麼。" });
+  // Picking the service is its own beat; typed here rather than clicked, so the
+  // wording is not the only thing that reaches it.
+  await post("/api/chat", { message: "我要辦育兒津貼" });
   await post("/api/chat", { message: "確認育兒津貼的資料需求" });
+  await post("/api/chat", { message: "我要辦住宅冷氣汰換補助" });
   await post("/api/chat", { message: "確認住宅冷氣汰換補助的資料需求" });
 }
 
@@ -149,30 +156,39 @@ async function main() {
     );
   }
 
-  say("STEP 2 - the services state what they need; nothing is minted yet");
+  say("STEP 2 - discovery lists what is on offer and creates nothing");
   {
     const { view } = await post("/api/chat", { message: "我剛搬家，看我能申請什麼。" });
-    check("two service requirements", view.serviceRequests.length === 2, "got " + view.serviceRequests.length);
-    check(
-      "all of them waiting on the person, not on a signature",
-      view.serviceRequests.every((r) => r.status === "awaiting-confirmation"),
-      JSON.stringify(view.serviceRequests.map((r) => r.status)),
-    );
-    // The point of the beat: a requirement is not an authorisation, so there is
-    // nothing signable in the store for a service nobody has agreed to yet.
+    // Merely asking must not leave records behind for services nobody chose.
+    check("no service requirement yet", view.serviceRequests.length === 0, "got " + view.serviceRequests.length);
     check("no capsule exists yet", view.grants.length === 0, "got " + view.grants.length);
-    check("no requirement carries a capsule", view.serviceRequests.every((r) => r.grantId === null));
   }
 
-  say("STEP 2b - the person confirms each service; only then does the check run and a capsule appear");
+  say("STEP 2a - picking one asks that agency, and only that agency, what it needs");
+  {
+    const { view } = await post("/api/chat", { message: "我要辦育兒津貼" });
+    check("one requirement, for the service picked", view.serviceRequests.length === 1, "got " + view.serviceRequests.length);
+    check("it is 育兒津貼", view.serviceRequests[0]?.purpose === "childcare-allowance");
+    check(
+      "waiting on the person, not on a signature",
+      view.serviceRequests[0]?.status === "awaiting-confirmation",
+      view.serviceRequests[0]?.status,
+    );
+    // A requirement is not an authorisation: nothing signable exists yet.
+    check("still no capsule", view.grants.length === 0, "got " + view.grants.length);
+    check("the requirement carries no capsule", view.serviceRequests[0]?.grantId === null);
+  }
+
+  say("STEP 2b - confirming runs the check and mints; the other service is untouched");
   {
     const first = await post("/api/chat", { message: "確認育兒津貼的資料需求" });
     check("confirming one mints one", first.view.grants.length === 1, "got " + first.view.grants.length);
     check(
-      "the other service is still only a requirement",
-      first.view.serviceRequests.some((r) => r.status === "awaiting-confirmation" && r.grantId === null),
+      "nothing was created for the service not picked",
+      !first.view.serviceRequests.some((r) => r.purpose === "aircon-subsidy"),
     );
 
+    await post("/api/chat", { message: "我要辦住宅冷氣汰換補助" });
     const { view } = await post("/api/chat", { message: "確認住宅冷氣汰換補助的資料需求" });
     check("two capsules", view.grants.length === 2, "got " + view.grants.length);
     check("both awaiting signature", view.grants.every((g) => g.status === "proposed"));

@@ -30,7 +30,7 @@ export function ProgramPickerCard({
             key={option.purpose}
             type="button"
             disabled={busy}
-            onClick={() => onPick(option.title)}
+            onClick={() => onPick(option.utterance)}
             className="rounded-[20px] bg-white/70 px-4 py-3 text-left transition-transform hover:-translate-y-0.5 disabled:opacity-40"
           >
             <span className="block text-[14px] leading-6 text-stone-900">{option.title}</span>

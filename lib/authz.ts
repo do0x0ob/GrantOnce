@@ -249,6 +249,7 @@ export function openServiceRequests(state: DemoState, programs: ProgramPlan[]): 
       checkNotes: [],
       requestedAt: now.toISOString(),
       confirmedAt: null,
+      declinedAt: null,
       authorizedAt: null,
       deliveredAt: null,
       processingAt: null,
@@ -272,6 +273,33 @@ export function openServiceRequests(state: DemoState, programs: ProgramPlan[]): 
     });
   }
   return opened;
+}
+
+/**
+ * The person read what the service wanted and said no.
+ *
+ * Nothing was minted, so there is nothing to revoke — this is a refusal at the
+ * requirement stage, which is why it gets its own status rather than joining the
+ * three unrelated meanings already piled into `cancelled`.
+ */
+export function declineServiceRequest(
+  state: DemoState,
+  requestId: string,
+): ServiceRequest | null {
+  const request = state.serviceRequests.find((item) => item.id === requestId);
+  if (!request || request.status !== "awaiting-confirmation") return null;
+
+  request.status = "declined";
+  request.declinedAt = nowIso();
+  appendAudit(state, {
+    actor: "委託人",
+    actorRole: "principal",
+    action: "deny",
+    grantId: null,
+    detail: `看過「${request.title}」的資料需求後婉拒。沒有鑄出任何授權匣，也沒有任何述詞離開金庫。`,
+    risk: "low",
+  });
+  return request;
 }
 
 /**

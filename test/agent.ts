@@ -16,11 +16,16 @@ import {
 } from "../lib/agent/intent";
 import { shouldResearch } from "../lib/agent/intent";
 import { agentSkillsPrompt, loadAgentSkills } from "../lib/agent/skills";
-import { runTurn } from "../lib/agent/turn";
+import { applyTurn } from "../lib/agent/apply";
+import { patternIntent, runTurn } from "../lib/agent/turn";
 import { evaluateInquiry } from "../lib/inquiry";
 import { effectiveToday, HAPPY_PATH_UTTERANCE, matchPrograms, situationFromUtterance } from "../lib/rules";
 import { isRelevantProgramTitle } from "../lib/research";
-import { confirmServiceRequest, openServiceRequests, proposeGrantsFromPlan } from "../lib/authz";
+import {
+  confirmServiceRequest,
+  declineServiceRequest,
+  proposeGrantsFromPlan,
+} from "../lib/authz";
 import { PURPOSES } from "../lib/purposes";
 import { getState, mutate, resetState } from "../lib/store";
 
@@ -69,28 +74,67 @@ console.log("\n聽不懂的時候給得出下一步");
   }
 }
 
-console.log("\n第一拍只到服務需求，不給簽署卡");
+console.log("\n第一拍只回服務名單，什麼都不建立");
 {
-  // The beat that used to be missing. Discovery states what each service needs;
-  // nothing is minted and nothing is signable until the person says yes.
+  // Discovery used to open a requirement for everything it matched and render a
+  // card per programme, so merely asking left records behind for services nobody
+  // chose and the first reply was a wall of decisions not yet made.
+  resetState();
   const turn = runTurn(getState(), "我剛搬家，看我能申請什麼。");
-  mutate((s) => openServiceRequests(s, turn.programs));
   const blocks = toBlocks(turn.outputs);
-  const requirementCards = blocks.filter((b) => b.kind === "serviceRequirement");
-  const statusCards = blocks.filter((b) => b.kind === "applicationStatus");
-  check("服務需求卡數量等於申請案數量", requirementCards.length === turn.programs.length);
-  check("這一拍沒有簽署卡", !kinds(blocks).includes("signGrant"), kinds(blocks).join(","));
-  check("這一拍沒有法源檢查卡", !kinds(blocks).includes("legalCheck"), kinds(blocks).join(","));
-  check("這一拍一張匣都沒鑄", getState().grants.length === 0, String(getState().grants.length));
+  check("有服務名單可以選", kinds(blocks).includes("programPicker"), kinds(blocks).join(","));
+  check("這一拍沒有需求卡", !kinds(blocks).includes("serviceRequirement"), kinds(blocks).join(","));
+  check("這一拍沒有法源檢查卡", !kinds(blocks).includes("legalCheck"));
+  check("這一拍沒有簽署卡", !kinds(blocks).includes("signGrant"));
+  check("比對結果卡在名單前面", kinds(blocks).indexOf("eligibility") < kinds(blocks).indexOf("programPicker"));
+
+  check("這一拍不開任何需求", turn.opens.length === 0);
+  mutate((s) => applyTurn(s, "我剛搬家，看我能申請什麼。", turn));
+  check("state 裡沒有任何服務需求", getState().serviceRequests.length === 0, String(getState().serviceRequests.length));
+  check("一張匣都沒鑄", getState().grants.length === 0);
+  check("記住的是當初描述的情境", getState().plan?.utterance === "我剛搬家，看我能申請什麼。", getState().plan?.utterance ?? "");
+
+  // The buttons have to route where they say they go. 「先不要辦育兒津貼」 used to
+  // match the apply pattern on 「津貼」 and silently restart discovery.
+  const picker = blocks.find((b) => b.kind === "programPicker");
   check(
-    "需求全部停在等待確認",
-    getState().serviceRequests.every((r) => r.status === "awaiting-confirmation" && r.grantId === null),
+    "名單上每個選項都送得到 request 那一拍",
+    picker?.kind === "programPicker" &&
+      picker.payload.options.every((o) => patternIntent(o.utterance) === "request"),
+    picker?.kind === "programPicker" ? picker.payload.options.map((o) => o.utterance).join(" | ") : "",
   );
-  check("進度卡數量等於申請案數量", statusCards.length === turn.programs.length);
-  check("比對結果卡在需求卡前面", kinds(blocks).indexOf("eligibility") < kinds(blocks).indexOf("serviceRequirement"));
-  check("需求卡後面給得出確認的方法", kinds(blocks).indexOf("suggestions") > kinds(blocks).indexOf("serviceRequirement"));
-  check("需求卡只帶 purpose id，不夾帶資料值", requirementCards.every((block) =>
-    block.kind === "serviceRequirement" && Object.keys(block).sort().join(",") === "kind,purpose"));
+}
+
+console.log("\n選了服務，才去要需求");
+{
+  const turn = runTurn(getState(), "向新北市政府社會局提出育兒津貼的辦理申請");
+  const blocks = toBlocks(turn.outputs);
+  check("只開被選的那一項", turn.opens.length === 1 && turn.opens[0].purpose === "childcare-allowance");
+  check("這一拍才出現需求卡", kinds(blocks).includes("serviceRequirement"), kinds(blocks).join(","));
+  check("仍然沒有簽署卡", !kinds(blocks).includes("signGrant"), kinds(blocks).join(","));
+
+  mutate((s) => applyTurn(s, "向新北市政府社會局提出育兒津貼的辦理申請", turn));
+  check("只建立了一筆需求", getState().serviceRequests.length === 1);
+  // The plan is the described situation; the pick must not overwrite it, or the
+  // watch loop re-derives a situation containing only the benefit just chosen.
+  check(
+    "選一項不會覆蓋當初描述的情境",
+    getState().plan?.utterance === "我剛搬家，看我能申請什麼。",
+    getState().plan?.utterance ?? "",
+  );
+  check("需求停在等待確認且沒有匣", getState().serviceRequests.every((r) => r.status === "awaiting-confirmation" && r.grantId === null));
+  check("這一拍仍然一張匣都沒鑄", getState().grants.length === 0);
+
+  const chips = blocks.find((b) => b.kind === "suggestions");
+  check(
+    "接受與婉拒都送得到自己那一拍",
+    chips?.kind === "suggestions" &&
+      chips.payload.options.some((o) => patternIntent(o.utterance) === "confirm") &&
+      chips.payload.options.some((o) => patternIntent(o.utterance) === "decline"),
+    chips?.kind === "suggestions" ? chips.payload.options.map((o) => `${o.utterance}→${patternIntent(o.utterance)}`).join(" | ") : "",
+  );
+  check("需求卡只帶 purpose id，不夾帶資料值", blocks.filter((b) => b.kind === "serviceRequirement").every((block) =>
+    Object.keys(block).sort().join(",") === "kind,purpose"));
 }
 
 console.log("\n確認之後才檢查法源，才鑄匣");
@@ -110,8 +154,9 @@ console.log("\n確認之後才檢查法源，才鑄匣");
   );
   check("只鑄了被確認的那一張匣", getState().grants.length === 1, String(getState().grants.length));
   check(
-    "沒被確認的需求仍然沒有匣",
-    getState().serviceRequests.some((r) => r.status === "awaiting-confirmation" && r.grantId === null),
+    "沒被選的服務連需求都沒有",
+    !getState().serviceRequests.some((r) => r.purpose === "aircon-subsidy"),
+    getState().serviceRequests.map((r) => r.purpose).join(","),
   );
   check("法源檢查卡也只帶 purpose id", blocks.filter((b) => b.kind === "legalCheck").every((block) =>
     Object.keys(block).sort().join(",") === "kind,purpose"));
@@ -129,11 +174,40 @@ console.log("\n確認之後才檢查法源，才鑄匣");
   check("確認的時間有留下", Boolean(confirmed.confirmedAt));
 }
 
+console.log("\n婉拒就停在那裡");
+{
+  const opened = runTurn(getState(), "向新北市政府社會局提出育兒津貼的辦理申請");
+  mutate((s) => applyTurn(s, "向新北市政府社會局提出育兒津貼的辦理申請", opened));
+  const before = getState().grants.length;
+  const turn = runTurn(getState(), "先不要辦育兒津貼");
+  check("婉拒的是那一筆需求", turn.declines.length === 1);
+  check("婉拒不會開新需求，也不會鑄匣", turn.opens.length === 0 && turn.confirms.length === 0);
+  mutate((s) => {
+    for (const id of turn.declines) declineServiceRequest(s, id);
+  });
+  check(
+    "被婉拒的那一筆標成 declined",
+    getState().serviceRequests.filter((r) => r.declinedAt).length === 1,
+  );
+  check("沒有鑄出任何匣", getState().grants.length === before);
+  check("稽核留下婉拒紀錄", getState().audit.some((a) => a.detail.includes("婉拒")));
+}
+
 console.log("\n指名一項已經簽掉的，不會順手確認別的");
 {
   // The fallback to 「唯一一項」 must not apply once something was named: saying
   // 確認育兒津貼 twice used to confirm 冷氣汰換補助 instead, which is exactly the
   // handed-a-capsule-you-did-not-name failure this whole design is against.
+  // Two requirements have to be open for the fallback to have anything wrong to
+  // reach for; picking a second service is how that happens now.
+  const second = runTurn(getState(), "我要辦住宅冷氣汰換補助");
+  mutate((s) => applyTurn(s, "我要辦住宅冷氣汰換補助", second));
+  check(
+    "冷氣的需求已開，且是唯一還等確認的",
+    getState().serviceRequests.filter((r) => r.status === "awaiting-confirmation").length === 1,
+    getState().serviceRequests.map((r) => `${r.purpose}:${r.status}`).join(","),
+  );
+
   const before = getState().grants.length;
   const again = runTurn(getState(), "確認育兒津貼的資料需求");
   check("重複確認不會再鑄任何匣", again.confirms.length === 0, again.confirms.join(","));
@@ -349,7 +423,7 @@ console.log("\n模型只當「聽懂」那一層");
     resolved: { intent: "apply", movedRecently: true },
   });
   const blocks = toBlocks(forced.outputs);
-  check("模型可以決定走哪個意圖", kinds(blocks).includes("serviceRequirement"), kinds(blocks).join(","));
+  check("模型可以決定走哪個意圖", kinds(blocks).includes("programPicker"), kinds(blocks).join(","));
   check(
     "但述詞仍然只來自目的登記表",
     forced.programs.every((p) =>

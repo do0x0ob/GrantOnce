@@ -17,6 +17,7 @@ export const GRANT_STATUS_LABEL: Record<GrantStatus, string> = {
 export const SERVICE_REQUEST_LABEL: Record<ServiceRequestStatus, string> = {
   "awaiting-confirmation": "等你確認",
   "awaiting-signature": "已通過檢查 · 待你簽署",
+  declined: "你婉拒了這次索取",
   authorized: "已簽署 · 待機關兌現",
   "data-delivered": "資料已交付辦理機關",
   processing: "機關辦理中",

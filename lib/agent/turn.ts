@@ -44,6 +44,17 @@ export type TurnResult = {
    * side effects.
    */
   confirms: string[];
+  /** Requirement ids the person just refused. */
+  declines: string[];
+  /**
+   * Purposes the person just asked to apply for, so the caller opens a service
+   * requirement for them.
+   *
+   * Discovery no longer does this. Matching used to open a requirement for every
+   * programme it found, which meant browsing left records behind for services
+   * nobody chose.
+   */
+  opens: ProgramPlan[];
 };
 
 /** Vault groups the matched programmes deliberately never ask for. */
@@ -66,15 +77,36 @@ function withheldFrom(programs: ProgramPlan[]): string[] {
  * undercut it. The cost is that the vocabulary is finite — which is why an
  * unrecognised question answers with buttons instead of an apology.
  */
-export type Intent = "apply" | "confirm" | "status" | "audit" | "privacy" | "revoke" | "help";
+export type Intent =
+  | "apply"
+  | "request"
+  | "confirm"
+  | "decline"
+  | "status"
+  | "audit"
+  | "privacy"
+  | "revoke"
+  | "help";
 
-const INTENT_VALUES: Intent[] = ["apply", "confirm", "status", "audit", "privacy", "revoke", "help"];
+const INTENT_VALUES: Intent[] = [
+  "apply",
+  "request",
+  "confirm",
+  "decline",
+  "status",
+  "audit",
+  "privacy",
+  "revoke",
+  "help",
+];
 
 const INTENT_PATTERNS: [Intent, RegExp][] = [
   ["status", /進度|到哪|辦得?怎麼樣|狀態|審核|送出了嗎|好了沒/],
   ["audit", /誰.*(拿|取|看|調)|稽核|紀錄|軌跡|查詢紀錄/],
   ["privacy", /所得|隱私|會拿到什麼|給什麼|哪些資料|個資|安全|健保/],
   ["revoke", /撤銷|取消|停止|不要了|收回/],
+  ["decline", /先不要|不要辦|不想辦|算了|不用了|拒絕/],
+  ["request", /提出.{0,10}辦理申請|索取需求|我要辦|幫我辦|就辦這/],
   ["confirm", /確認|同意這|就這樣|繼續|好，?(請|幫)?(繼續|準備|給我)|準備簽署|要簽/],
   ["apply", /搬家|遷徙|剛搬|搬到|遷入|申請|補助|津貼|能申|可以申|辦什麼/],
   ["help", /你是誰|你叫什麼|你是什麼|你會|能做什麼|怎麼用|說明|幫助|help/],
@@ -202,6 +234,8 @@ export function runTurn(state: DemoState, utterance: string, ctx?: TurnContext):
       programs: [],
       matched: true,
       confirms: [],
+      declines: [],
+      opens: [],
       outputs: [
         ...researchLead,
         { text: fallback },
@@ -215,6 +249,8 @@ export function runTurn(state: DemoState, utterance: string, ctx?: TurnContext):
       programs: [],
       matched: true,
       confirms: [],
+      declines: [],
+      opens: [],
       outputs: [
         ...lead,
         {
@@ -231,6 +267,8 @@ export function runTurn(state: DemoState, utterance: string, ctx?: TurnContext):
       programs: [],
       matched: true,
       confirms: [],
+      declines: [],
+      opens: [],
       outputs: [
         ...lead,
         { text: "每一次核准、發證、兌現、送件與拒絕都留了紀錄。稽核只記動作，不含金庫值。" },
@@ -247,6 +285,8 @@ export function runTurn(state: DemoState, utterance: string, ctx?: TurnContext):
         programs: [],
         matched: true,
         confirms: [],
+        declines: [],
+        opens: [],
         outputs: [
           { text: "目前還沒有任何申請案。先跟我說你的情況，我才知道要比對什麼。" },
           { suggestions: MENU.suggestions },
@@ -257,6 +297,8 @@ export function runTurn(state: DemoState, utterance: string, ctx?: TurnContext):
       programs: [],
       matched: true,
       confirms: [],
+      declines: [],
+      opens: [],
       outputs: [
         ...lead,
         { text: "目前的進度如下。送件之後的階段本演示沒有接真實機關，不會亮起。" },
@@ -270,6 +312,8 @@ export function runTurn(state: DemoState, utterance: string, ctx?: TurnContext):
       programs: [],
       matched: true,
       confirms: [],
+      declines: [],
+      opens: [],
       outputs: [
         ...lead,
         {
@@ -293,6 +337,8 @@ export function runTurn(state: DemoState, utterance: string, ctx?: TurnContext):
         programs: [],
         matched: true,
         confirms: [],
+        declines: [],
+        opens: [],
         outputs: [
           ...lead,
           { text: "目前沒有等你確認的服務需求。要先看看你符合哪些補助嗎？" },
@@ -321,6 +367,8 @@ export function runTurn(state: DemoState, utterance: string, ctx?: TurnContext):
         programs: [],
         matched: true,
         confirms: [],
+        declines: [],
+        opens: [],
         outputs: [
           ...lead,
           { text: `這一項不在等待確認的狀態。\n\n${already.join("\n")}` },
@@ -334,6 +382,8 @@ export function runTurn(state: DemoState, utterance: string, ctx?: TurnContext):
         programs: [],
         matched: true,
         confirms: [],
+        declines: [],
+        opens: [],
         outputs: [
           ...lead,
           { text: `有 ${pending.length} 項需求在等你確認。要先送哪一項去做目的與法源檢查？` },
@@ -362,7 +412,7 @@ export function runTurn(state: DemoState, utterance: string, ctx?: TurnContext):
     for (const request of chosen) outputs.push({ grantId: PURPOSES[request.purpose].slot });
     for (const request of chosen) outputs.push({ purpose: request.purpose });
 
-    return { programs: [], matched: true, confirms: chosen.map((r) => r.id), outputs };
+    return { programs: [], matched: true, confirms: chosen.map((r) => r.id), declines: [], opens: [], outputs };
   }
 
   if (intent === "help" || intent === null) {
@@ -370,6 +420,8 @@ export function runTurn(state: DemoState, utterance: string, ctx?: TurnContext):
       programs: [],
       matched: false,
       confirms: [],
+      declines: [],
+      opens: [],
       outputs: [
         ...lead,
         {
@@ -433,6 +485,8 @@ export function runTurn(state: DemoState, utterance: string, ctx?: TurnContext):
       programs: [],
       matched: true,
       confirms: [],
+      declines: [],
+      opens: [],
       outputs: [
         ...lead,
         {
@@ -454,6 +508,8 @@ export function runTurn(state: DemoState, utterance: string, ctx?: TurnContext):
       programs: [],
       matched: true,
       confirms: [],
+      declines: [],
+      opens: [],
       outputs: [
         ...lead,
         {
@@ -475,6 +531,8 @@ export function runTurn(state: DemoState, utterance: string, ctx?: TurnContext):
       programs: [],
       matched: true,
       confirms: [],
+      declines: [],
+      opens: [],
       outputs: [
         ...lead,
         {
@@ -492,54 +550,119 @@ export function runTurn(state: DemoState, utterance: string, ctx?: TurnContext):
       programs,
       matched: true,
       confirms: [],
+      declines: [],
+      opens: [],
       outputs: [...lead, { text: `目前沒有符合的補助。${hint}` }, { suggestions: MENU.suggestions }],
     };
   }
 
+  // Refusing at the requirement stage. Nothing was minted, so this is not a
+  // revocation — and the button that offers it has to actually do it: sending
+  // 「先不要辦育兒津貼」 matched the apply pattern on 「津貼」 and quietly restarted
+  // discovery instead.
+  if (intent === "decline") {
+    const open = state.serviceRequests.filter((r) => r.status === "awaiting-confirmation");
+    const named = open.filter((r) => message.includes(r.title));
+    const refused = named.length ? named : open.length === 1 ? open : [];
+
+    return {
+      programs: [],
+      matched: true,
+      confirms: [],
+      declines: refused.map((r) => r.id),
+      opens: [],
+      outputs: [
+        ...lead,
+        {
+          text: refused.length
+            ? `好，${refused
+                .map((r) => `「${r.title}」`)
+                .join("、")}就停在這裡。沒有鑄出任何匣，也沒有任何述詞離開金庫。要辦的時候再跟我說。`
+            : "目前沒有等你決定的資料需求。",
+        },
+        { suggestions: MENU.suggestions },
+      ],
+    };
+  }
+
+  // The person picked a service. Only now is that agency asked what it needs,
+  // and only now does a requirement record exist for it.
+  if (intent === "request") {
+    const asked = programs.filter((program) => message.includes(program.title));
+    const chosen = asked.length ? asked : programs.length === 1 ? programs : [];
+
+    if (chosen.length) {
+      const outputs: unknown[] = [
+        ...lead,
+        {
+          text: chosen
+            .map(
+              (program) =>
+                `已向${program.agencyName.replace(/^[甲乙丙]｜/, "")}提出「${
+                  program.title
+                }」的辦理申請。它依登記的服務規格回覆本次必要資料：`,
+            )
+            .join("\n\n"),
+        },
+      ];
+      for (const program of chosen) outputs.push({ serviceRequirement: program.purpose });
+      outputs.push({
+        question: "看過之後，要把它送去做目的與法源檢查嗎？",
+        suggestions: [
+          ...chosen.map((program) => ({
+            label: `確認「${program.title}」的資料需求`,
+            utterance: `確認${program.title}的資料需求`,
+          })),
+          ...chosen.map((program) => ({
+            label: `先不要辦${program.title}`,
+            utterance: `先不要辦${program.title}`,
+          })),
+        ],
+      });
+      for (const program of chosen) outputs.push({ purpose: program.purpose });
+
+      return { programs: chosen, matched: true, confirms: [], declines: [], opens: chosen, outputs };
+    }
+    // Nothing recognisable was picked; fall through and list what is on offer.
+  }
+
+  // Discovery ends at the list. What each service needs is not asked until the
+  // person picks one — matching used to open a requirement for every programme
+  // it found, so merely browsing left records behind for services nobody chose,
+  // and the first reply was a wall of cards for decisions not yet made.
   const outputs: unknown[] = [
     ...lead,
     {
       text:
         programs.length > 1
-          ? `找到 ${programs.length} 項已登記服務，各自回傳了本次必要資料。你確認哪一項，我才把哪一項送去做目的與法源檢查；現在還沒有任何可簽署的匣。`
+          ? `你目前符合 ${programs.length} 項已登記服務。要辦哪一項？選了我才去跟該機關要「這次需要什麼資料」。`
           : narrowed && eligible.length > 1
-            ? `只準備了${programs[0].title}這一張。你其實也符合${eligible
+            ? `你符合${programs[0].title}。你其實也符合${eligible
                 .filter((p) => p.purpose !== programs[0].purpose)
                 .map((p) => p.title)
                 .join("、")}，但你沒提，我就不會替你要。`
-            : "找到 1 項已登記服務。服務已回傳本次必要資料，現在等你確認。",
+            : `你目前符合${programs[0].title}。要辦的話我才去跟${programs[0].agencyName.replace(
+                /^[甲乙丙]｜/,
+                "",
+              )}要「這次需要什麼資料」。`,
     },
     {
       reasons: programs.flatMap((p) => [`${p.title}：${p.reasons.join("；")}`]),
       withheld: withheldFrom(programs),
       ageHint: hint,
     },
+    {
+      question: programs.length > 1 ? "要辦哪一項？" : "要辦這一項嗎？",
+      options: programs.map((program) => ({
+        purpose: program.purpose,
+        title: program.title,
+        detail: `${program.agencyName.replace(/^[甲乙丙]｜/, "")}　${program.reasons[0]}`,
+        utterance: `向${program.agencyName.replace(/^[甲乙丙]｜/, "")}提出${program.title}的辦理申請`,
+      })),
+    },
   ];
 
-  // The turn stops at the requirement. Nothing is minted and nothing is
-  // signable until the person says yes — that confirmation is stage 2, and
-  // fusing it with the signing card is what made the flow feel back to front.
-  for (const program of programs) {
-    outputs.push({ serviceRequirement: program.purpose });
-  }
-
-  outputs.push({
-    question:
-      programs.length > 1
-        ? "要我把哪一項送去做目的與法源檢查？"
-        : "要送去做目的與法源檢查嗎？",
-    suggestions: programs.map((program) => ({
-      label: `確認「${program.title}」的資料需求`,
-      utterance: `確認${program.title}的資料需求`,
-    })),
-  });
-
-  // Where each application currently stands, once there is something to stand.
-  for (const program of programs) {
-    outputs.push({ purpose: program.purpose });
-  }
-
-  return { programs, matched: true, outputs, confirms: [] };
+  return { programs, matched: true, outputs, confirms: [], declines: [], opens: [] };
 }
 
 /** Convenience for callers that want blocks directly. */

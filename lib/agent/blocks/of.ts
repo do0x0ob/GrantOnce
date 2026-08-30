@@ -95,10 +95,12 @@ export function programPickerOf(o: unknown): ProgramPickerPayload | null {
       const e = asObj(entry);
       const purpose = str(e?.purpose);
       if (!purpose || !isPurposeId(purpose)) return null;
+      const title = str(e?.title) ?? PURPOSES[purpose].title;
       return {
         purpose,
-        title: str(e?.title) ?? PURPOSES[purpose].title,
+        title,
         detail: str(e?.detail) ?? PURPOSES[purpose].necessity,
+        utterance: str(e?.utterance) ?? title,
       };
     })
     .filter((x): x is ProgramPickerPayload["options"][number] => x !== null);

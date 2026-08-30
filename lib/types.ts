@@ -245,6 +245,13 @@ export type ServiceRequestStatus =
    */
   | "awaiting-confirmation"
   | "awaiting-signature"
+  /**
+   * The person read the requirement and said no. Distinct from `cancelled`,
+   * which already covers three unrelated things — a newer request superseding an
+   * older one, a capsule being revoked, and the delegation being stopped — so
+   * folding a refusal into it would lose who refused and at which stage.
+   */
+  | "declined"
   | "authorized"
   | "data-delivered"
   | "processing"
@@ -275,6 +282,7 @@ export type ServiceRequest = {
   checkNotes: string[];
   requestedAt: string;
   confirmedAt: string | null;
+  declinedAt: string | null;
   authorizedAt: string | null;
   deliveredAt: string | null;
   processingAt: string | null;

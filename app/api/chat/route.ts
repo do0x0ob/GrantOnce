@@ -7,7 +7,7 @@ import {
   shouldResearch,
 } from "@/lib/agent/intent";
 import { runTurn } from "@/lib/agent/turn";
-import { confirmServiceRequest, openServiceRequests } from "@/lib/authz";
+import { applyTurn } from "@/lib/agent/apply";
 import { researchWorld } from "@/lib/research";
 import { effectiveToday } from "@/lib/rules";
 import { appendChat, getState, mutate } from "@/lib/store";
@@ -38,15 +38,10 @@ export async function POST(request: Request) {
     // assembled, so a card always names something that already exists.
     const turn = runTurn(s, message, { today: effectiveToday(s), world, resolved });
 
-    // Stage 2: the matched services state what they need. No capsule yet.
-    if (turn.programs.length) {
-      s.plan = { utterance: message, matchedAt: new Date().toISOString() };
-      openServiceRequests(s, turn.programs);
-    }
-
-    // Stages 3–4: only now, and only for what the person confirmed, does the
-    // registry and 個資法 check run and a signable capsule appear.
-    for (const requestId of turn.confirms) confirmServiceRequest(s, requestId);
+    // A requirement is opened only for a service the person actually picked.
+    // Opening one for everything that matched left records behind for services
+    // nobody chose, and made the first reply a wall of cards.
+    applyTurn(s, message, turn);
 
     const blocks = toBlocks(turn.outputs);
     const text = blocks

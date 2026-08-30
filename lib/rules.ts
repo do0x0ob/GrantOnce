@@ -85,7 +85,7 @@ export function situationFromUtterance(
  * A claim ages out on its own `ttlDays`, so a stale copy is re-requested rather
  * than silently relied on.
  */
-export function stillNeeded(
+function stillNeeded(
   state: DemoState,
   purpose: PurposeId,
   ceiling: ClaimId[],
