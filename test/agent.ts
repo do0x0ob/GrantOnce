@@ -173,6 +173,26 @@ console.log("\n確認之後才檢查法源，才鑄匣");
     confirmed.checkNotes.join("|"),
   );
   check("確認的時間有留下", Boolean(confirmed.confirmedAt));
+
+  // Signing used to be where the thread stopped: the capsule was signed and the
+  // conversation had nothing more to offer, so the next two steps only existed
+  // on another tab.
+  const deliverCards = blocks.filter((b) => b.kind === "deliver");
+  check("同一拍就給了交付卡", deliverCards.length === 1, kinds(blocks).join(","));
+  check(
+    "交付卡排在簽署卡後面",
+    kinds(blocks).indexOf("signGrant") < kinds(blocks).indexOf("deliver"),
+    kinds(blocks).join(","),
+  );
+  check(
+    "交付卡也只帶 id，不帶快照",
+    deliverCards.every((b) => Object.keys(b).sort().join(",") === "grantId,kind"),
+    JSON.stringify(deliverCards),
+  );
+  check(
+    "交付卡指向的就是剛鑄出來的那張匣",
+    deliverCards.every((b) => b.kind === "deliver" && b.grantId === signCards[0].grantId),
+  );
 }
 
 console.log("\n婉拒就停在那裡");

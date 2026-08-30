@@ -410,6 +410,11 @@ export function runTurn(state: DemoState, utterance: string, ctx?: TurnContext):
     ];
     for (const request of chosen) outputs.push({ legalCheck: request.purpose });
     for (const request of chosen) outputs.push({ grantId: PURPOSES[request.purpose].slot });
+    // Emitted now, not after signing: the card names the capsule and reads its
+    // live status, so it sits inert under the signature panel until there is
+    // something to deliver. Waiting for a second turn would mean the thread
+    // simply ends at 「已簽署」, which is where the demo used to lose people.
+    for (const request of chosen) outputs.push({ deliver: PURPOSES[request.purpose].slot });
     for (const request of chosen) outputs.push({ purpose: request.purpose });
 
     return { programs: [], matched: true, confirms: chosen.map((r) => r.id), declines: [], opens: [], outputs };

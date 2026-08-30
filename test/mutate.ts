@@ -494,6 +494,28 @@ const MUTATIONS: Mutation[] = [
     find: '    if (response.status === 400) return { status: "pending" };',
     replace: '    if (response.status === 400) return { status: "failed", reason: "HTTP 400" };',
   },
+  {
+    // The status order lived in two places and the copy stopped at "submitted",
+    // so everything past it read as -1 and got knocked backwards every tick.
+    label: "申辦進度改用另一份寫死的狀態順序",
+    file: "lib/store.ts",
+    find: "    const reachedAt = APPLICATION_STATUSES.indexOf(reached);\n    if (APPLICATION_STATUSES.indexOf(inbox.applicationStatus) < reachedAt) {",
+    replace: '    const order = ["none", "received", "submitted"];\n    if (order.indexOf(inbox.applicationStatus) < order.indexOf(reached)) {',
+  },
+  {
+    // Without this the thread ends at 「已簽署」 and the last two steps live only
+    // on another tab — which is where the demo used to lose people.
+    label: "簽完之後對話裡不再長出交付卡",
+    file: "lib/agent/turn.ts",
+    find: "    for (const request of chosen) outputs.push({ deliver: PURPOSES[request.purpose].slot });",
+    replace: "    for (const request of chosen) void request;",
+  },
+  {
+    label: "申辦進度變了不主動說",
+    file: "lib/rules.ts",
+    find: "    const notice = PROGRESS_NOTICES[inbox.applicationStatus];",
+    replace: "    const notice = undefined;",
+  },
 ];
 
 /**

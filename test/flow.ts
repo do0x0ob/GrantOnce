@@ -854,6 +854,75 @@ section("送件");
   check("重複送件被擋", Boolean(submitApplication(jia).error));
 }
 
+section("申辦進度變了會主動說");
+{
+  const before = getState().notifications.length;
+  mutate((s) => {
+    s.inboxes["childcare-allowance"].applicationStatus = "needs-more";
+    s.inboxes["childcare-allowance"].statusChangedAt = new Date().toISOString();
+  });
+  runAgentTick();
+  const pushed = getState().notifications.slice(before);
+  const shortfall = pushed.find((n) => n.title.includes("機關說還缺東西"));
+  check("退回補件會推播", Boolean(shortfall), pushed.map((n) => n.title).join(" / "));
+  check(
+    "推給模型的那份不含述詞的值",
+    !shortfall || !/true|false|0-2/.test(shortfall.summaryForAgent),
+    shortfall?.summaryForAgent,
+  );
+  const again = getState().notifications.length;
+  runAgentTick();
+  check("同一個狀態再巡檢一次不會重複推", getState().notifications.length === again);
+
+  mutate((s) => {
+    s.inboxes["childcare-allowance"].applicationStatus = "approved";
+    s.inboxes["childcare-allowance"].statusChangedAt = new Date().toISOString();
+  });
+  runAgentTick();
+  check(
+    "換一個狀態就是一則新的",
+    getState().notifications.some((n) => n.title.includes("已核定")),
+  );
+  // 審核中 is what already happens after 已送件; announcing it would teach the
+  // reader to ignore the channel.
+  const quiet = getState().notifications.length;
+  mutate((s) => {
+    s.inboxes["childcare-allowance"].applicationStatus = "under-review";
+    s.inboxes["childcare-allowance"].statusChangedAt = new Date().toISOString();
+  });
+  runAgentTick();
+  check("審核中不推播", getState().notifications.length === quiet);
+}
+
+section("申辦進度不會被巡檢打回去");
+{
+  // The whole point of the progress track is what happens *after* 已送件. The
+  // watch loop runs every 15 seconds, so a status it knocks backwards is a
+  // status nobody can demonstrate.
+  for (const status of ["under-review", "needs-more", "approved", "paid"] as const) {
+    mutate((s) => {
+      s.inboxes["childcare-allowance"].applicationStatus = status;
+    });
+    runAgentTick();
+    check(
+      `巡檢過後「${status}」還在`,
+      getState().inboxes["childcare-allowance"].applicationStatus === status,
+      getState().inboxes["childcare-allowance"].applicationStatus,
+    );
+  }
+  // Forward is still allowed: an inbox that has been submitted but says it is
+  // only 已收到 is behind, and the reconcile is what catches that up.
+  mutate((s) => {
+    s.inboxes["childcare-allowance"].applicationStatus = "received";
+  });
+  runAgentTick();
+  check(
+    "落後的狀態仍然會被補到 submitted",
+    getState().inboxes["childcare-allowance"].applicationStatus === "submitted",
+    getState().inboxes["childcare-allowance"].applicationStatus,
+  );
+}
+
 section("逾期");
 {
   mutate((s) => openAndConfirm(s, matchPrograms(sit)));

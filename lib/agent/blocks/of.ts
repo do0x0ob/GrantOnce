@@ -62,6 +62,20 @@ export function signGrantOf(o: unknown): { grantId: GrantId } | null {
   return grantId ? { grantId } : null;
 }
 
+/**
+ * The beat after signing. Named by its own key rather than reusing `grantId`,
+ * so a turn can carry both cards for one capsule without either matcher
+ * swallowing the other's output.
+ */
+export function deliverOf(o: unknown): { grantId: GrantId } | null {
+  const v = asObj(o);
+  if (!v) return null;
+  const raw = str(v.deliver);
+  if (!raw) return null;
+  const grantId = normalizeGrantId(raw);
+  return grantId ? { grantId } : null;
+}
+
 export function applicationStatusOf(o: unknown): { purpose: PurposeId } | null {
   const v = asObj(o);
   if (!v) return null;
@@ -236,6 +250,11 @@ export function toBlocks(outputs: unknown[]): Block[] {
     const sign = signGrantOf(o);
     if (sign) {
       out.push({ kind: "signGrant", grantId: sign.grantId });
+      continue;
+    }
+    const deliver = deliverOf(o);
+    if (deliver) {
+      out.push({ kind: "deliver", grantId: deliver.grantId });
       continue;
     }
     const requirement = serviceRequirementOf(o);

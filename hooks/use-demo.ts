@@ -233,6 +233,19 @@ export function useDemo(initialView: PrincipalView) {
     sendChat,
     redeem: (grantId: GrantId, agency: AgencyId) =>
       post("/api/grants/redeem", { grantId, agency }),
+    /**
+     * Redeem, then submit — the two halves of「交付」as one button.
+     *
+     * They stay two API calls because they are two different acts: redemption
+     * turns the agency's key, submission files the application. Stopping after
+     * a refused redemption is the point; submitting anyway would file a case
+     * with nothing behind it.
+     */
+    deliver: async (grantId: GrantId, agency: AgencyId): Promise<ActionResult> => {
+      const redeemed = await post("/api/grants/redeem", { grantId, agency });
+      if (!redeemed.ok) return redeemed;
+      return post("/api/applications/submit", { grantId });
+    },
     revoke: (grantId: GrantId) => post("/api/grants/revoke", { grantId }),
     submit: (grantId: GrantId) => post("/api/applications/submit", { grantId }),
     requestClaims: (agency: AgencyId, purpose: string, claims: string[]) =>

@@ -1,7 +1,7 @@
 import { searchCatalog, topicsFromUtterance } from "./catalog";
 import { ageBandOf, CLAIM_DEFS, DEMO_TODAY, monthsBetween, type ClaimId } from "./claims";
 import { PURPOSES, type PurposeId } from "./purposes";
-import type { DemoState, NotificationDraft, ProgramPlan } from "./types";
+import type { ApplicationStatus, DemoState, NotificationDraft, ProgramPlan } from "./types";
 
 /**
  * What the principal told the agent in conversation. The rule engine reads only
@@ -221,6 +221,48 @@ function monthsUntilTwo(months: number): number {
  * what the model is allowed to read, and states what changed without ever
  * naming the value that changed — 「離開適用範圍」, not 「變成 2-6」.
  */
+/**
+ * Which application states are worth saying out loud, and how.
+ *
+ * Not every state is news. 「審核中」is what already happens after 已送件, so
+ * announcing it would train the reader to ignore the channel — the three here
+ * are the ones that either need something from them or end the wait.
+ */
+const PROGRESS_NOTICES: Partial<
+  Record<
+    ApplicationStatus,
+    {
+      kind: NotificationDraft["kind"];
+      severity: NotificationDraft["severity"];
+      label: string;
+      title: string;
+      body: string;
+    }
+  >
+> = {
+  "needs-more": {
+    kind: "denial-followup",
+    severity: "action-required",
+    label: "需補件",
+    title: "：機關說還缺東西",
+    body: "機關把案件退回補件。補件要交什麼由機關那一側決定；真的需要新的述詞時，會是一張新的匣讓你重新簽，舊的不會被沿用。",
+  },
+  approved: {
+    kind: "info",
+    severity: "info",
+    label: "已核定",
+    title: "：已核定",
+    body: "機關已核定這件申請。這一格是演示用的狀態切換，不代表已經串接真實機關。",
+  },
+  paid: {
+    kind: "info",
+    severity: "info",
+    label: "已撥款",
+    title: "：已撥款",
+    body: "機關已撥款，這件申辦到此結束。這一格是演示用的狀態切換，不代表已經串接真實機關。",
+  },
+};
+
 export function scanForChanges(state: DemoState, now: Date): NotificationDraft[] {
   const today = effectiveToday(state);
   const months = childAgeMonthsAt(today);
@@ -384,6 +426,30 @@ export function scanForChanges(state: DemoState, now: Date): NotificationDraft[]
   }
 
   // --- agencies ------------------------------------------------------------
+  //
+  // Progress past 已送件 is the one thing the person cannot see coming: it
+  // happens at the agency, on the agency's clock, while nobody is looking at
+  // the screen. Every other detector watches the principal's own state; this
+  // one watches the reply — which is the half of「主動推送」that was missing.
+  for (const inbox of Object.values(state.inboxes)) {
+    const notice = PROGRESS_NOTICES[inbox.applicationStatus];
+    if (!notice || !inbox.statusChangedAt) continue;
+    out.push({
+      // Keyed by the moment it changed, like the denial notice below: advancing
+      // and then coming back to the same status is a new thing to say, but
+      // re-scanning the same state is not.
+      key: `progress:${inbox.purpose}:${inbox.applicationStatus}:${inbox.statusChangedAt}`,
+      kind: notice.kind,
+      severity: notice.severity,
+      title: `${inbox.programTitle}${notice.title}`,
+      body: notice.body,
+      summaryForAgent: `${inbox.programTitle}的申辦狀態變成「${notice.label}」。`,
+      grantId: null,
+      suggestedAction: null,
+      staleAfter: null,
+    });
+  }
+
   for (const inbox of Object.values(state.inboxes)) {
     if (!inbox.lastDenial || !inbox.lastDeniedAt) continue;
     out.push({
