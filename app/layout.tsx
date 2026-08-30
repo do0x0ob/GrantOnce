@@ -30,7 +30,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       lang="zh-Hant-TW"
       className={`${geist.variable} ${noto.variable} ${mono.variable} light h-full antialiased`}
     >
-      <body className="flex min-h-full flex-col bg-[#EFEAE3] text-stone-900">{children}</body>
+      <body className="flex min-h-full flex-col bg-[#E6E1DB] text-[var(--ink)]">{children}</body>
     </html>
   );
 }

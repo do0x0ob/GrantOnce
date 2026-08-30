@@ -5,7 +5,7 @@ import { AuditTimeline } from "@/components/audit-timeline";
 import { DenialBanner } from "@/components/denial-banner";
 import { PageIntro } from "@/components/page-intro";
 import { StatusChip } from "@/components/status-chip";
-import { SURFACE } from "@/components/surface";
+import { GRANT_WASH, SURFACE } from "@/components/surface";
 import { SENSITIVITY_TEXT } from "@/components/tone";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -58,7 +58,7 @@ function InboxDesk({
   const canRedeem = grant?.status === "signed";
 
   return (
-    <article className={cn(SURFACE, "space-y-8 p-7 sm:p-9")}>
+    <article className={cn(SURFACE, GRANT_WASH[agency], "space-y-8 p-7 sm:p-9")}>
       <header className="flex items-start justify-between gap-4">
         <div className="min-w-0 space-y-1.5">
           <h2 className="text-[22px] font-medium leading-7 tracking-tight text-stone-900">
@@ -141,7 +141,7 @@ function InboxDesk({
           <Button
             size="lg"
             variant="ghost"
-            className="justify-start text-[14px] text-rose-600 hover:bg-rose-50 hover:text-rose-700"
+            className="justify-start text-[14px] text-[var(--orchid-deep)] hover:bg-[var(--wash-risk)] hover:text-[var(--orchid-deep)]"
             disabled={demo.busy}
             onClick={() => void demo.redeem(otherGrant, agency)}
           >
@@ -150,7 +150,7 @@ function InboxDesk({
           <Button
             size="lg"
             variant="ghost"
-            className="justify-start text-[14px] text-rose-600 hover:bg-rose-50 hover:text-rose-700"
+            className="justify-start text-[14px] text-[var(--orchid-deep)] hover:bg-[var(--wash-risk)] hover:text-[var(--orchid-deep)]"
             disabled={demo.busy}
             onClick={() => void demo.redeem(grantId, agency)}
           >
@@ -159,7 +159,7 @@ function InboxDesk({
           <Button
             size="lg"
             variant="ghost"
-            className="justify-start text-[14px] text-rose-600 hover:bg-rose-50 hover:text-rose-700"
+            className="justify-start text-[14px] text-[var(--orchid-deep)] hover:bg-[var(--wash-risk)] hover:text-[var(--orchid-deep)]"
             disabled={demo.busy}
             onClick={() => void demo.requestClaims(agency, overscope.purpose, overscope.claims)}
           >
@@ -192,7 +192,7 @@ export function AgencyPane({ demo }: { demo: Demo }) {
               className={cn(
                 "flex-1 rounded-full px-4 py-2.5 text-[14px] leading-5 transition-colors",
                 desk === item.agency
-                  ? "bg-stone-900 text-white"
+                  ? "bg-[var(--ink)] text-[var(--primary-foreground)]"
                   : "text-stone-500 hover:text-stone-800",
               )}
             >

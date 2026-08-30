@@ -49,38 +49,49 @@
 }
 
 :root {
-  --background: #efeae3;
-  --foreground: #1a1814;
-  --card: #fffdf9;
-  --card-foreground: #1a1814;
-  --popover: #fffdf9;
-  --popover-foreground: #1a1814;
-  --primary: #1a1814;
-  --primary-foreground: #fffdf9;
-  --secondary: #e7e1d8;
-  --secondary-foreground: #1a1814;
-  --muted: #e7e1d8;
-  --muted-foreground: #6f6a62;
-  --accent: #e7e1d8;
-  --accent-foreground: #1a1814;
-  --destructive: #b42318;
-  --border: #e0d8cc;
-  --input: #e0d8cc;
-  --ring: #c4b8a8;
-  --chart-1: #e0d8cc;
-  --chart-2: #c4b8a8;
-  --chart-3: #6f6a62;
+  --ink: #3c3835;
+  --ink-soft: #6f6862;
+  --orchid: #8f7b84;
+  --orchid-deep: #7a5f68;
+  --sage: #6e7a70;
+  --clay: #9a8476;
+  --wash-orchid: #ebe4e3;
+  --wash-sage: #e2e6e1;
+  --wash-clay: #e8e2da;
+  --wash-risk: #eadfe1;
+  --wash-ok: #dde4de;
+  --background: #e6e1db;
+  --foreground: #3c3835;
+  --card: #ebe4e3;
+  --card-foreground: #3c3835;
+  --popover: #f3eeea;
+  --popover-foreground: #3c3835;
+  --primary: #3c3835;
+  --primary-foreground: #f3eeea;
+  --secondary: #ddd6cf;
+  --secondary-foreground: #3c3835;
+  --muted: #ddd6cf;
+  --muted-foreground: #6f6862;
+  --accent: #ddd6cf;
+  --accent-foreground: #3c3835;
+  --destructive: #7a5f68;
+  --border: #d8d0c8;
+  --input: #d8d0c8;
+  --ring: #b8ada6;
+  --chart-1: #d8d0c8;
+  --chart-2: #b8ada6;
+  --chart-3: #6f6862;
   --chart-4: #4a4640;
-  --chart-5: #1a1814;
+  --chart-5: #3c3835;
   --radius: 1.75rem;
-  --sidebar: #e7e1d8;
-  --sidebar-foreground: #1a1814;
-  --sidebar-primary: #1a1814;
-  --sidebar-primary-foreground: #fffdf9;
-  --sidebar-accent: #e0d8cc;
-  --sidebar-accent-foreground: #1a1814;
-  --sidebar-border: #e0d8cc;
-  --sidebar-ring: #c4b8a8;
+  --sidebar: #ddd6cf;
+  --sidebar-foreground: #3c3835;
+  --sidebar-primary: #3c3835;
+  --sidebar-primary-foreground: #f3eeea;
+  --sidebar-accent: #d8d0c8;
+  --sidebar-accent-foreground: #3c3835;
+  --sidebar-border: #d8d0c8;
+  --sidebar-ring: #b8ada6;
 }
 
 @layer base {
@@ -92,9 +103,9 @@
     color-scheme: light;
   }
   body {
-    @apply bg-[#EFEAE3] text-stone-900 antialiased;
+    @apply bg-[#E6E1DB] text-[var(--ink)] antialiased;
   }
   ::selection {
-    background: #ddd4c6;
+    background: #ddd4c8;
   }
 }

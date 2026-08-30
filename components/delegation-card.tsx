@@ -69,7 +69,7 @@ export function DelegationCard({
                 className={cn(
                   "rounded-full border px-3 py-1.5 text-[13px] leading-5 disabled:opacity-40",
                   delegation.maxSensitivity === level.id
-                    ? "border-stone-900 bg-stone-900 text-white"
+                    ? "border-[var(--ink)] bg-[var(--ink)] text-[var(--primary-foreground)]"
                     : "border-stone-200 bg-white text-stone-600 hover:bg-stone-50",
                 )}
               >
@@ -83,7 +83,7 @@ export function DelegationCard({
           <Button
             size="sm"
             variant="ghost"
-            className="rounded-full text-rose-600 hover:bg-rose-50 hover:text-rose-700"
+            className="rounded-full text-[var(--orchid-deep)] hover:bg-[var(--wash-risk)] hover:text-[var(--orchid-deep)]"
             disabled={busy}
             onClick={onStop}
           >

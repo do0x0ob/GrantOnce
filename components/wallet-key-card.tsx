@@ -87,7 +87,7 @@ export function WalletKeyCard({
       <p
         className={cn(
           "mt-10 max-w-[22rem] text-[13px] leading-6",
-          passkeyAvailable ? "text-stone-400" : "text-amber-700",
+          passkeyAvailable ? "text-stone-400" : "text-[var(--clay)]",
         )}
       >
         {passkeyAvailable

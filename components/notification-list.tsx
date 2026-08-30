@@ -45,7 +45,7 @@ export function NotificationList({
           className={cn(
             SURFACE,
             "space-y-2 p-5",
-            n.kind === "risk" && "ring-1 ring-rose-100",
+            n.kind === "risk" && "bg-[var(--wash-risk)]",
           )}
         >
           <div className="flex items-start justify-between gap-3">

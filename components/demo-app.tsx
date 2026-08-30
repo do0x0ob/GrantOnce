@@ -44,8 +44,8 @@ export function DemoApp({ initialView }: { initialView: PrincipalView }) {
   const inboxReady = Object.values(demo.view.inboxes).some((box) => box.receivedAt);
 
   return (
-    <div className="min-h-svh bg-[#EFEAE3]">
-      <header className="sticky top-0 z-30 border-b border-stone-200/50 bg-[#EFEAE3]/80 backdrop-blur-md">
+    <div className="min-h-svh bg-[#E6E1DB]">
+      <header className="sticky top-0 z-30 border-b border-[var(--border)]/70 bg-[#E6E1DB]/80 backdrop-blur-md">
         <div className="mx-auto flex max-w-[72rem] flex-col gap-3 px-6 py-3 sm:h-16 sm:flex-row sm:items-center sm:justify-between sm:gap-6 sm:py-0">
           <div className="flex items-center justify-between gap-4">
             <div className="flex items-center gap-3 text-stone-800">
@@ -78,16 +78,16 @@ export function DemoApp({ initialView }: { initialView: PrincipalView }) {
                 className={cn(
                   "relative rounded-full px-3.5 py-1.5 text-[13px] leading-5 transition-colors",
                   viewId === item.id
-                    ? "bg-stone-900 text-white"
+                    ? "bg-[var(--ink)] text-[var(--primary-foreground)]"
                     : "text-stone-500 hover:text-stone-800",
                 )}
               >
                 {item.label}
                 {item.id === "authorize" && pending > 0 && viewId !== "authorize" ? (
-                  <span className="absolute right-1.5 top-1.5 size-1.5 rounded-full bg-[#C45C4A]" />
+                  <span className="absolute right-1.5 top-1.5 size-1.5 rounded-full bg-[var(--orchid)]" />
                 ) : null}
                 {item.id === "agency" && inboxReady && viewId !== "agency" ? (
-                  <span className="absolute right-1.5 top-1.5 size-1.5 rounded-full bg-emerald-500" />
+                  <span className="absolute right-1.5 top-1.5 size-1.5 rounded-full bg-[var(--sage)]" />
                 ) : null}
               </button>
             ))}
@@ -112,7 +112,7 @@ export function DemoApp({ initialView }: { initialView: PrincipalView }) {
       </header>
 
       {demo.error ? (
-        <p className="mx-auto max-w-[40rem] px-6 pt-4 text-[14px] leading-6 text-rose-700">
+        <p className="mx-auto max-w-[40rem] px-6 pt-4 text-[14px] leading-6 text-[var(--orchid-deep)]">
           {demo.error}
         </p>
       ) : null}

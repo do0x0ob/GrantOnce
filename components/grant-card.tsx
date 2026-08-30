@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { StatusChip } from "@/components/status-chip";
-import { SURFACE } from "@/components/surface";
+import { GRANT_WASH, SURFACE } from "@/components/surface";
 import { Button } from "@/components/ui/button";
 import { formatTime, type PrincipalView } from "@/lib/view";
 import { cn } from "@/lib/utils";
@@ -15,11 +15,6 @@ const CHIP: Record<GrantView["status"], "stone" | "rose" | "mint" | "amber"> = {
   redeemed: "mint",
   revoked: "stone",
   expired: "rose",
-};
-
-const ACCENT: Record<string, string> = {
-  jia: "bg-[#7BA88A]",
-  yi: "bg-[#D4A35A]",
 };
 
 function isChoiceBand(shape: string) {
@@ -79,12 +74,8 @@ export function GrantCard({
 
   if (compact) {
     return (
-      <article className={cn(SURFACE, "relative overflow-hidden")}>
-        <span
-          aria-hidden
-          className={cn("absolute inset-y-0 left-0 w-1", ACCENT[grant.agencyId] ?? "bg-stone-300")}
-        />
-        <div className="flex items-center justify-between gap-4 p-6 pl-8">
+      <article className={cn(SURFACE, GRANT_WASH[grant.agencyId])}>
+        <div className="flex items-center justify-between gap-4 p-6 sm:px-8">
           <div className="min-w-0 space-y-1">
             <h2 className="truncate text-[18px] font-medium leading-6 text-stone-900">
               {grant.programTitle}
@@ -108,13 +99,8 @@ export function GrantCard({
   }
 
   return (
-    <article className={cn(SURFACE, "relative overflow-hidden")}>
-      <span
-        aria-hidden
-        className={cn("absolute inset-y-0 left-0 w-1", ACCENT[grant.agencyId] ?? "bg-stone-300")}
-      />
-
-      <div className="space-y-8 p-7 pl-8 sm:p-9 sm:pl-10">
+    <article className={cn(SURFACE, GRANT_WASH[grant.agencyId])}>
+      <div className="space-y-8 p-7 sm:p-9">
         <header className="flex items-start justify-between gap-4">
           <div className="min-w-0 space-y-1.5">
             <h2 className="text-[22px] font-medium leading-7 tracking-tight text-stone-900">
@@ -142,27 +128,27 @@ export function GrantCard({
         </section>
 
         {blocked || elevated ? (
-          <div className={cn("rounded-2xl px-4 py-3.5", blocked ? "bg-rose-50" : "bg-amber-50")}>
-            <p className={cn("text-[13px] leading-5", blocked ? "text-rose-600" : "text-amber-700")}>
+          <div className={cn("rounded-2xl px-4 py-3.5", blocked ? "bg-[var(--wash-risk)]" : "bg-[var(--wash-clay)]")}>
+            <p className={cn("text-[13px] leading-5", blocked ? "text-[var(--orchid-deep)]" : "text-[var(--clay)]")}>
               {blocked ? "提案階段即攔截" : "需要你額外確認"}
             </p>
             <ul className="mt-2 space-y-1.5">
               {grant.riskNotes.map((note) => (
                 <li
                   key={note}
-                  className={cn("text-[14px] leading-6", blocked ? "text-rose-800" : "text-amber-900")}
+                  className={cn("text-[14px] leading-6", blocked ? "text-[var(--orchid-deep)]" : "text-[var(--ink)]")}
                 >
                   {note}
                 </li>
               ))}
             </ul>
             {elevated && signable ? (
-              <label className="mt-3 flex items-start gap-2.5 text-[14px] leading-6 text-amber-950">
+              <label className="mt-3 flex items-start gap-2.5 text-[14px] leading-6 text-[var(--ink)]">
                 <input
                   type="checkbox"
                   checked={acknowledged}
                   onChange={(event) => setAcknowledged(event.target.checked)}
-                  className="mt-1 accent-amber-700"
+                  className="mt-1 accent-[var(--clay)]"
                 />
                 我了解上述風險，仍要簽署這一匣
               </label>
@@ -171,7 +157,7 @@ export function GrantCard({
         ) : null}
 
         {grant.expired && grant.status === "expired" ? (
-          <p className="rounded-2xl bg-rose-50 px-4 py-3.5 text-[14px] leading-6 text-rose-800">
+          <p className="rounded-2xl bg-[var(--wash-risk)] px-4 py-3.5 text-[14px] leading-6 text-[var(--orchid-deep)]">
             這一匣已逾效期。授權是短效的，過期就不能再簽也不能再兌現——請重新比對，簽一張新的。
           </p>
         ) : null}
@@ -218,7 +204,7 @@ export function GrantCard({
         </div>
 
         {showConsent ? (
-          <div className="space-y-4 rounded-2xl bg-stone-50/80 px-5 py-4">
+          <div className="space-y-4 rounded-2xl bg-[color-mix(in_oklab,white_45%,transparent)] px-5 py-4">
             <p className="text-[13px] leading-6 text-stone-500">
               這段文字本身也被簽進去了。認證器的系統彈窗無法顯示簽署內容，所以把畫面上的字一併納入簽章範圍，
               事後才證明得了「當時看到的就是這段」。
@@ -238,14 +224,14 @@ export function GrantCard({
                 ))}
               </dd>
               <dt>有效至</dt>
-              <dd className={grant.expired ? "text-rose-600" : undefined}>
+              <dd className={grant.expired ? "text-[var(--orchid-deep)]" : undefined}>
                 {formatTime(grant.exp)}
                 {grant.expired ? "（已逾期）" : ""}
               </dd>
               {grant.signature ? (
                 <>
                   <dt>簽章</dt>
-                  <dd className="truncate font-mono text-emerald-700">
+                  <dd className="truncate font-mono text-[var(--sage)]">
                     {grant.signMethod === "passkey" ? "生物辨識" : "軟體金鑰"} ·{" "}
                     {grant.signature.slice(0, 12)}…
                   </dd>

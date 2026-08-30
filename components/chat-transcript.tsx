@@ -45,7 +45,7 @@ export function ChatTranscript({
             <p
               className={cn(
                 "text-[12px] leading-4 tracking-[0.03em]",
-                message.role === "user" ? "text-[#B54A3C]" : "text-stone-400",
+                message.role === "user" ? "text-[var(--orchid-deep)]" : "text-stone-400",
               )}
             >
               {message.role === "user" ? "林曉晴" : message.role === "agent" ? "代理人" : "系統"}

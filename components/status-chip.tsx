@@ -1,10 +1,10 @@
 import type { ReactNode } from "react";
 
 const TONES = {
-  stone: "bg-stone-100 text-stone-500",
-  rose: "bg-rose-50 text-rose-700",
-  mint: "bg-emerald-50 text-emerald-800",
-  amber: "bg-amber-50 text-amber-800",
+  stone: "bg-[var(--wash-clay)] text-[var(--ink-soft)]",
+  rose: "bg-[var(--wash-risk)] text-[var(--orchid-deep)]",
+  mint: "bg-[var(--wash-ok)] text-[var(--sage)]",
+  amber: "bg-[var(--wash-clay)] text-[var(--clay)]",
 } as const;
 
 export type ChipTone = keyof typeof TONES;

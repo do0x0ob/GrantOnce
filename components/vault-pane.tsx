@@ -85,7 +85,7 @@ export function VaultPane({
             {view.wallet.map((cred) => (
               <li
                 key={cred.id}
-                className="flex items-baseline justify-between gap-4 rounded-2xl bg-stone-50 px-4 py-4"
+                className="flex items-baseline justify-between gap-4 rounded-2xl bg-[color-mix(in_oklab,white_40%,transparent)] px-4 py-4"
               >
                 <div className="min-w-0 space-y-1">
                   <p className="text-[15px] leading-6 text-stone-800">{cred.label}</p>
@@ -167,8 +167,8 @@ function FieldGroup({
         <p
           className={cn(
             "text-[12px] leading-4 tracking-[0.04em]",
-            tone === "used" && "text-emerald-700",
-            tone === "sealed" && "text-rose-600",
+            tone === "used" && "text-[var(--sage)]",
+            tone === "sealed" && "text-[var(--orchid-deep)]",
             tone === "idle" && "text-stone-400",
           )}
         >
@@ -183,8 +183,8 @@ function FieldGroup({
               <span
                 className={cn(
                   "shrink-0 text-[13px] leading-5",
-                  tone === "used" && "text-emerald-700",
-                  tone === "sealed" && "text-rose-600",
+                  tone === "used" && "text-[var(--sage)]",
+                  tone === "sealed" && "text-[var(--orchid-deep)]",
                   tone === "idle" && "text-stone-300",
                 )}
               >

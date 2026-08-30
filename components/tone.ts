@@ -1,18 +1,18 @@
 import type { Sensitivity } from "@/lib/claims";
 
-/** One place for the sensitivity palette; the chip and the value read the same map. */
+/** Morandi washes — same three hues as the rest of the product. */
 export const SENSITIVITY_CHIP: Record<Sensitivity, string> = {
-  predicate: "bg-emerald-50 text-emerald-800",
-  pseudonym: "bg-sky-50 text-sky-800",
-  personal: "bg-amber-50 text-amber-800",
-  special: "bg-rose-50 text-rose-800",
+  predicate: "bg-[var(--wash-ok)] text-[var(--sage)]",
+  pseudonym: "bg-[var(--wash-orchid)] text-[var(--orchid)]",
+  personal: "bg-[var(--wash-clay)] text-[var(--clay)]",
+  special: "bg-[var(--wash-risk)] text-[var(--orchid-deep)]",
 };
 
 export const SENSITIVITY_TEXT: Record<Sensitivity, string> = {
-  predicate: "text-emerald-700",
-  pseudonym: "text-sky-700",
-  personal: "text-amber-700",
-  special: "text-rose-700",
+  predicate: "text-[var(--sage)]",
+  pseudonym: "text-[var(--orchid)]",
+  personal: "text-[var(--clay)]",
+  special: "text-[var(--orchid-deep)]",
 };
 
-export const PAPER = "#EFEAE3";
+export const PAPER = "#E6E1DB";

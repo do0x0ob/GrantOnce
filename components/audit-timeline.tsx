@@ -42,7 +42,7 @@ export function AuditTimeline({ view }: { view: PrincipalView }) {
         <StatusChip tone="stone">已用 jti {view.usedJtiCount}</StatusChip>
 
       {untouched.length ? (
-        <p className="rounded-2xl bg-emerald-50 px-4 py-3.5 text-[14px] leading-6 text-emerald-900">
+        <p className="rounded-2xl bg-[var(--wash-ok)] px-4 py-3.5 text-[14px] leading-6 text-[var(--sage)]">
           {untouched.map((e) => e.label).join("、")} 從未派生任何憑證，也從未進入任何匣。
         </p>
       ) : null}
