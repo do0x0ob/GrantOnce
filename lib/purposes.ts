@@ -12,6 +12,9 @@ export type PurposeDef = {
   agencyName: string;
   /** Statutory basis the agency relies on, shown on the consent screen. */
   legalBasis: string[];
+  /** Words a person might use to name this programme. Used to narrow a request
+   *  to what was actually asked for; never to widen it. */
+  aliases: string[];
   /** Ceiling on what this purpose may ever carry. */
   allowedClaims: ClaimId[];
   /** Grants for this purpose may not outlive this. */
@@ -38,6 +41,7 @@ export const PURPOSES: Record<PurposeId, PurposeDef> = {
       "個人資料保護法 §5：不得逾越特定目的之必要範圍",
       "兒童及少年福利與權益保障法 §23：直轄市主管機關辦理托育與育兒補助",
     ],
+    aliases: ["育兒津貼", "育兒", "托育", "小孩", "幼兒", "帶小孩"],
     allowedClaims: [
       "resident.inNewTaipei",
       "resident.movedWithin12m",
@@ -59,6 +63,7 @@ export const PURPOSES: Record<PurposeId, PurposeDef> = {
       "個人資料保護法 §5：不得逾越特定目的之必要範圍",
       "能源管理法 §9：主管機關辦理能源使用效率獎勵",
     ],
+    aliases: ["冷氣", "空調", "節能", "家電", "汰換", "電費"],
     allowedClaims: ["power.residentialMeter", "power.usageBand", "power.accountRef"],
     maxTtlSeconds: 600,
     necessity:
@@ -81,4 +86,19 @@ export function claimsOutsidePurpose(
   if (!def) return [...claims];
   const allowed = new Set<string>(def.allowedClaims);
   return claims.filter((c) => !allowed.has(c));
+}
+
+/**
+ * Purposes the sentence names, by title or alias.
+ *
+ * Only ever used to *narrow* a matched set: someone who asks for one benefit
+ * should not be handed a capsule for another as well. It cannot add a programme
+ * the rule engine did not match.
+ */
+export function namedPurposes(utterance: string): PurposeId[] {
+  const text = utterance.replace(/\s+/g, "");
+  return PURPOSE_IDS.filter((id) => {
+    const def = PURPOSES[id];
+    return text.includes(def.title) || def.aliases.some((alias) => text.includes(alias));
+  });
 }

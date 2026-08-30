@@ -1,5 +1,5 @@
 import { CLAIM_DEFS, SENSITIVITY_LABEL, SPECIAL_CLAIMS } from "@/lib/claims";
-import { PURPOSE_IDS, PURPOSES } from "@/lib/purposes";
+import { namedPurposes, PURPOSE_IDS, PURPOSES } from "@/lib/purposes";
 import {
   ageHint,
   childAgeMonthsAt,
@@ -112,7 +112,7 @@ function DECLARED_SITUATION(today: string) {
 export function runTurn(
   state: DemoState,
   utterance: string,
-  resolved?: { intent: Intent; movedRecently: boolean } | null,
+  resolved?: { intent: Intent; movedRecently: boolean; reply?: string } | null,
 ): TurnResult {
   const message = utterance.trim();
   const today = effectiveToday(state);
@@ -122,11 +122,16 @@ export function runTurn(
     resolved && INTENT_VALUES.includes(resolved.intent) ? resolved : null;
   const intent = supplied?.intent ?? patternIntent(message);
 
+  // The acknowledgement leads; everything the user needs to rely on follows it
+  // as a card, so a missing or rejected sentence costs nothing.
+  const lead: unknown[] = supplied?.reply ? [{ text: supplied.reply }] : [];
+
   if (intent === "privacy") {
     return {
       programs: [],
       matched: true,
       outputs: [
+        ...lead,
         {
           text: "機關拿到的是述詞，不是原始欄位。下面是每個補助各自會收到什麼，以及有哪些欄位不論你同不同意都不會給出去。",
         },
@@ -141,6 +146,7 @@ export function runTurn(
       programs: [],
       matched: true,
       outputs: [
+        ...lead,
         { text: "每一次核准、發證、兌現、送件與拒絕都留了紀錄。稽核只記動作，不含金庫值。" },
         { auditTrail: true },
         { suggestions: MENU.suggestions },
@@ -164,6 +170,7 @@ export function runTurn(
       programs: [],
       matched: true,
       outputs: [
+        ...lead,
         { text: "目前的進度如下。送件之後的階段本演示沒有接真實機關，不會亮起。" },
         ...live.map((purpose) => ({ purpose })),
       ],
@@ -175,6 +182,7 @@ export function runTurn(
       programs: [],
       matched: true,
       outputs: [
+        ...lead,
         {
           text: "停止委託會讓我不能再簽任何新的匣，尚未兌現的也會一併作廢。已經交給機關的述詞收不回來——這點我不會假裝做得到。\n\n下面「我的委託設定」裡有停止的按鈕。",
         },
@@ -188,6 +196,7 @@ export function runTurn(
       programs: [],
       matched: false,
       outputs: [
+        ...lead,
         {
           text:
             intent === "help"
@@ -203,38 +212,60 @@ export function runTurn(
   // When it reported a move, build the situation from that rather than re-running
   // keyword matching over the same sentence — otherwise the patterns silently
   // overrule the thing that was brought in to understand phrasings they miss.
+  // The classifier reports what was said; the rule engine decides what it means.
   const situation = supplied
     ? { ...DECLARED_SITUATION(today), movedRecently: supplied.movedRecently }
-    : situationFromUtterance(message, today);
+    : (situationFromUtterance(message, today) ?? DECLARED_SITUATION(today));
 
-  if (!situation?.movedRecently) {
+  const eligible = matchPrograms(situation);
+  const hint = ageHint(childAgeMonthsAt(today));
+
+  // Naming a benefit narrows the answer to it. Asking for 育兒津貼 and being
+  // handed a capsule for 冷氣汰換補助 as well is the agent deciding on your
+  // behalf what else to authorise, which is the whole thing this is against.
+  const named = namedPurposes(message);
+  const programs = named.length
+    ? eligible.filter((program) => named.includes(program.purpose))
+    : eligible;
+
+  // Named something real but not currently eligible: say which, and what is.
+  if (named.length && !programs.length) {
+    const asked = named.map((id) => PURPOSES[id].title).join("、");
     return {
       programs: [],
-      matched: false,
+      matched: true,
       outputs: [
-        { text: "規則引擎沒有偵測到「搬家／遷徙」，所以沒有可以比對的情況變動。" },
-        { question: "換個說法試試", suggestions: MENU.suggestions },
+        ...lead,
+        {
+          text: eligible.length
+            ? `目前不符合${asked}。${hint}\n\n符合的是：${eligible.map((p) => p.title).join("、")}。要看嗎？`
+            : `目前不符合${asked}。${hint}`,
+        },
+        { suggestions: MENU.suggestions },
       ],
     };
   }
-
-  const programs = matchPrograms(situation);
-  const hint = ageHint(childAgeMonthsAt(today));
 
   if (!programs.length) {
     return {
       programs,
       matched: true,
-      outputs: [{ text: `目前沒有符合的補助。${hint}` }],
+      outputs: [...lead, { text: `目前沒有符合的補助。${hint}` }, { suggestions: MENU.suggestions }],
     };
   }
 
   const outputs: unknown[] = [
+    ...lead,
     {
       text:
         programs.length > 1
           ? `比對到 ${programs.length} 項補助。每一項都要你單獨簽署一次——沒有「一次全給」。`
-          : "比對到 1 項補助。",
+          : named.length && eligible.length > 1
+            ? `只準備了${programs[0].title}這一張。你其實也符合${eligible
+                .filter((p) => p.purpose !== programs[0].purpose)
+                .map((p) => p.title)
+                .join("、")}，但你沒提，我就不會替你要。`
+            : "比對到 1 項補助。",
     },
     {
       reasons: programs.flatMap((p) => [`${p.title}：${p.reasons.join("；")}`]),

@@ -8,7 +8,7 @@
  */
 import { toBlocks } from "../lib/agent/blocks/of";
 import type { Block, BlockKind } from "../lib/agent/blocks/types";
-import { modelAvailable } from "../lib/agent/intent";
+import { cleanReply, modelAvailable } from "../lib/agent/intent";
 import { runTurn } from "../lib/agent/turn";
 import { proposeGrantsFromPlan } from "../lib/authz";
 import { PURPOSES } from "../lib/purposes";
@@ -105,6 +105,53 @@ console.log("\nmatcher 永遠不丟例外");
   }
   check("餵垃圾進去不會炸", !threw);
   check("認不得的東西不會硬塞成卡片", toBlocks(junk).length === 0, JSON.stringify(kinds(toBlocks(junk))));
+}
+
+console.log("\n指名一項補助時，不會多給別的");
+{
+  resetState();
+  const all = runTurn(getState(), "我剛搬家，看我能申請什麼。");
+  check("沒指名時列出全部符合的", all.programs.length > 1, String(all.programs.length));
+
+  const named = runTurn(getState(), "要搞育兒津貼");
+  check("指名育兒津貼只回一項", named.programs.length === 1, named.programs.map((p) => p.purpose).join(","));
+  check("而且就是那一項", named.programs[0]?.purpose === "childcare-allowance");
+  check(
+    "會說出它沒有替你要的那些",
+    toBlocks(named.outputs).some((b) => b.kind === "text" && b.text.includes("我就不會替你要")),
+  );
+
+  // Narrowing must never be able to add something the rule engine did not match.
+  const bogus = runTurn(getState(), "我要辦一個不存在的補助");
+  check(
+    "指名不存在的東西不會憑空生出匣",
+    bogus.programs.every((p) => all.programs.some((a) => a.purpose === p.purpose)),
+  );
+}
+
+console.log("\n模型寫的那句話擋得住什麼");
+{
+  // A demo shown to a government audience must not have its agent claim an
+  // application was filed. Free prose will reach for those verbs eventually.
+  const rejected = [
+    "已經幫你送出申請了",
+    "我已送件，等機關核准",
+    "已完成簽署",
+    "幫你申請好了",
+    "已取得你的資料",
+  ];
+  for (const text of rejected) {
+    check(`擋掉「${text}」`, cleanReply(text) === undefined);
+  }
+
+  const kept = ["你的擔心很合理，所得正是我們刻意不給的欄位之一。", "我來看看你符合哪些補助。"];
+  for (const text of kept) {
+    check(`保留「${text.slice(0, 12)}…」`, cleanReply(text) === text);
+  }
+
+  check("太長的整句丟掉", cleanReply("字".repeat(61)) === undefined);
+  check("空白的丟掉", cleanReply("   ") === undefined);
+  check("不是字串的丟掉", cleanReply({ text: "x" }) === undefined && cleanReply(null) === undefined);
 }
 
 console.log("\n模型只當「聽懂」那一層");

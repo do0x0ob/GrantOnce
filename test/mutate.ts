@@ -152,6 +152,24 @@ const MUTATIONS: Mutation[] = [
     replace: "  return o as Obj;",
   },
   {
+    label: "指名一項補助卻連別的一起給",
+    file: "lib/agent/turn.ts",
+    find: "  const programs = named.length",
+    replace: "  const programs = false",
+  },
+  {
+    label: "資格比對改回看你怎麼講而不是看事實",
+    file: "lib/rules.ts",
+    find: '  if (band === "0-2") {',
+    replace: '  if (situation.movedRecently && band === "0-2") {',
+  },
+  {
+    label: "模型可以宣稱動作已經完成",
+    file: "lib/agent/intent.ts",
+    find: "  if (FORBIDDEN.test(text)) return undefined;",
+    replace: "  if (false) return undefined;",
+  },
+  {
     // "Cards carry ids, not snapshots" is enforced by the Block union itself, so
     // no single-file edit can violate it — that one is guarded by the compiler.
     // This checks the other half: unrecognised output must be dropped, not

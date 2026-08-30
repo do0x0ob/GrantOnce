@@ -62,7 +62,12 @@ export function matchPrograms(situation: DeclaredSituation): ProgramPlan[] {
   const programs: ProgramPlan[] = [];
   const band = ageBandOf(situation.childAgeMonths);
 
-  if (situation.wantsChildcare && situation.movedRecently && band === "0-2") {
+  // `wantsX` narrows to what was asked for; a bare move leaves both true, so a
+  // generic question still lists everything. Eligibility itself is on facts:
+  // having moved is evidence the agency receives as a claim, not a precondition
+  // for the programme, and gating on it meant someone who simply named the
+  // benefit was told no.
+  if (situation.wantsChildcare && band === "0-2") {
     const purpose = PURPOSES["childcare-allowance"];
     programs.push({
       grantId: "G-甲",
