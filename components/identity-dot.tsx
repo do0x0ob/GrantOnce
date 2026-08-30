@@ -1,10 +1,10 @@
 import { cn } from "@/lib/utils";
 
 const TONES = {
-  principal: "bg-[#FF8A7A]",
-  agent: "bg-[#7C9CFF]",
-  jia: "bg-[#67D4A3]",
-  yi: "bg-[#F5C15C]",
+  principal: "bg-[var(--orchid)]",
+  agent: "bg-[var(--ink-soft)]",
+  jia: "bg-[var(--sage)]",
+  yi: "bg-[var(--clay)]",
 } as const;
 
 export function IdentityDot({

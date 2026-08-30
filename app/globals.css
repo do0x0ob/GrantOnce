@@ -49,38 +49,49 @@
 }
 
 :root {
-  --background: #f6f3ee;
-  --foreground: #1c1c1c;
-  --card: #ffffff;
-  --card-foreground: #1c1c1c;
-  --popover: #ffffff;
-  --popover-foreground: #1c1c1c;
-  --primary: #1c1c1c;
-  --primary-foreground: #ffffff;
-  --secondary: #efece7;
-  --secondary-foreground: #1c1c1c;
-  --muted: #efece7;
-  --muted-foreground: #73706b;
-  --accent: #efece7;
-  --accent-foreground: #1c1c1c;
-  --destructive: #b42318;
-  --border: #e8e4de;
-  --input: #e8e4de;
-  --ring: #c4bfb6;
-  --chart-1: #e8e4de;
-  --chart-2: #c4bfb6;
-  --chart-3: #73706b;
-  --chart-4: #52514d;
-  --chart-5: #1c1c1c;
-  --radius: 1.5rem;
-  --sidebar: #efece7;
-  --sidebar-foreground: #1c1c1c;
-  --sidebar-primary: #1c1c1c;
-  --sidebar-primary-foreground: #ffffff;
-  --sidebar-accent: #e8e4de;
-  --sidebar-accent-foreground: #1c1c1c;
-  --sidebar-border: #e8e4de;
-  --sidebar-ring: #c4bfb6;
+  --ink: #3c3835;
+  --ink-soft: #6f6862;
+  --orchid: #8f7b84;
+  --orchid-deep: #7a5f68;
+  --sage: #6e7a70;
+  --clay: #9a8476;
+  --wash-orchid: #ddd2d4;
+  --wash-sage: #cfd8d0;
+  --wash-clay: #d8cdc0;
+  --wash-risk: #e0d2d4;
+  --wash-ok: #c8d3c9;
+  --background: #e8e4de;
+  --foreground: #3c3835;
+  --card: #ddd2d4;
+  --card-foreground: #3c3835;
+  --popover: #f3eeea;
+  --popover-foreground: #3c3835;
+  --primary: #3c3835;
+  --primary-foreground: #f3eeea;
+  --secondary: #ddd6cf;
+  --secondary-foreground: #3c3835;
+  --muted: #ddd6cf;
+  --muted-foreground: #6f6862;
+  --accent: #ddd6cf;
+  --accent-foreground: #3c3835;
+  --destructive: #7a5f68;
+  --border: #d8d0c8;
+  --input: #d8d0c8;
+  --ring: #b8ada6;
+  --chart-1: #d8d0c8;
+  --chart-2: #b8ada6;
+  --chart-3: #6f6862;
+  --chart-4: #4a4640;
+  --chart-5: #3c3835;
+  --radius: 1.75rem;
+  --sidebar: #ddd6cf;
+  --sidebar-foreground: #3c3835;
+  --sidebar-primary: #3c3835;
+  --sidebar-primary-foreground: #f3eeea;
+  --sidebar-accent: #d8d0c8;
+  --sidebar-accent-foreground: #3c3835;
+  --sidebar-border: #d8d0c8;
+  --sidebar-ring: #b8ada6;
 }
 
 @layer base {
@@ -92,6 +103,9 @@
     color-scheme: light;
   }
   body {
-    @apply bg-[#F6F3EE] text-neutral-900 antialiased;
+    @apply bg-[#E8E4DE] text-[var(--ink)] antialiased;
+  }
+  ::selection {
+    background: #ddd4c8;
   }
 }

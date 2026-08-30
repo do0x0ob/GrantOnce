@@ -33,46 +33,49 @@ export function AuditTimeline({ view }: { view: PrincipalView }) {
   const untouched = view.vaultCatalog.filter((e) => e.neverLeft && e.sealed);
 
   return (
-    <section className={cn(SURFACE, "space-y-3 p-4")}>
-      <div className="flex items-center justify-between gap-2">
-        <p className="text-[13px] leading-5 text-stone-700">稽核軌跡</p>
+    <details className={cn(SURFACE, "group p-7 sm:p-9")}>
+      <summary className="flex cursor-pointer list-none items-center justify-between gap-3 [&::-webkit-details-marker]:hidden">
+        <p className="text-[16px] leading-6 text-stone-600">稽核軌跡</p>
+        <span className="text-[13px] text-stone-400">{view.audit.length} 筆</span>
+      </summary>
+      <div className="mt-6 space-y-6">
         <StatusChip tone="stone">已用 jti {view.usedJtiCount}</StatusChip>
-      </div>
 
       {untouched.length ? (
-        <p className="rounded-xl bg-emerald-50 p-2.5 text-[12px] leading-5 text-emerald-800">
+        <p className="rounded-2xl bg-[var(--wash-ok)] px-4 py-3.5 text-[14px] leading-6 text-[var(--sage)]">
           {untouched.map((e) => e.label).join("、")} 從未派生任何憑證，也從未進入任何匣。
         </p>
       ) : null}
 
       {view.audit.length === 0 ? (
-        <p className="text-[12px] leading-5 text-stone-400">還沒有動作。</p>
+        <p className="text-[15px] leading-7 text-stone-400">還沒有動作。</p>
       ) : (
-        <ol className="space-y-2">
+        <ol className="space-y-5">
           {view.audit
             .slice()
             .reverse()
             .map((entry) => (
-              <li key={entry.id} className="space-y-1">
-                <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+              <li key={entry.id} className="space-y-1.5">
+                <div className="flex flex-wrap items-baseline gap-x-2.5 gap-y-1">
                   <StatusChip tone={ACTION_TONE[entry.action]}>
                     {ACTION_LABEL[entry.action]}
                   </StatusChip>
-                  <span className="text-[12px] leading-5 text-stone-500">{entry.actor}</span>
+                  <span className="text-[14px] leading-6 text-stone-500">{entry.actor}</span>
                   {entry.grantId ? (
-                    <span className="font-mono text-[11px] leading-4 text-stone-400">
+                    <span className="font-mono text-[12px] leading-5 text-stone-400">
                       {entry.grantId}
                     </span>
                   ) : null}
-                  <span className="ml-auto shrink-0 font-mono text-[11px] leading-4 text-stone-300">
+                  <span className="ml-auto shrink-0 font-mono text-[12px] leading-5 text-stone-300">
                     {formatClock(entry.at)}
                   </span>
                 </div>
-                <p className="text-[12px] leading-5 text-stone-500">{entry.detail}</p>
+                <p className="text-[14px] leading-6 text-stone-500">{entry.detail}</p>
               </li>
             ))}
         </ol>
       )}
-    </section>
+      </div>
+    </details>
   );
 }
