@@ -5,6 +5,7 @@ import { useEffect, useRef } from "react";
 import { ApplicationStatusCard } from "@/components/agent/application-status-card";
 import { AuditCard } from "@/components/agent/audit-card";
 import { ClaimsExplainerCard } from "@/components/agent/claims-explainer-card";
+import { DeliverCard } from "@/components/agent/deliver-card";
 import { CardBoundary } from "@/components/agent/card-boundary";
 import { EligibilityCard } from "@/components/agent/eligibility-card";
 import { FallbackCard } from "@/components/agent/fallback-card";
@@ -48,6 +49,12 @@ function renderBlock(block: Block, key: string, demo: Demo) {
       return (
         <CardBoundary key={key} label="授權匣">
           <SignGrantCard grantId={block.grantId} demo={demo} />
+        </CardBoundary>
+      );
+    case "deliver":
+      return (
+        <CardBoundary key={key} label="交付">
+          <DeliverCard grantId={block.grantId} demo={demo} />
         </CardBoundary>
       );
     case "applicationStatus":

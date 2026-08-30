@@ -16,6 +16,7 @@ export type Block =
   | { kind: "serviceRequirement"; purpose: PurposeId }
   | { kind: "legalCheck"; purpose: PurposeId }
   | { kind: "signGrant"; grantId: GrantId }
+  | { kind: "deliver"; grantId: GrantId }
   | { kind: "applicationStatus"; purpose: PurposeId }
   | { kind: "programPicker"; payload: ProgramPickerPayload }
   | { kind: "suggestions"; payload: SuggestionsPayload }
