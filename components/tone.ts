@@ -15,4 +15,4 @@ export const SENSITIVITY_TEXT: Record<Sensitivity, string> = {
   special: "text-[var(--orchid-deep)]",
 };
 
-export const PAPER = "#E6E1DB";
+export const PAPER = "#E8E4DE";

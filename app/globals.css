@@ -55,14 +55,14 @@
   --orchid-deep: #7a5f68;
   --sage: #6e7a70;
   --clay: #9a8476;
-  --wash-orchid: #ebe4e3;
-  --wash-sage: #e2e6e1;
-  --wash-clay: #e8e2da;
-  --wash-risk: #eadfe1;
-  --wash-ok: #dde4de;
-  --background: #e6e1db;
+  --wash-orchid: #ddd2d4;
+  --wash-sage: #cfd8d0;
+  --wash-clay: #d8cdc0;
+  --wash-risk: #e0d2d4;
+  --wash-ok: #c8d3c9;
+  --background: #e8e4de;
   --foreground: #3c3835;
-  --card: #ebe4e3;
+  --card: #ddd2d4;
   --card-foreground: #3c3835;
   --popover: #f3eeea;
   --popover-foreground: #3c3835;
@@ -103,7 +103,7 @@
     color-scheme: light;
   }
   body {
-    @apply bg-[#E6E1DB] text-[var(--ink)] antialiased;
+    @apply bg-[#E8E4DE] text-[var(--ink)] antialiased;
   }
   ::selection {
     background: #ddd4c8;

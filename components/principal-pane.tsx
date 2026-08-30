@@ -136,7 +136,7 @@ export function PrincipalPane({
       </div>
 
       {phase === "ask" ? (
-        <div className="sticky bottom-0 bg-gradient-to-t from-[#E6E1DB] via-[#E6E1DB] to-transparent pb-5 pt-8">
+        <div className="sticky bottom-0 bg-gradient-to-t from-[#E8E4DE] via-[#E8E4DE] to-transparent pb-5 pt-8">
           <form
             className="mx-auto flex w-full max-w-[40rem] items-center gap-2 px-6 sm:px-8"
             onSubmit={(event) => {

@@ -44,8 +44,8 @@ export function DemoApp({ initialView }: { initialView: PrincipalView }) {
   const inboxReady = Object.values(demo.view.inboxes).some((box) => box.receivedAt);
 
   return (
-    <div className="min-h-svh bg-[#E6E1DB]">
-      <header className="sticky top-0 z-30 border-b border-[var(--border)]/70 bg-[#E6E1DB]/80 backdrop-blur-md">
+    <div className="min-h-svh bg-[#E8E4DE]">
+      <header className="sticky top-0 z-30 border-b border-[var(--border)]/70 bg-[#E8E4DE]/80 backdrop-blur-md">
         <div className="mx-auto flex max-w-[72rem] flex-col gap-3 px-6 py-3 sm:h-16 sm:flex-row sm:items-center sm:justify-between sm:gap-6 sm:py-0">
           <div className="flex items-center justify-between gap-4">
             <div className="flex items-center gap-3 text-stone-800">
