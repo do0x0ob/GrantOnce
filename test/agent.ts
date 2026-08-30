@@ -19,6 +19,7 @@ import { agentSkillsPrompt, loadAgentSkills } from "../lib/agent/skills";
 import { applyTurn } from "../lib/agent/apply";
 import { patternIntent, runTurn } from "../lib/agent/turn";
 import { evaluateInquiry } from "../lib/inquiry";
+import { effectiveNow, scanForChanges } from "../lib/rules";
 import { effectiveToday, HAPPY_PATH_UTTERANCE, matchPrograms, situationFromUtterance } from "../lib/rules";
 import { isRelevantProgramTitle } from "../lib/research";
 import {
@@ -467,6 +468,26 @@ console.log("\n年齡帶的界線要對得上補助的名字");
   check("59 個月仍在帶內", ageBandOf(59) === "2-5");
   check("60 個月已離開", ageBandOf(60) === "5+");
   check("述詞說明的級距與實作一致", CLAIM_DEFS["child.ageBand"].shape.includes("2-5"));
+}
+
+console.log("\n推播不能承諾它不會做的事");
+{
+  // The pushes still described the old one-step flow: the agent offering to
+  // 「提出一張匣」 on the person's behalf. Nothing mints without them picking and
+  // confirming, so a notice promising otherwise is a lie the screen tells.
+  resetState();
+  mutate((s) => {
+    s.plan = { utterance: HAPPY_PATH_UTTERANCE, matchedAt: new Date().toISOString() };
+  });
+  const notices = scanForChanges(getState(), effectiveNow(getState()));
+  check("有推播可以檢查", notices.length > 0);
+  const prose = notices.map((n) => `${n.title}${n.body}${n.summaryForAgent ?? ""}`).join("\n");
+  check("沒有一則說代理人會提出匣", !/我提出一張|提出「[^」]*」的匣|再提一張匣/.test(prose), prose.slice(0, 90));
+  check(
+    "建議的下一步也不是鑄匣",
+    notices.every((n) => !/提出.*的匣|提一張匣/.test(n.suggestedAction?.label ?? "")),
+    notices.map((n) => n.suggestedAction?.label).join(" | "),
+  );
 }
 
 console.log("\n模型只當「聽懂」那一層");

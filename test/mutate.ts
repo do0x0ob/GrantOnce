@@ -385,6 +385,14 @@ const MUTATIONS: Mutation[] = [
     replace: '  if (months < 72) return "2-5";',
   },
   {
+    // A push must not promise what the flow no longer does. Nothing mints until
+    // the person picks a service and accepts what it asks for.
+    label: "推播又說代理人會替你提出一張匣",
+    file: "lib/rules.ts",
+    find: "label: `看看「${program.title}」`,",
+    replace: "label: `提出「${program.title}」的匣`,",
+  },
+  {
     label: "述詞換回原始欄位",
     file: "lib/purposes.ts",
     find: '      "parentChild.verified",',

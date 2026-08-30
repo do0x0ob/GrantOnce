@@ -277,7 +277,7 @@ export function scanForChanges(state: DemoState, now: Date): NotificationDraft[]
       severity: "action-required",
       title: "育兒津貼資格已改變",
       body:
-        "幼兒已滿 2 歲，離開 0-2 年齡帶。原「育兒津貼」匣宣告的年齡帶述詞已不再成立，該匣不對應正確的補助；需要重新比對並簽一張新的匣。",
+        "幼兒已滿 2 歲，離開 0-2 年齡帶。原「育兒津貼」匣宣告的年齡帶述詞已不再成立，該匣不對應正確的補助。要繼續的話得重新比對，重新確認需求，再簽一張。",
       summaryForAgent:
         "幼兒年齡帶已離開育兒津貼的適用範圍，原匣不再對應正確的補助，需要重新比對。",
       grantId: PURPOSES["childcare-allowance"].slot,
@@ -322,13 +322,13 @@ export function scanForChanges(state: DemoState, now: Date): NotificationDraft[]
         kind: "eligibility-gained",
         severity: "action-required",
         title: `你現在符合「${program.title}」`,
-        body: `規則引擎比對出新的適用補助：${program.title}（${program.agencyName}）。${program.reasons.join("；")}。要不要我提出一張新的匣？述詞只有 ${program.claims.length} 項，仍然不含姓名、地址或出生日期。`,
-        summaryForAgent: `規則引擎比對出新的適用補助「${program.title}」，尚未提出對應的匣。`,
+        body: `規則引擎比對出新的適用補助：${program.title}（${program.agencyName}）。${program.reasons.join("；")}。要辦的話跟我說一聲，我再去問它這次需要什麼；到時候是 ${program.claims.length} 項述詞，仍然不含姓名、地址或出生日期。`,
+        summaryForAgent: `規則引擎比對出新的適用補助「${program.title}」。本人尚未表示要辦，還沒有服務需求，也沒有匣。`,
         grantId: program.grantId,
         suggestedAction: {
           tool: "plan_applications",
           args: { utterance: state.plan?.utterance ?? HAPPY_PATH_UTTERANCE },
-          label: `提出「${program.title}」的匣`,
+          label: `看看「${program.title}」`,
         },
         staleAfter: null,
       });
@@ -457,13 +457,13 @@ export function scanForChanges(state: DemoState, now: Date): NotificationDraft[]
       kind: "denial-followup",
       severity: "risk",
       title: `${inbox.name} 上一次的請求被擋下`,
-      body: `理由：${inbox.lastDenial}\n這筆請求沒有交付任何述詞。要繼續的話得重新比對，簽一張範圍正確的匣。`,
+      body: `理由：${inbox.lastDenial}\n這筆請求沒有交付任何述詞。要繼續的話得重新比對，確認範圍正確的需求後再簽。`,
       summaryForAgent: `對 ${inbox.name} 的上一次請求遭攔截，沒有交付任何述詞，需要重新提案。`,
       grantId: null,
       suggestedAction: {
         tool: "plan_applications",
         args: { utterance: state.plan?.utterance ?? HAPPY_PATH_UTTERANCE },
-        label: "重新比對後再提一張匣",
+        label: "重新比對可申請的服務",
       },
       staleAfter: null,
     });
