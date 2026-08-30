@@ -7,6 +7,7 @@
     "build": "next build",
     "start": "next start --port 43127 --hostname localhost",
     "lint": "eslint",
+    "typecheck": "next typegen && tsc --noEmit",
     "mcp": "tsx mcp/server.ts",
     "mcp:http": "tsx mcp/server.ts --http",
     "test:mcp": "GRANTONCE_STORE=/tmp/grantonce-mcp-test.json tsx mcp/test.ts",
