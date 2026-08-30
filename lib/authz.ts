@@ -45,7 +45,8 @@ export function buildDisplayText(
     "",
     def.necessity,
     "",
-    `法定依據：${def.legalBasis.join("；")}`,
+    `個資依據：${def.privacyBasis.join("；")}`,
+    ...(def.programBasis ? [`作用法：${def.programBasis.join("；")}`] : []),
     `有效至 ${new Date(expIso).toLocaleString("zh-TW", { hour12: false, timeZone: "Asia/Taipei" })}，僅能使用一次，且只有「${def.agencyName}」能兌現。`,
   ];
   return lines.join("\n");

@@ -140,7 +140,7 @@ export function planApplications(utterance: string) {
         ...programs.flatMap((p, i) => [
           `${i + 1}. ${p.title} — ${p.agencyName}`,
           `   本匣述詞：${claimLabels(p.claims).join("、")}`,
-          `   法定依據：${PURPOSES[p.purpose].legalBasis[0]}`,
+          `   個資依據：${PURPOSES[p.purpose].privacyBasis[0]}`,
         ]),
         "",
         hint,
@@ -162,7 +162,8 @@ export function planApplications(utterance: string) {
       claimIds: p.claims,
       claimLabels: claimLabels(p.claims),
       sensitivities: p.claims.map((c) => SENSITIVITY_LABEL[CLAIM_DEFS[c].sensitivity]),
-      legalBasis: PURPOSES[p.purpose].legalBasis,
+      privacyBasis: PURPOSES[p.purpose].privacyBasis,
+      programBasis: PURPOSES[p.purpose].programBasis ?? [],
       hint: p.hint,
     })),
     notes: [...AGENT_NOTES, "模型無法簽署。請委託人在皮夾用生物辨識簽署後才能兌現。"],

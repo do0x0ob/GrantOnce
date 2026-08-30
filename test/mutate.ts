@@ -92,9 +92,9 @@ const MUTATIONS: Mutation[] = [
     replace: "    if (false) {",
   },
   {
-    label: "特種個資不再攔截",
+    label: "不得授權的欄位不再攔截",
     file: "lib/risk.ts",
-    find: "  if (special.length) {",
+    find: "  if (withheld.length) {",
     replace: "  if (false) {",
   },
   {
@@ -144,6 +144,18 @@ const MUTATIONS: Mutation[] = [
     file: "lib/passkey.ts",
     find: "  if (isIpv4 || isIpv6) {",
     replace: "  if (false) {",
+  },
+  {
+    label: "把所得說成 §6 特種個資（法律誤植）",
+    file: "lib/claims.ts",
+    find: '      "非 §6 特種個資，但依 §5 比例原則由本設計自行排除：這些補助的核定不需要所得",',
+    replace: '      "個資法 §6 第 1 項特種個資，法律禁止",',
+  },
+  {
+    label: "同意畫面不再引個資依據",
+    file: "lib/authz.ts",
+    find: '    `個資依據：${def.privacyBasis.join("；")}`,',
+    replace: '    "個資依據：（略）",',
   },
   {
     label: "述詞換回原始欄位",

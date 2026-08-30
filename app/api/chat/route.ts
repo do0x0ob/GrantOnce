@@ -65,7 +65,7 @@ export async function POST(request: Request) {
           `${i + 1}. ${p.title} — ${p.agencyName}`,
           `   原因：${p.reasons.join("；")}`,
           `   本匣述詞：${p.claims.map((c) => CLAIM_DEFS[c].label).join("、")}`,
-          `   法定依據：${purpose.legalBasis[0]}`,
+          `   個資依據：${purpose.privacyBasis[0]}`,
           p.hint ? `   提示：${p.hint}` : "",
         ];
       }),

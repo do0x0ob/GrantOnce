@@ -9,8 +9,18 @@ export type PurposeDef = {
   title: string;
   agency: AgencyId;
   agencyName: string;
-  /** Statutory basis the agency relies on, shown on the consent screen. */
-  legalBasis: string[];
+  /**
+   * The 個資法 grounds for this agency receiving anything at all. Verified
+   * against the statute text; this is what the purpose registry actually
+   * encodes, so it must be right.
+   */
+  privacyBasis: string[];
+  /**
+   * The programme's own enabling law. Optional on purpose: citing it wrongly
+   * costs more than omitting it, so an entry appears only where the article has
+   * been checked against 全國法規資料庫.
+   */
+  programBasis?: string[];
   /** Ceiling on what this purpose may ever carry. */
   allowedClaims: ClaimId[];
   /** Grants for this purpose may not outlive this. */
@@ -31,11 +41,17 @@ export const PURPOSES: Record<PurposeId, PurposeDef> = {
     title: "育兒津貼",
     agency: "jia",
     agencyName: "新北市政府社會局",
-    legalBasis: [
+    privacyBasis: [
       "個人資料保護法 §15 第 1 款：執行法定職務必要範圍內蒐集、處理",
-      "個人資料保護法 §16 第 1 款：於執行法定職務必要範圍內利用",
+      // The statutory-duty rule is §16's main clause. Its 款 one to seven are
+      // the exceptions for 特定目的外之利用 — citing 第 1 款 here would point at
+      // 「法律明文規定」, an exception, while meaning the rule.
+      "個人資料保護法 §16 本文：於執行法定職務必要範圍內利用，並與蒐集之特定目的相符",
       "個人資料保護法 §5：不得逾越特定目的之必要範圍",
-      "兒童及少年福利與權益保障法 §23：直轄市主管機關辦理托育與育兒補助",
+    ],
+    programBasis: [
+      "兒童及少年福利與權益保障法 §23 第 1 項第 3 款：直轄市主管機關辦理兒童托育服務",
+      "同法 §23 第 2 項：前述補助之資格、條件、程序及金額，由主管機關定之",
     ],
     allowedClaims: [
       "resident.inNewTaipei",
@@ -52,12 +68,14 @@ export const PURPOSES: Record<PurposeId, PurposeDef> = {
     title: "住宅冷氣汰換補助",
     agency: "yi",
     agencyName: "經濟部能源署 × 台灣電力公司",
-    legalBasis: [
+    privacyBasis: [
       "個人資料保護法 §15 第 1 款：執行法定職務必要範圍內蒐集、處理",
-      "個人資料保護法 §16 第 1 款：於執行法定職務必要範圍內利用",
+      "個人資料保護法 §16 本文：於執行法定職務必要範圍內利用，並與蒐集之特定目的相符",
       "個人資料保護法 §5：不得逾越特定目的之必要範圍",
-      "能源管理法 §9：主管機關辦理能源使用效率獎勵",
     ],
+    // No programBasis: 節能家電補助 is run on special budget and administrative
+    // rules; 能源管理法 §9 is about 能源查核制度, not subsidies, and this project
+    // does not cite an article it has not verified.
     allowedClaims: ["power.residentialMeter", "power.usageBand", "power.accountRef"],
     maxTtlSeconds: 600,
     necessity:

@@ -70,12 +70,15 @@ export function assessRisk(input: {
   }
 
   // 2. Special-category data is refused regardless of consent.
-  const special = input.claims.filter((c) => SPECIAL_CLAIMS.includes(c as ClaimId));
-  if (special.length) {
-    blockedClaims.push(...special);
-    notes.push(
-      `${special.map((c) => CLAIM_DEFS[c as ClaimId].label).join("、")} 屬特種／敏感個資，無論委託人是否同意都攔截。`,
-    );
+  // Each withheld claim states its own ground: the law forbids one, this design
+  // excludes the other. Collapsing them into one sentence would overclaim.
+  const withheld = input.claims.filter((c) => SPECIAL_CLAIMS.includes(c as ClaimId));
+  if (withheld.length) {
+    blockedClaims.push(...withheld);
+    for (const claim of withheld) {
+      const def = CLAIM_DEFS[claim as ClaimId];
+      notes.push(`${def.label}：${def.withholdBasis}，無論委託人是否同意都攔截。`);
+    }
     escalate("blocked");
   }
 
