@@ -146,6 +146,52 @@ const MUTATIONS: Mutation[] = [
     replace: "  if (false) {",
   },
   {
+    label: "matcher 讀原型鏈上的屬性",
+    file: "lib/agent/blocks/of.ts",
+    find: "  return Object.fromEntries(Object.entries(o as Obj));",
+    replace: "  return o as Obj;",
+  },
+  {
+    label: "指名一項補助卻連別的一起給",
+    file: "lib/agent/turn.ts",
+    find: "  const programs = narrowed",
+    replace: "  const programs = false",
+  },
+  {
+    label: "資格比對改回看你怎麼講而不是看事實",
+    file: "lib/rules.ts",
+    find: '  if (situation.wantsChildcare && band === "0-2") {',
+    replace: '  if (situation.wantsChildcare && situation.movedRecently && band === "0-2") {',
+  },
+  {
+    label: "拒絕理由改回講遷徙",
+    file: "lib/inquiry.ts",
+    find: "    return `本 runtime 有對得上的可發票目的，但這個人目前不符合它的資格條件。${ageHint(",
+    replace: '    return "本 runtime 有對得上的可發票目的，但這句話還沒對上資格條件（育兒津貼需要聲明遷徙）。模型不能改條件。"; // eslint-disable-line\n    return `x${(',
+  },
+  {
+    label: "模型可以宣稱動作已經完成",
+    file: "lib/agent/intent.ts",
+    find: "  if (FORBIDDEN.test(text)) return undefined;",
+    replace: "  if (false) return undefined;",
+  },
+  {
+    // "Cards carry ids, not snapshots" is enforced by the Block union itself, so
+    // no single-file edit can violate it — that one is guarded by the compiler.
+    // This checks the other half: unrecognised output must be dropped, not
+    // forced into a text card where junk would render as if it were a reply.
+    label: "認不得的輸出被硬塞成文字卡",
+    file: "lib/agent/blocks/of.ts",
+    find: "    // Unrecognised output is dropped rather than forced into a card.",
+    replace: '    out.push({ kind: "text", text: JSON.stringify(o) });',
+  },
+  {
+    label: "聽不懂時不給下一步",
+    file: "lib/agent/turn.ts",
+    find: '        { question: "你可以問我這些", suggestions: MENU.suggestions },',
+    replace: "        { text: \"我聽不懂。\" },",
+  },
+  {
     label: "述詞換回原始欄位",
     file: "lib/purposes.ts",
     find: '      "parentChild.verified",',
@@ -196,29 +242,50 @@ const MUTATIONS: Mutation[] = [
   },
 ];
 
+/**
+ * Cheapest first, and `race` last: it spawns a dozen subprocesses, so running it
+ * for a mutation three earlier suites already caught is most of the wall clock
+ * for none of the information.
+ */
 const SUITES = [
   { name: "flow", file: "test/flow.ts" },
+  { name: "agent", file: "test/agent.ts" },
   { name: "mcp", file: "mcp/test.ts" },
   { name: "race", file: "test/race.ts" },
 ];
 
-function runSuites(): { name: string; ok: boolean; firstFailure: string }[] {
-  return SUITES.map(({ name, file }) => {
-    const store = `/tmp/grantonce-mutate-${name}-${randomBytes(4).toString("hex")}.json`;
-    try {
-      execFileSync("npx", ["tsx", file], {
-        cwd: ROOT,
-        env: { ...process.env, GRANTONCE_STORE: store },
-        encoding: "utf8",
-        stdio: "pipe",
-      });
-      return { name, ok: true, firstFailure: "" };
-    } catch (error) {
-      const out = String((error as { stdout?: string }).stdout ?? "");
-      const line = out.split("\n").find((l) => l.includes("FAIL")) ?? "";
-      return { name, ok: false, firstFailure: line.trim().slice(0, 90) };
-    }
-  });
+function runSuite(name: string, file: string): { name: string; ok: boolean; firstFailure: string } {
+  const store = `/tmp/grantonce-mutate-${name}-${randomBytes(4).toString("hex")}.json`;
+  try {
+    execFileSync("npx", ["tsx", file], {
+      cwd: ROOT,
+      env: { ...process.env, GRANTONCE_STORE: store },
+      encoding: "utf8",
+      stdio: "pipe",
+    });
+    return { name, ok: true, firstFailure: "" };
+  } catch (error) {
+    const out = String((error as { stdout?: string }).stdout ?? "");
+    const line = out.split("\n").find((l) => l.includes("FAIL")) ?? "";
+    return { name, ok: false, firstFailure: line.trim().slice(0, 90) };
+  }
+}
+
+/** Every suite. Used once, to prove the baseline is green. */
+function runSuites() {
+  return SUITES.map(({ name, file }) => runSuite(name, file));
+}
+
+/**
+ * Stops at the first red. A mutation is either caught or it is not; which
+ * *other* suites would also have caught it costs minutes and answers nothing.
+ */
+function firstCatch(): { name: string; firstFailure: string } | null {
+  for (const { name, file } of SUITES) {
+    const result = runSuite(name, file);
+    if (!result.ok) return { name, firstFailure: result.firstFailure };
+  }
+  return null;
 }
 
 const baseline = runSuites();
@@ -239,9 +306,9 @@ for (const mutation of MUTATIONS) {
   }
   writeFileSync(path, original.replace(mutation.find, mutation.replace), "utf8");
   try {
-    const caught = runSuites().filter((r) => !r.ok);
-    if (caught.length) {
-      console.log(`  抓到  ${mutation.label}  →  ${caught.map((c) => c.name).join(",")}`);
+    const caught = firstCatch();
+    if (caught) {
+      console.log(`  抓到  ${mutation.label}  →  ${caught.name}`);
     } else {
       console.log(`  漏掉  ${mutation.label}`);
       missed.push(mutation.label);

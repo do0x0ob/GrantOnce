@@ -28,6 +28,7 @@ jobs:
       - run: npm run build
       - run: npm run test:flow
       - run: npm run test:mcp
+      - run: npm run test:agent
       - run: npm run test:race
 
   # The suites above only prove themselves if removing a defence turns one red.

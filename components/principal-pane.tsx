@@ -1,9 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { ChatTranscript } from "@/components/chat-transcript";
+import { AgentThread } from "@/components/agent/thread";
 import { DelegationCard } from "@/components/delegation-card";
-import { GrantCard } from "@/components/grant-card";
 import { NotificationList } from "@/components/notification-list";
 import { PageIntro } from "@/components/page-intro";
 import { WalletKeyCard } from "@/components/wallet-key-card";
@@ -12,11 +11,10 @@ import { Button } from "@/components/ui/button";
 import { FLOOD_UTTERANCE } from "@/lib/catalog";
 import { HAPPY_PATH_UTTERANCE } from "@/lib/rules";
 import type { Demo } from "@/hooks/use-demo";
-import type { GrantId } from "@/lib/types";
 
 function authorizePhase(demo: Demo) {
   const { view } = demo;
-  if (!view.principal.key.registered || !demo.localKeyUsable) return "onboard" as const;
+  if (!view.principal.key.registered) return "onboard" as const;
   if (view.grants.length === 0) return "ask" as const;
   if (view.grants.some((g) => g.status === "proposed" || g.status === "expired")) {
     return "review" as const;
@@ -35,6 +33,10 @@ export function PrincipalPane({
   const [draft, setDraft] = useState("");
   const { view, busy } = demo;
   const phase = authorizePhase(demo);
+  // The conversation is the surface, so it must not be gated on a capsule
+  // existing: a reply that answers a question without proposing anything —
+  // "who read my data", "what would they get" — has to be visible too.
+  const started = view.chat.some((message) => message.role === "user");
   const pending = view.grants.filter((g) => g.status === "proposed").length;
   const submitted = Object.values(view.inboxes).some((box) => box.submittedAt);
   const received = Object.values(view.inboxes).some((box) => box.receivedAt);
@@ -53,7 +55,7 @@ export function PrincipalPane({
           />
         ) : null}
 
-        {phase === "ask" ? (
+        {phase === "ask" && !started ? (
           <div className="flex flex-1 flex-col items-start justify-center py-10">
             <PageIntro kicker={view.principal.name} title="想辦什麼？">
               跟代理人說你現在的情況。資格由規則引擎決定，模型不決定授權。
@@ -79,8 +81,9 @@ export function PrincipalPane({
           </div>
         ) : null}
 
-        {phase === "review" || phase === "waiting" || phase === "done" ? (
+        {started ? (
           <div className="space-y-10 pb-8">
+            {view.grants.length ? (
             <div className="space-y-4">
               <PageIntro
                 kicker={view.principal.name}
@@ -112,6 +115,7 @@ export function PrincipalPane({
                 </Button>
               ) : null}
             </div>
+            ) : null}
 
             <NotificationList
               notifications={view.notifications}
@@ -120,20 +124,7 @@ export function PrincipalPane({
               onAcknowledge={(id) => void demo.acknowledge(id)}
             />
 
-            {view.chat.length ? <ChatTranscript chat={view.chat} compact /> : null}
-
-            <div className="space-y-8">
-              {view.grants.map((grant) => (
-                <GrantCard
-                  key={grant.id}
-                  grant={grant}
-                  busy={busy}
-                  canSign={view.principal.key.registered}
-                  onSign={() => void demo.signGrant(grant.id as GrantId)}
-                  onRevoke={() => void demo.revoke(grant.id as GrantId)}
-                />
-              ))}
-            </div>
+            <AgentThread demo={demo} />
 
             <DelegationCard
               delegation={view.delegation}
@@ -148,7 +139,7 @@ export function PrincipalPane({
 
       </div>
 
-      {phase === "ask" ? (
+      {phase !== "onboard" ? (
         <div className="sticky bottom-0 bg-gradient-to-t from-[#E8E4DE] via-[#E8E4DE] to-transparent pb-5 pt-8">
           <form
             className="mx-auto flex w-full max-w-[40rem] items-center gap-2 px-6 sm:px-8"

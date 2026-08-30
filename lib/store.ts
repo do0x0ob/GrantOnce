@@ -297,8 +297,9 @@ export function appendChat(
   state: DemoState,
   role: ChatMessage["role"],
   text: string,
+  blocks?: ChatMessage["blocks"],
 ): ChatMessage {
-  const msg: ChatMessage = { id: randomId("msg"), role, text, at: nowIso() };
+  const msg: ChatMessage = { id: randomId("msg"), role, text, at: nowIso(), blocks };
   state.chat.push(msg);
   return msg;
 }

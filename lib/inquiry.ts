@@ -25,6 +25,8 @@ export { FLOOD_UTTERANCE };
 
 export type InquiryResult = {
   utterance: string;
+  /** The effective date the match was judged against. */
+  today: string;
   topics: TopicId[];
   situation: DeclaredSituation | null;
   programs: ProgramPlan[];
@@ -39,7 +41,13 @@ function closeReasonFor(result: Omit<InquiryResult, "closeReason">): string | nu
     return "真實世界有災害救助／慰助金。本 runtime 還沒有受災述詞與 issuer adapter，所以不能 mint Grant——缺的是綁定，不是世界上沒有這筆補助。";
   }
   if (result.catalog.some((entry) => entry.issuable)) {
-    return "本 runtime 有對得上的可發票目的，但這句話還沒對上資格條件（育兒津貼需要聲明遷徙）。模型不能改條件。";
+    // Eligibility is judged on facts, so the reason a matched purpose did not
+    // issue is a fact about this person — most often the child's age band.
+    // Naming the wrong precondition here told someone whose child had turned
+    // two that they needed to declare a move.
+    return `本 runtime 有對得上的可發票目的，但這個人目前不符合它的資格條件。${ageHint(
+      childAgeMonthsAt(result.today),
+    )}模型不能改條件。`;
   }
   if (result.catalog.length > 0) {
     return "公開資料可能有對應補助；本 runtime 對這些目的還沒有 issuer adapter，不能發明 purpose 來發票。";
@@ -55,6 +63,7 @@ export function evaluateInquiry(utterance: string, today: string): InquiryResult
   const programs = situation ? matchPrograms(situation) : [];
   const partial = {
     utterance: message,
+    today,
     topics,
     situation,
     programs,
