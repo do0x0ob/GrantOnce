@@ -294,10 +294,10 @@ export function CredentialPane({ demo }: { demo: Demo }) {
               <Image
                 src={twdiw.ticket.issuance.qrCodeDataUri}
                 alt="皮夾發證 QR"
-                width={144}
-                height={144}
+                width={256}
+                height={256}
                 unoptimized
-                className="size-36 rounded-[20px] bg-white p-2 [image-rendering:pixelated]"
+                className="size-64 rounded-[24px] bg-white p-3 [image-rendering:pixelated]"
               />
               <div className="space-y-2">
                 <p className="text-[13px] leading-5 text-stone-500">
@@ -375,10 +375,10 @@ export function CredentialPane({ demo }: { demo: Demo }) {
                   <Image
                     src={twdiw.ticket.presentation.ticket.qrCodeDataUri}
                     alt="OID4VP 出示 QR"
-                    width={144}
-                    height={144}
+                    width={256}
+                    height={256}
                     unoptimized
-                    className="size-36 rounded-[20px] bg-white p-2 [image-rendering:pixelated]"
+                    className="size-64 rounded-[24px] bg-white p-3 [image-rendering:pixelated]"
                   />
                   <div className="space-y-2">
                     <a
