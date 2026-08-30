@@ -31,17 +31,23 @@ function script(name: string, body: string): string {
  * as untested, on the slide that invites judges to run it.
  *
  * Each child finishes importing and preparing, publishes a ready file, then
- * spins until every sibling has published one. They leave the spin within
- * microseconds of each other and enter the critical section together, however
- * long boot took.
+ * waits until every sibling has published one. They leave within a millisecond
+ * of the last arrival — shorter than the critical section — and so enter it
+ * together however long boot took.
  */
 const BARRIER = `
 import { readdirSync, writeFileSync } from "node:fs";
 function barrier(dir: string, n: number) {
+  const idle = new Int32Array(new SharedArrayBuffer(4));
   writeFileSync(\`\${dir}/\${process.pid}.ready\`, "", "utf8");
-  const deadline = Date.now() + 30_000;
+  const deadline = Date.now() + 60_000;
   while (readdirSync(dir).filter((f) => f.endsWith(".ready")).length < n) {
     if (Date.now() > deadline) throw new Error("barrier timed out");
+    // Yield rather than spin. Six processes busy-waiting on a two-core CI
+    // runner would starve the very boots this is waiting for. Polling every
+    // millisecond still releases everyone inside one millisecond of the last
+    // arrival, which is shorter than the critical section being tested.
+    Atomics.wait(idle, 0, 0, 1);
   }
 }
 `;
