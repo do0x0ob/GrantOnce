@@ -9,6 +9,7 @@ import { PageIntro } from "@/components/page-intro";
 import { WalletKeyCard } from "@/components/wallet-key-card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { FLOOD_UTTERANCE } from "@/lib/catalog";
 import { HAPPY_PATH_UTTERANCE } from "@/lib/rules";
 import type { Demo } from "@/hooks/use-demo";
 import type { GrantId } from "@/lib/types";
@@ -57,14 +58,24 @@ export function PrincipalPane({
             <PageIntro kicker={view.principal.name} title="想辦什麼？">
               跟代理人說你現在的情況。資格由規則引擎決定，模型不決定授權。
             </PageIntro>
-            <button
-              type="button"
-              disabled={busy}
-              onClick={() => void demo.sendChat(HAPPY_PATH_UTTERANCE)}
-              className="mt-10 max-w-full rounded-full bg-white px-5 py-3 text-left text-[15px] leading-6 text-stone-800 shadow-[0_1px_0_rgba(26,24,20,0.04),0_18px_40px_-28px_rgba(26,24,20,0.35)] transition-transform hover:-translate-y-0.5 disabled:opacity-40"
-            >
-              演示這句：{HAPPY_PATH_UTTERANCE}
-            </button>
+            <div className="mt-10 flex max-w-full flex-col items-start gap-3">
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => void demo.sendChat(HAPPY_PATH_UTTERANCE)}
+                className="max-w-full rounded-full bg-white px-5 py-3 text-left text-[15px] leading-6 text-stone-800 shadow-[0_1px_0_rgba(26,24,20,0.04),0_18px_40px_-28px_rgba(26,24,20,0.35)] transition-transform hover:-translate-y-0.5 disabled:opacity-40"
+              >
+                演示這句：{HAPPY_PATH_UTTERANCE}
+              </button>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => void demo.sendChat(FLOOD_UTTERANCE)}
+                className="max-w-full rounded-full bg-white px-5 py-3 text-left text-[15px] leading-6 text-stone-800 shadow-[0_1px_0_rgba(26,24,20,0.04),0_18px_40px_-28px_rgba(26,24,20,0.35)] transition-transform hover:-translate-y-0.5 disabled:opacity-40"
+              >
+                問真實世界：{FLOOD_UTTERANCE}
+              </button>
+            </div>
           </div>
         ) : null}
 

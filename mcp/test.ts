@@ -4,6 +4,7 @@
  */
 import { keyPairFromSeed, sign, b64u } from "../lib/crypto";
 import { registerPrincipalKey, signGrant } from "../lib/authz";
+import { FLOOD_UTTERANCE } from "../lib/catalog";
 import { getState, resetState } from "../lib/store";
 import { callTool, TOOL_NAMES, vaultLeakIn, type ToolName } from "./tools";
 
@@ -49,10 +50,44 @@ console.log("工具清單與實作一致");
   check("每個工具都有實作", unhandled.length === 0, unhandled.join(","));
 }
 
+console.log("\nsearch_purposes");
+{
+  resetState();
+  registerPrincipalKey({ publicKey: pk, method: "software" });
+  const flood = call("search_purposes", { query: FLOOD_UTTERANCE });
+  const matches = flood.data.matches as { id: string; issuable: boolean }[];
+  check("水災命中目錄", matches.some((m) => m.id === "flood-relief"));
+  check(
+    "水災標記不可發票",
+    matches.some((m) => m.id === "flood-relief" && m.issuable === false),
+  );
+  check("搜尋不讀金庫", !vaultLeakIn(flood.data));
+  check("搜尋不建匣", getState().grants.length === 0);
+}
+
 console.log("\nplan_applications");
 {
+  resetState();
+  registerPrincipalKey({ publicKey: pk, method: "software" });
+  const flood = call("plan_applications", { utterance: FLOOD_UTTERANCE });
+  check("水災不發票", flood.data.canIssue === false);
+  check(
+    "水災不建匣",
+    getState().grants.length === 0,
+    JSON.stringify(getState().grants.map((g) => g.id)),
+  );
+  check(
+    "水災回目錄",
+    Array.isArray(flood.data.catalog) &&
+      (flood.data.catalog as { id: string }[]).some((e) => e.id === "flood-relief"),
+  );
+  check("水災回傳不含金庫值", !vaultLeakIn(flood.data));
+
+  resetState();
+  registerPrincipalKey({ publicKey: pk, method: "software" });
   const { data } = call("plan_applications", { utterance: "我剛搬家，看我能申請什麼。" });
   check("回傳兩個申請案", Array.isArray(data.programs) && (data.programs as unknown[]).length === 2);
+  check("搬家路徑 canIssue", data.canIssue === true);
   check("只回述詞 ID 與標籤，無金庫值", !vaultLeakIn(data));
 }
 

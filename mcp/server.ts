@@ -35,15 +35,28 @@ export function createGrantOnceServer(): McpServer {
   });
 
   server.registerTool(
+    "search_purposes",
+    {
+      title: "搜尋目的目錄",
+      description:
+        "搜本部署登記過的目的目錄（育兒、冷氣、水災救助等）。不是外網搜尋。回傳 issuable；false 表示只能說明、不能 mint Grant、不能發明述詞。不讀金庫。",
+      inputSchema: {
+        query: z.string().describe("自然語言或關鍵字。空字串回傳全部登記項。"),
+      },
+    },
+    async ({ query }) => runTool("search_purposes", { query }),
+  );
+
+  server.registerTool(
     "plan_applications",
     {
       title: "規劃申請",
       description:
-        "用規則引擎比對委託人原話，提出分匣申請（G-甲 育兒津貼、G-乙 冷氣補助）。匣裡放的是述詞，不是原始欄位。不讀金庫，也不能簽署。",
+        "用規則引擎比對委託人原話。只有目錄命中且資格成立才提案（G-甲 育兒津貼、G-乙 冷氣補助）。水災等參考項只回目錄、不發票。不讀金庫，也不能簽署。",
       inputSchema: {
         utterance: z
           .string()
-          .describe("委託人原話。快樂路徑：我剛搬家，看我能申請什麼。"),
+          .describe("委託人原話。快樂路徑：我剛搬家，看我能申請什麼。水災只會搜到參考項。"),
       },
     },
     async ({ utterance }) => runTool("plan_applications", { utterance }),

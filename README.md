@@ -146,7 +146,9 @@ npm run mcp
 
 網頁與 MCP 共用同一個 store。寫入時互斥上鎖，讀取時偵測檔案異動重讀，不會分歧或互相覆蓋。
 
-工具：`plan_applications`、`get_grant_for_signature`、`redeem_grant`、`request_claims`、`submit_application`、`revoke_grant`、`stop_delegation`、`get_audit`。
+工具：`search_purposes`、`plan_applications`、`get_grant_for_signature`、`redeem_grant`、`request_claims`、`submit_application`、`revoke_grant`、`stop_delegation`、`get_audit`。
+
+`search_purposes` 只搜本部署的目的目錄（育兒、冷氣、水災救助等參考項），不是外網。目錄命中且 `issuable=false` 時，`plan_applications` fail-closed，不 mint Grant、不發明述詞。
 
 ## 這個設計的名字
 

@@ -8,24 +8,19 @@ import {
   submitApplication,
 } from "../lib/authz";
 import { pushChanges } from "../lib/agent";
+import { catalogPublic, searchCatalog } from "../lib/catalog";
 import { CLAIM_DEFS, isClaimId, SENSITIVITY_LABEL } from "../lib/claims";
 import { normalizeGrantId } from "../lib/fields";
+import { evaluateInquiry, formatInquiryMessage, inquiryPayload } from "../lib/inquiry";
 import { isKnownAgency } from "../lib/parties";
 import { isPurposeId, PURPOSES } from "../lib/purposes";
-import {
-  AGENT_NOTES,
-  ageHint,
-  childAgeMonthsAt,
-  effectiveToday,
-  HAPPY_PATH_UTTERANCE,
-  matchPrograms,
-  situationFromUtterance,
-} from "../lib/rules";
+import { AGENT_NOTES, effectiveToday, HAPPY_PATH_UTTERANCE } from "../lib/rules";
 import { appendChat, getState, mutate } from "../lib/store";
 import type { AgencyId, GrantId } from "../lib/types";
 import { VAULT } from "../lib/vault";
 
 export const TOOL_NAMES = [
+  "search_purposes",
   "plan_applications",
   "get_grant_for_signature",
   "redeem_grant",
@@ -103,56 +98,42 @@ function grantPublic(grantId: GrantId) {
   };
 }
 
+export function searchPurposes(query: string) {
+  const hits = searchCatalog(query);
+  const payload = {
+    ok: true,
+    query,
+    matches: hits.map(catalogPublic),
+    issuablePurposeIds: hits
+      .filter((entry) => entry.issuable && entry.purposeId)
+      .map((entry) => entry.purposeId),
+    note: "這是本部署的目的目錄，不是即時網搜。issuable=false 不能 mint Grant，也不能發明述詞。",
+    notes: [...AGENT_NOTES],
+  };
+  assertNoVaultLeak(payload, "search_purposes");
+  return payload;
+}
+
 export function planApplications(utterance: string) {
   const message = utterance.trim() || HAPPY_PATH_UTTERANCE;
   const today = effectiveToday(getState());
-  const situation = situationFromUtterance(message, today);
-
-  if (!situation || !situation.movedRecently) {
-    const payload = {
-      ok: false,
-      error: situation
-        ? "規則引擎沒有偵測到「搬家／遷徙」。"
-        : `這個演示只處理補助比對。請輸入：「${HAPPY_PATH_UTTERANCE}」`,
-      notes: ["資格由規則引擎決定，模型不決定授權。", "模型看不到金庫，也不能簽署任何匣。"],
-    };
-    mutate((s) => {
-      appendChat(s, "user", message);
-      appendChat(s, "agent", payload.error);
-    });
-    assertNoVaultLeak(payload, "plan_applications");
-    return payload;
-  }
-
-  const programs = matchPrograms(situation);
-  const hint = ageHint(childAgeMonthsAt(today));
+  const inquiry = evaluateInquiry(message, today);
 
   mutate((s) => {
     appendChat(s, "user", message);
+    appendChat(s, "agent", formatInquiryMessage(inquiry, today));
+    if (!inquiry.canIssue) return;
     s.plan = { utterance: message, matchedAt: new Date().toISOString() };
-    proposeGrantsFromPlan(s, programs);
-    appendChat(
-      s,
-      "agent",
-      [
-        "規則引擎比對結果（非模型授權）：",
-        "",
-        ...programs.flatMap((p, i) => [
-          `${i + 1}. ${p.title} — ${p.agencyName}`,
-          `   本匣述詞：${claimLabels(p.claims).join("、")}`,
-          `   法定依據：${PURPOSES[p.purpose].legalBasis[0]}`,
-        ]),
-        "",
-        hint,
-      ].join("\n"),
-    );
+    proposeGrantsFromPlan(s, inquiry.programs);
     pushChanges(s, new Date());
   });
 
   const payload = {
-    ok: true,
-    ageHint: hint,
-    programs: programs.map((p) => ({
+    ...inquiryPayload(inquiry, [
+      "模型無法簽署。請委託人在皮夾用生物辨識簽署後才能兌現。",
+      "search_purposes 只搜目錄；plan_applications 只有 canIssue 時才會提案。",
+    ]),
+    programs: inquiry.programs.map((p) => ({
       grantId: p.grantId,
       title: p.title,
       purpose: p.purpose,
@@ -165,7 +146,6 @@ export function planApplications(utterance: string) {
       legalBasis: PURPOSES[p.purpose].legalBasis,
       hint: p.hint,
     })),
-    notes: [...AGENT_NOTES, "模型無法簽署。請委託人在皮夾用生物辨識簽署後才能兌現。"],
   };
   assertNoVaultLeak(payload, "plan_applications");
   return payload;
@@ -326,6 +306,8 @@ export function callTool(
 ): { data: unknown; isError: boolean } {
   const str = (key: string) => String(args[key] ?? "");
   switch (name) {
+    case "search_purposes":
+      return wrap(searchPurposes(str("query")));
     case "plan_applications":
       return wrap(planApplications(str("utterance")));
     case "get_grant_for_signature":

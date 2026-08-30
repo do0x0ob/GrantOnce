@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { pushChanges } from "@/lib/agent";
 import { proposeGrantsFromPlan } from "@/lib/authz";
-import { ageHint, childAgeMonthsAt, effectiveToday, matchPrograms, situationFromUtterance } from "@/lib/rules";
+import { evaluateInquiry } from "@/lib/inquiry";
+import { ageHint, childAgeMonthsAt, effectiveToday } from "@/lib/rules";
 import { appendChat, mutate } from "@/lib/store";
 import { principalView } from "@/lib/view";
 
@@ -21,9 +22,9 @@ export async function POST(request: Request) {
     const months = childAgeMonthsAt(today);
 
     if (s.plan) {
-      const situation = situationFromUtterance(s.plan.utterance, today);
-      if (situation) {
-        const programs = matchPrograms(situation);
+      const inquiry = evaluateInquiry(s.plan.utterance, today);
+      if (inquiry.canIssue) {
+        const programs = inquiry.programs;
         s.plan = { ...s.plan, matchedAt: new Date().toISOString() };
         // Re-propose from scratch: a changed situation means new claims, a new
         // jti and a fresh signature. Grants are never silently amended.

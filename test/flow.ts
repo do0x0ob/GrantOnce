@@ -22,6 +22,8 @@ import {
 } from "../lib/authz";
 import { AGENCY_KEYS } from "../lib/parties";
 import { originBlocker } from "../lib/passkey";
+import { FLOOD_UTTERANCE } from "../lib/catalog";
+import { evaluateInquiry } from "../lib/inquiry";
 import { effectiveToday, matchPrograms, scanForChanges, situationFromUtterance } from "../lib/rules";
 import { getState, mutate, resetState } from "../lib/store";
 import { formatClock, formatDate, formatTime } from "../lib/view";
@@ -97,6 +99,18 @@ check(
   JSON.stringify(programs.flatMap((p) => p.claims.map((c) => [c, CLAIM_DEFS[c].sensitivity]))),
 );
 check("冷氣補助用假名代替電號", programs[1].claims.includes("power.accountRef"));
+{
+  const flood = evaluateInquiry(FLOOD_UTTERANCE, effectiveToday(getState()));
+  check("水災不能發票", flood.canIssue === false);
+  check("水災不產出申請案", flood.programs.length === 0);
+  check(
+    "水災目錄命中參考項",
+    flood.catalog.some((entry) => entry.id === "flood-relief" && entry.issuable === false),
+  );
+  const before = getState().grants.length;
+  mutate((s) => proposeGrantsFromPlan(s, flood.programs));
+  check("水災路徑不建匣", getState().grants.length === before);
+}
 mutate((s) => proposeGrantsFromPlan(s, programs));
 
 const jia: GrantId = "G-甲";
