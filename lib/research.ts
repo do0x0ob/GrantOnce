@@ -175,19 +175,35 @@ function termsFor(query: string): string[] {
     .replace(/我最近|我剛|可以申請什麼|可以申請|申請什麼|有什麼|看我能/g, " ")
     .replace(/\s+/g, " ")
     .trim();
-  const terms = [q];
-  if (cleaned && cleaned !== q) terms.push(cleaned);
-  const hinted =
-    /水災|淹水|洪水|受災|風災/.test(q)
-      ? "臺灣 水災 災害救助金"
-      : /育兒|托育/.test(q)
-        ? "臺灣 育兒津貼"
-        : /冷氣|節能/.test(q)
-          ? "臺灣 住宅節能 冷氣補助"
-          : "";
-  if (hinted) terms.push(hinted);
-  if (!/台灣|臺灣/.test(cleaned || q)) terms.push(`${cleaned || q} 臺灣`);
-  return [...new Set(terms)].slice(0, 4);
+  const hinted = /水災|淹水|洪水|受災|風災/.test(q)
+    ? ["災害救助金", "社會救助", "水災慰助"]
+    : /育兒|托育/.test(q)
+      ? ["臺灣 育兒津貼"]
+      : /冷氣|節能/.test(q)
+        ? ["臺灣 住宅節能補助"]
+        : [];
+  const terms = [...hinted];
+  if (q.length <= 16) terms.unshift(q);
+  else if (cleaned && !hinted.length) terms.push(cleaned);
+  if (!hinted.length && cleaned && !/台灣|臺灣/.test(cleaned)) terms.push(`${cleaned} 臺灣`);
+  return [...new Set(terms)].slice(0, 3);
+}
+
+function relevance(text: string): number {
+  let score = 0;
+  for (const [keyword, weight] of [
+    ["災害救助", 8],
+    ["救助金", 6],
+    ["慰助", 5],
+    ["水災", 5],
+    ["社會救助", 8],
+    ["育兒津貼", 5],
+    ["補助", 2],
+    ["津貼", 2],
+  ] as const) {
+    if (text.includes(keyword)) score += weight;
+  }
+  return score;
 }
 
 function dedupe(findings: ResearchFinding[]): ResearchFinding[] {
@@ -219,7 +235,10 @@ async function liveResearch(query: string): Promise<ResearchResult> {
       errors.push(error instanceof Error ? error.message : String(error));
     }
   }
-  const uniqueIds = [...new Set(hits.map((h) => h.pageid))];
+  const ranked = [...hits].sort(
+    (a, b) => relevance(`${b.title} ${b.snippet}`) - relevance(`${a.title} ${a.snippet}`),
+  );
+  const uniqueIds = [...new Set(ranked.map((h) => h.pageid))];
   if (uniqueIds.length === 0) {
     return unavailable(query, errors[0] ?? "沒有公開條目");
   }
@@ -232,7 +251,11 @@ async function liveResearch(query: string): Promise<ResearchResult> {
       snippet: stripTags(hit.snippet).slice(0, 220),
       publisher: "維基百科",
     }));
-    const findings = dedupe([...fromPages, ...fromSearch]);
+    const findings = dedupe(
+      [...fromPages, ...fromSearch].sort(
+        (a, b) => relevance(`${b.title} ${b.snippet}`) - relevance(`${a.title} ${a.snippet}`),
+      ),
+    );
     return { query, source: "live", findings, note: NOTE };
   } catch (error) {
     const fallback = dedupe(
