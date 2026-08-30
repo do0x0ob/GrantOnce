@@ -1,6 +1,10 @@
 import { CLAIM_DEFS, ISSUERS, isClaimId } from "./claims";
+import { unb64u } from "./crypto";
 import { FIELD_META } from "./fields";
 import { PURPOSES } from "./purposes";
+import { effectiveNow } from "./rules";
+import { sdDigest } from "./sdjwt";
+import { claimValues, credentialTtlDays, SYNTHETIC_FIELD, twdiwConfig } from "./twdiw";
 import { purposesFrom, registryView } from "./registry";
 import { RISK_LABEL } from "./risk";
 import type { DemoState, GrantStatus, ServiceRequestStatus } from "./types";
@@ -99,6 +103,62 @@ export function claimLabel(id: string): string {
  * are held and never entered a grant, without shipping the numbers to the
  * browser.
  */
+function decodeSegment(segment: string): unknown {
+  try {
+    return JSON.parse(new TextDecoder().decode(unb64u(segment)));
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Everything the SD-JWT panel needs to show that `_sd` really is just digests.
+ *
+ * The decoded halves are for reading. The `encoded` string beside each one is
+ * the artefact: it is what gets hashed and what gets sent, and re-encoding the
+ * decoded form would produce a different digest.
+ */
+function sdJwtView(state: DemoState) {
+  const issued = state.sdJwtDemo;
+  if (!issued) return null;
+  const [header, payload] = issued.jwt.split(".");
+  const real = new Set(issued.disclosures.map((d) => sdDigest(d.encoded)));
+  return {
+    combined: issued.combined,
+    jwt: issued.jwt,
+    header: decodeSegment(header),
+    payload: decodeSegment(payload),
+    sdDigests: issued.sdDigests.map((digest) => ({ digest, decoy: !real.has(digest) })),
+    disclosures: issued.disclosures.map((d) => ({
+      encoded: d.encoded,
+      digest: sdDigest(d.encoded),
+      salt: d.salt,
+      name: d.name,
+      value: d.value,
+    })),
+  };
+}
+
+/** The sandbox panel. No api key, no header name — only whether it is on. */
+function twdiwView(state: DemoState) {
+  const config = twdiwConfig();
+  const values = claimValues(state, effectiveNow(state));
+  return {
+    enabled: config.enabled,
+    disabledReason: config.disabledReason,
+    issuerBase: config.issuerBase,
+    vpFullId: config.vpFullId,
+    vpPartialId: config.vpPartialId,
+    ttlDays: credentialTtlDays(),
+    /** The five fields a 發證 would write, with the values as they stand now. */
+    fields: [
+      ...Object.entries(values).map(([ename, content]) => ({ ename, content })),
+      { ename: SYNTHETIC_FIELD.ename, content: SYNTHETIC_FIELD.content },
+    ],
+    ticket: state.twdiwTicket,
+  };
+}
+
 export function principalView(state: DemoState) {
   const now = new Date();
   return {
@@ -246,6 +306,8 @@ export function principalView(state: DemoState) {
     lastTickAt: state.lastTickAt,
     usedJtiCount: state.usedJti.length,
     registry: registryView(state),
+    sdJwt: sdJwtView(state),
+    twdiw: twdiwView(state),
   };
 }
 

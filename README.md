@@ -12,15 +12,17 @@ GrantOnce 的語言模型 Agent 負責理解問題、找到已登記服務與協
 npm install
 npm run dev            # http://localhost:43127
 
+npm run test:sdjwt     # SD-JWT（RFC 9901）與皮夾 adapter
 npm run test:flow      # 授權層與巡檢檢查
+npm run test:agent     # 理解層與卡片管線
 npm run test:mcp       # MCP 檢查
 npm run test:race      # 跨 process 檢查（會開子行程）
-npm run test:all       # 以上三個
-npm run test:rehearsal # 77 項，逐句對照演示腳本，需先開 dev
-npm run test:mutate    # 29 個注入的 bug，每個都必須被上面某個測試抓到
+npm run test:all       # 以上五個
+npm run test:rehearsal # 逐句對照演示腳本，需先開 dev
+npm run test:mutate    # 48 個注入的 bug，每個都必須被上面某個測試抓到
 ```
 
-需要 Node 20+。沒有環境變數、沒有資料庫、沒有真實 MyData。
+需要 Node 20+。沒有資料庫、沒有真實 MyData。環境變數全部是選用的：不填就跑本地路徑（理解層退回規則、皮夾沙盒停用），一個 socket 都不會開。
 
 ⚠️ **請用 `localhost`，不要用 `127.0.0.1`。** WebAuthn 不接受 IP 位址當 RP ID，在 `127.0.0.1` 上按 passkey 會直接失敗。畫面會擋下按鈕並說明，但省得你在台上才發現。
 
@@ -217,6 +219,40 @@ MCP 工具清單裡沒有任何簽署工具，而且 `mcp/test.ts` 不是用名�
 - 成對假名用 HMAC，跨機關無法比對
 - 上一版 schema 的 store 檔會被隔離而不是讓整個 app 崩掉
 
+## 憑證層：SD-JWT 與數位憑證皮夾
+
+頂欄「憑證」。這一層在**授權匣旁邊**，不在它裡面：`lib/authz.ts` 與 `redeemGrant` 一個字都沒有動，兌現路徑仍然是兩把鑰匙。這裡回答的是另一個問題——同一份述詞，怎麼交到一個公民真的拿得到的皮夾裡，而且出示時由持有人決定給幾題。
+
+**`lib/sdjwt.ts`（RFC 9901）**。戶政用 ed25519 簽一張 SD-JWT，四個述詞各自是一筆 disclosure，payload 裡只有摘要加兩筆 decoy：
+
+```
+<JWT>~<D1>~<D2>~<D3>~<D4>~          發證，必須以 ~ 結尾
+<JWT>~<選中的D>~…~<KB-JWT>          出示，KB-JWT 後不再加 ~
+```
+
+整層最要緊的一行紀律，和 `grant.serialized` 是同一條：**disclosure 一旦產生就原封保存、原封傳遞**，digest 取的是那串 base64url 字串本身的 US-ASCII 位元組，輸出是位元組的 base64url。反序列化後重新序列化、或改雜湊解碼後的位元組，自己驗自己都會過，跟世界上任何一個實作都對不起來。所以測試不是自己跟自己往返，而是餵 RFC 9901 附錄「Simple Structured SD-JWT」的原始向量（`test/fixtures/`）：十筆 digest 一字不差，ES256 簽章驗得過，`_sd` 巢狀在 `address` 底下也還原得出來，只出示兩題時的結果與 RFC 的 `verified_contents` 逐欄相同。
+
+`verify()` 用 header 的 `alg` **挑驗證函式**，金鑰由呼叫端指定——反過來就是演算法混淆。白名單只有 `ES256`（沙盒）與 `EdDSA`（我們自己），`none` 不在裡面。key binding 的驗證做完整了（`sd_hash` 只算到最後那個 `~`，不含 KB-JWT 本身）；**產生** KB-JWT 這一端沒做，因為委託人的私鑰由 passkey PRF 在瀏覽器裡派生，伺服器拿不到，畫面上有標。
+
+**`lib/twdiw.ts`（數位憑證皮夾沙盒）**。`FixtureTwdiw` 完整、離線、測試用；`SandboxTwdiw` 打真的發證端（`/api/qrcode/data`、`/api/credential/nonce/{tx}`、`PUT /api/credential/{cid}/revocation`），驗證端的兩支（DWVP-101／201）路徑還沒公布，所以留 `throw new Error("verifier paths TBD")` 而不是猜一個。撤銷不可逆，沙盒的 action enum 只有 `revocation`。
+
+四個述詞的值只有一個來源：`CLAIM_DEFS[claimId].compute()`，跟 `lib/wallet.ts` 同一個函式，不各算一份。卡片效期取四個 `ttlDays` 的最小值（30 天），不是親子關係那張的 365。
+
+預設關著，關著就不會發出任何網路請求：
+
+```
+TWDIW_ENABLED=false
+TWDIW_ISSUER_BASE=https://issuer-sandbox.wallet.gov.tw
+TWDIW_VERIFIER_BASE=https://verifier-sandbox.wallet.gov.tw
+TWDIW_VC_UID=                 # 憑證模板代碼，要在沙盒的管理台先建一張
+TWDIW_VP_FULL_ID=childcare_full
+TWDIW_VP_PARTIAL_ID=childcare_partial
+TWDIW_API_KEY=
+TWDIW_API_KEY_HEADER=api_key  # 認證是 api_key 不是 Bearer；實際的 header 名稱看 Swagger 的 Authorize
+```
+
+`TWDIW_ENABLED=true` 一個人說了不算：沒有 `TWDIW_VC_UID` 就沒有模板可以發，沒有 api key 就過不了認證，任一缺項都讓整區停用而不是送出一個必然被拒的請求。停用時畫面不隱藏，會寫出缺哪一項。
+
 ## MCP（協定客戶端）
 
 MCP 是 GrantOnce 的非信任客戶端：可規劃、兌現、攔截、稽核，**不能簽署**。可貼進 Grok Bot／Cursor 的協定說明：[`docs/grok-bot.md`](docs/grok-bot.md)。專案已帶 `.cursor/mcp.json`（stdio）。
@@ -235,7 +271,7 @@ npm run mcp
 
 ## 登記台
 
-頂欄膠囊「授權 | 金庫 | 機關 | 登記台」。服務／請求機關在登記台掛目的、改允許述詞與告知事項、下架。發證端已上線的述詞才能勾；不能發明 `disaster.*` 這類還沒 adapter 的欄位。
+頂欄膠囊「授權 | 金庫 | 機關 | 憑證 | 登記台」。服務／請求機關在登記台掛目的、改允許述詞與告知事項、下架。發證端已上線的述詞才能勾；不能發明 `disaster.*` 這類還沒 adapter 的欄位。
 
 寫入走既有的 `POST /api/state`：
 

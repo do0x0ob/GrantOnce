@@ -1,7 +1,14 @@
 import type { ClaimId, IssuerId, Sensitivity } from "./claims";
 import type { Block } from "./agent/blocks/types";
 import type { PurposeDef, PurposeId } from "./purposes";
+import type { IssuedSdJwt } from "./sdjwt";
 import type { ToolName } from "./tools";
+import type {
+  IssuanceTicket,
+  PresentationResult,
+  PresentationTicket,
+  VpProfile,
+} from "./twdiw";
 
 /** Raw MyData vault fields. Only ever read when issuing a credential. */
 export const FIELD_IDS = [
@@ -359,6 +366,20 @@ export type NotificationDraft = Omit<
   "id" | "at" | "acknowledged" | "acknowledgedAt"
 >;
 
+/**
+ * The 數位皮夾 side of one credential: the QR the wallet scans, what came back,
+ * and the last OID4VP presentation asked for. Parallel to `wallet`, never a
+ * replacement for it — no capsule is redeemed from anything in here.
+ */
+export type TwdiwTicketState = {
+  issuance: IssuanceTicket;
+  cid: string | null;
+  credential: string | null;
+  revokedAt: string | null;
+  presentation: { ticket: PresentationTicket; vp: VpProfile } | null;
+  lastResult: PresentationResult | null;
+};
+
 export type VaultCatalogEntry = {
   fieldId: FieldId;
   label: string;
@@ -403,6 +424,13 @@ export type DemoState = {
   retiredPurposes: string[];
   /** Last time the agent's watch loop ran. Drives "since" and the UI's 巡檢時間. */
   lastTickAt: string | null;
+  /**
+   * The SD-JWT credential the issuer minted for the demo. Deliberately *not*
+   * inside `wallet`: that array is what `redeemGrant` reads, and this is a
+   * parallel object on a parallel path.
+   */
+  sdJwtDemo: IssuedSdJwt | null;
+  twdiwTicket: TwdiwTicketState | null;
 };
 
 export type RedeemProof = {

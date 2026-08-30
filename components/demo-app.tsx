@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { AgencyPane } from "@/components/agency-pane";
 import { BrandMark } from "@/components/brand-mark";
+import { CredentialPane } from "@/components/credential-pane";
 import { PrincipalPane } from "@/components/principal-pane";
 import { RegistryPane } from "@/components/registry-pane";
 import { VaultPane } from "@/components/vault-pane";
@@ -17,6 +18,7 @@ const VIEWS = [
   { id: "authorize", label: "授權" },
   { id: "vault", label: "金庫" },
   { id: "agency", label: "機關" },
+  { id: "credential", label: "憑證" },
   { id: "registry", label: "登記台" },
 ] as const;
 
@@ -152,6 +154,7 @@ export function DemoApp({ initialView }: { initialView: PrincipalView }) {
         />
       ) : null}
       {viewId === "agency" ? <AgencyPane demo={demo} /> : null}
+      {viewId === "credential" ? <CredentialPane demo={demo} /> : null}
       {viewId === "registry" ? <RegistryPane demo={demo} /> : null}
     </div>
   );

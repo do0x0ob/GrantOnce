@@ -433,6 +433,45 @@ const MUTATIONS: Mutation[] = [
     replace:
       '  return new Date(iso).toLocaleString("zh-TW", { ...YMD, ...HMS, hour12: false, timeZone: TAIPEI });',
   },
+  {
+    // The two most important lines in the SD-JWT layer. Either one wrong and the
+    // library verifies its own output perfectly and interoperates with nothing.
+    label: "digest 改成雜湊 base64url 解碼後的位元組",
+    file: "lib/sdjwt.ts",
+    find: "  return b64u(sha256(utf8(disclosure)));",
+    replace: "  return b64u(sha256(unb64u(disclosure)));",
+  },
+  {
+    label: "驗證端把 disclosure 反序列化後重新序列化再算 digest",
+    file: "lib/sdjwt.ts",
+    find: "    const dg = sdDigest(raw);",
+    replace:
+      "    const dg = sdDigest(b64u(utf8(JSON.stringify(JSON.parse(decodeUtf8(unb64u(raw)))))));",
+  },
+  {
+    label: "不檢查缺了尾端的 ~",
+    file: "lib/sdjwt.ts",
+    find: '  if (last !== "" && !isJws(last)) return null;',
+    replace: "  if (false) return null;",
+  },
+  {
+    label: "sd_hash 算成含 KB-JWT 的完整字串",
+    file: "lib/sdjwt.ts",
+    find: "    sdPart: input.combined.slice(0, input.combined.length - split.kb.length),",
+    replace: "    sdPart: input.combined,",
+  },
+  {
+    label: "驗證時不檢查 digest 是否在 _sd 裡",
+    file: "lib/sdjwt.ts",
+    find: "  if (used.size !== byDigest.size) {",
+    replace: "  if (false) {",
+  },
+  {
+    label: "alg 白名單改成直接信任 header",
+    file: "lib/sdjwt.ts",
+    find: '  if (typeof alg !== "string" || !SIGNING_ALGS.has(alg)) {',
+    replace: "  if (false) {",
+  },
 ];
 
 /**
@@ -441,6 +480,8 @@ const MUTATIONS: Mutation[] = [
  * for none of the information.
  */
 const SUITES = [
+  // Cheapest first: the SD-JWT suite is pure crypto and finishes in a second.
+  { name: "sdjwt", file: "test/sdjwt.ts" },
   { name: "flow", file: "test/flow.ts" },
   { name: "agent", file: "test/agent.ts" },
   { name: "mcp", file: "mcp/test.ts" },
