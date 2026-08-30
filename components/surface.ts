@@ -2,6 +2,9 @@
 export const SURFACE =
   "rounded-[28px] bg-[var(--wash-orchid)] shadow-[0_1px_0_rgba(60,56,53,0.04),0_20px_40px_-28px_rgba(60,56,53,0.18)]";
 
+/** 側欄：跟頁面底色同一層，不另起色塊。 */
+export const RAIL = "bg-transparent";
+
 export const WASH = {
   orchid: "bg-[var(--wash-orchid)]",
   sage: "bg-[var(--wash-sage)]",

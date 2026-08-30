@@ -41,13 +41,12 @@ export function AuditTimeline({ view }: { view: PrincipalView }) {
   const untouched = view.vaultCatalog.filter((e) => e.neverLeft && e.sealed);
 
   return (
-    <details className={cn(SURFACE, "group p-7 sm:p-9")}>
-      <summary className="flex cursor-pointer list-none items-center justify-between gap-3 [&::-webkit-details-marker]:hidden">
+    <section className={cn(SURFACE, "space-y-6 p-7 sm:p-9")}>
+      <header className="flex items-center justify-between gap-3">
         <p className="text-[16px] leading-6 text-stone-600">稽核軌跡</p>
         <span className="text-[13px] text-stone-400">{view.audit.length} 筆</span>
-      </summary>
-      <div className="mt-6 space-y-6">
-        <StatusChip tone="stone">已用 jti {view.usedJtiCount}</StatusChip>
+      </header>
+      <StatusChip tone="stone">已用 jti {view.usedJtiCount}</StatusChip>
 
       {untouched.length ? (
         <p className="rounded-2xl bg-[var(--wash-ok)] px-4 py-3.5 text-[14px] leading-6 text-[var(--sage)]">
@@ -83,7 +82,6 @@ export function AuditTimeline({ view }: { view: PrincipalView }) {
             ))}
         </ol>
       )}
-      </div>
-    </details>
+    </section>
   );
 }

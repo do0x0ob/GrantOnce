@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { IdentityDot } from "@/components/identity-dot";
+import { PageFrame, PageSplit } from "@/components/page-frame";
 import { PageIntro } from "@/components/page-intro";
 import { StatusChip } from "@/components/status-chip";
 import { GRANT_WASH, SURFACE } from "@/components/surface";
@@ -60,11 +61,13 @@ export function RegistryPane({ demo }: { demo: Demo }) {
   }
 
   return (
-    <div className="mx-auto w-full max-w-[40rem] space-y-10 px-6 py-10 sm:px-8">
+    <PageFrame className="space-y-10">
       <PageIntro kicker="服務／請求機關維護" title="登記台">
         登記服務目的、最小述詞與個資告知事項。資料來源已上線的述詞才能勾，模型不能新增欄位。
       </PageIntro>
 
+      <PageSplit>
+      <div className="space-y-6">
       <section className="space-y-4">
         {registry.purposes.map((purpose) => (
           <article key={purpose.id} className={cn(SURFACE, GRANT_WASH[purpose.agency], "space-y-4 p-7")}>
@@ -114,7 +117,9 @@ export function RegistryPane({ demo }: { demo: Demo }) {
           已下架：{registry.retiredPurposes.join("、")}。重設後回到內建三筆。
         </p>
       ) : null}
+      </div>
 
+      <div className="space-y-8">
       <form
         className={cn(SURFACE, "space-y-5 p-7 sm:p-9")}
         onSubmit={(event) => {
@@ -282,6 +287,8 @@ export function RegistryPane({ demo }: { demo: Demo }) {
           ))}
         </div>
       </section>
-    </div>
+      </div>
+      </PageSplit>
+    </PageFrame>
   );
 }

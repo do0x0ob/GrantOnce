@@ -1,16 +1,19 @@
 import type { ReactNode } from "react";
+import { cn } from "@/lib/utils";
 
 export function PageIntro({
   kicker,
   title,
   children,
+  className,
 }: {
   kicker?: string;
   title: string;
   children?: ReactNode;
+  className?: string;
 }) {
   return (
-    <header className="max-w-[34rem] space-y-3">
+    <header className={cn("space-y-3", className)}>
       {kicker ? (
         <p className="text-[13px] leading-5 tracking-[0.04em] text-stone-400">{kicker}</p>
       ) : null}

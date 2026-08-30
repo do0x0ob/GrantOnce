@@ -8,6 +8,7 @@ import { CredentialPane } from "@/components/credential-pane";
 import { PrincipalPane } from "@/components/principal-pane";
 import { RegistryPane } from "@/components/registry-pane";
 import { VaultPane } from "@/components/vault-pane";
+import { DelegationMenu } from "@/components/delegation-card";
 import { Button } from "@/components/ui/button";
 import { useDemo } from "@/hooks/use-demo";
 import { cn } from "@/lib/utils";
@@ -16,10 +17,10 @@ import type { PrincipalView } from "@/lib/view";
 
 const VIEWS = [
   { id: "authorize", label: "授權" },
-  { id: "vault", label: "金庫" },
   { id: "agency", label: "機關" },
+  { id: "vault", label: "主檔" },
   { id: "credential", label: "憑證" },
-  { id: "registry", label: "登記台" },
+  { id: "registry", label: "用途" },
 ] as const;
 
 type ViewId = (typeof VIEWS)[number]["id"];
@@ -52,7 +53,7 @@ export function DemoApp({ initialView }: { initialView: PrincipalView }) {
   return (
     <div className="min-h-svh bg-[#E8E4DE]">
       <header className="sticky top-0 z-30 border-b border-[var(--border)]/70 bg-[#E8E4DE]/80 backdrop-blur-md">
-        <div className="mx-auto flex max-w-[72rem] flex-col gap-3 px-6 py-3 sm:h-16 sm:flex-row sm:items-center sm:justify-between sm:gap-6 sm:py-0">
+        <div className="relative mx-auto flex max-w-[84rem] flex-col gap-3 px-6 py-3 sm:h-16 sm:flex-row sm:items-center sm:py-0 lg:px-10">
           <div className="flex items-center justify-between gap-4">
             <div className="flex items-center gap-3 text-stone-800">
               <BrandMark className="size-7" />
@@ -62,6 +63,7 @@ export function DemoApp({ initialView }: { initialView: PrincipalView }) {
               </div>
             </div>
             <div className="flex items-center sm:hidden">
+              <DelegationMenu demo={demo} />
               <Link
                 href="/docs"
                 className="inline-flex min-h-10 items-center rounded-full px-3 text-[13px] text-stone-500 focus-visible:ring-2 focus-visible:ring-stone-400"
@@ -83,7 +85,7 @@ export function DemoApp({ initialView }: { initialView: PrincipalView }) {
             </div>
           </div>
 
-          <nav className="flex items-center gap-0.5 self-start rounded-full bg-white/70 p-1 shadow-[0_1px_0_rgba(26,24,20,0.04)] sm:self-auto">
+          <nav className="flex items-center gap-0.5 self-start rounded-full bg-white/70 p-1 shadow-[0_1px_0_rgba(26,24,20,0.04)] sm:absolute sm:left-1/2 sm:top-1/2 sm:-translate-x-1/2 sm:-translate-y-1/2 sm:self-auto">
             {VIEWS.map((item) => (
               <button
                 key={item.id}
@@ -107,13 +109,14 @@ export function DemoApp({ initialView }: { initialView: PrincipalView }) {
             ))}
           </nav>
 
-          <div className="hidden items-center gap-3 sm:flex">
+          <div className="hidden items-center gap-3 sm:ml-auto sm:flex">
             {/* Makes 「它一直在看」 something you can point at, rather than a claim. */}
             <p className="text-[13px] text-stone-400">
               代理人上次巡檢：
               {demo.view.lastTickAt ? formatTime(demo.view.lastTickAt) : "尚未巡檢"}
             </p>
             <p className="text-[13px] text-stone-400">{demo.view.principal.name}</p>
+            <DelegationMenu demo={demo} />
             <Link
               href="/docs"
               className="inline-flex min-h-10 items-center rounded-full px-3 text-[13px] text-stone-500 transition-colors hover:bg-white/60 hover:text-stone-800 focus-visible:ring-2 focus-visible:ring-stone-400"

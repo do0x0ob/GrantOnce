@@ -2,7 +2,6 @@
 
 import { useEffect, useRef } from "react";
 
-import { ApplicationStatusCard } from "@/components/agent/application-status-card";
 import { AuditCard } from "@/components/agent/audit-card";
 import { ClaimsExplainerCard } from "@/components/agent/claims-explainer-card";
 import { DeliverCard } from "@/components/agent/deliver-card";
@@ -58,11 +57,7 @@ function renderBlock(block: Block, key: string, demo: Demo) {
         </CardBoundary>
       );
     case "applicationStatus":
-      return (
-        <CardBoundary key={key} label="進度">
-          <ApplicationStatusCard purpose={block.purpose} view={demo.view} />
-        </CardBoundary>
-      );
+      return null;
     case "programPicker":
       return (
         <CardBoundary key={key} label="選擇">
@@ -143,8 +138,9 @@ export function AgentThread({ demo }: { demo: Demo }) {
           );
         }
 
-        const blocks = message.blocks ?? [];
+        const blocks = (message.blocks ?? []).filter((block) => block.kind !== "applicationStatus");
         if (!blocks.length) {
+          if (!message.text) return null;
           return (
             <p
               key={message.id}

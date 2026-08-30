@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Image from "next/image";
+import { PageFrame, PageSplit } from "@/components/page-frame";
 import { PageIntro } from "@/components/page-intro";
 import { StatusChip } from "@/components/status-chip";
 import { SURFACE, WASH } from "@/components/surface";
@@ -107,13 +108,14 @@ export function CredentialPane({ demo }: { demo: Demo }) {
   }
 
   return (
-    <div className="mx-auto w-full max-w-[44rem] space-y-10 px-6 py-10 sm:px-8">
+    <PageFrame className="space-y-10">
       <PageIntro kicker="憑證層" title="述詞憑證">
         同一份述詞，兩條供應線。上面是 GrantOnce 自己簽的 SD-JWT，攤開來看得到
         <code className="px-1 font-mono text-[14px]">_sd</code> 裡只有摘要；下面是送進數位憑證皮夾沙盒的那一張。
         兩條都不經過授權匣，兌現路徑一個字都沒有動。
       </PageIntro>
 
+      <PageSplit>
       <section className={cn(CARD, WASH.sage)}>
         <header className="flex items-start justify-between gap-3">
           <div className="space-y-1">
@@ -405,6 +407,7 @@ export function CredentialPane({ demo }: { demo: Demo }) {
           </div>
         ) : null}
       </section>
-    </div>
+      </PageSplit>
+    </PageFrame>
   );
 }

@@ -1,5 +1,6 @@
 "use client";
 
+import { PageFrame, PageSplit } from "@/components/page-frame";
 import { PageIntro } from "@/components/page-intro";
 import { StatusChip } from "@/components/status-chip";
 import { SURFACE } from "@/components/surface";
@@ -31,11 +32,12 @@ export function VaultPane({
   const untouched = view.vaultCatalog.filter((e) => e.neverLeft).length;
 
   return (
-    <div className="mx-auto w-full max-w-[40rem] space-y-12 px-6 py-10 sm:px-8">
+    <PageFrame className="space-y-10">
       <PageIntro kicker="金庫與皮夾" title="什麼被用過，什麼沒有離開">
         金庫只在發證那一刻被讀取。原始值不會送到這台瀏覽器。
       </PageIntro>
 
+      <PageSplit>
       <section className={cn(SURFACE, "space-y-8 p-7 sm:p-9")}>
         <div className="flex items-start justify-between gap-3">
           <div className="space-y-1">
@@ -69,6 +71,7 @@ export function VaultPane({
         ) : null}
       </section>
 
+      <div className="space-y-8">
       <section className={cn(SURFACE, "space-y-6 p-7 sm:p-9")}>
         <div className="space-y-1">
           <p className="text-[18px] leading-6 text-stone-800">皮夾憑證</p>
@@ -143,7 +146,9 @@ export function VaultPane({
           </button>
         ) : null}
       </section>
-    </div>
+      </div>
+      </PageSplit>
+    </PageFrame>
   );
 }
 
