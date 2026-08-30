@@ -26,7 +26,7 @@ import { FIELD_IDS } from "./types";
 
 const STORE_PATH = process.env.GRANTONCE_STORE ?? "/tmp/grantonce-runtime.json";
 /** Bump when DemoState changes shape. A file from an older build is discarded. */
-const STORE_VERSION = 2;
+const STORE_VERSION = 3;
 export function nowIso(): string {
   return new Date().toISOString();
 }
@@ -93,6 +93,8 @@ export function createInitialState(): DemoState {
     ],
     plan: null,
     clockOffsetDays: 0,
+    registeredPurposes: {},
+    retiredPurposes: [],
   };
 }
 let memory: DemoState | null = null;
@@ -126,7 +128,9 @@ function isCurrentSchema(value: unknown): value is DemoState {
       Array.isArray(s.vaultCatalog) &&
       s.inboxes?.jia &&
       s.inboxes?.yi &&
-      s.delegation,
+      s.delegation &&
+      s.registeredPurposes &&
+      Array.isArray(s.retiredPurposes),
   );
 }
 function diskMtime(): number {

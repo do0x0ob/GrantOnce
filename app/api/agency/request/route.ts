@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { requestClaims } from "@/lib/authz";
 import { isKnownAgency } from "@/lib/parties";
-import { isPurposeId } from "@/lib/purposes";
+import { isLivePurposeId } from "@/lib/registry";
 import { principalView } from "@/lib/view";
 
 export const dynamic = "force-dynamic";
@@ -16,7 +16,7 @@ export async function POST(request: Request) {
   if (!body.agency || !isKnownAgency(body.agency)) {
     return NextResponse.json({ error: "未登記的機關" }, { status: 400 });
   }
-  if (!body.purpose || !isPurposeId(body.purpose)) {
+  if (!body.purpose || !isLivePurposeId(body.purpose)) {
     return NextResponse.json({ error: "未登記的目的" }, { status: 400 });
   }
   const claims = Array.isArray(body.claims) ? body.claims : [];

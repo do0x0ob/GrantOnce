@@ -1,4 +1,5 @@
-import { PURPOSES, type PurposeId } from "./purposes";
+import { PURPOSES, type PurposeDef, type PurposeId } from "./purposes";
+import { livePurposes } from "./registry";
 import type { AgencyId } from "./types";
 
 /**
@@ -118,15 +119,38 @@ function sortCatalog(entries: CatalogEntry[]): CatalogEntry[] {
   return [...entries].sort((a, b) => Number(b.issuable) - Number(a.issuable));
 }
 
+function entryFromPurpose(def: PurposeDef): CatalogEntry {
+  return {
+    id: def.id,
+    title: def.title,
+    summary: `登記台上的目的。匣內述詞：${def.allowedClaims.join("、")}。`,
+    agencyName: def.agencyName,
+    agencyId: def.agency,
+    purposeId: def.id,
+    issuable: true,
+    topics: ["general"],
+    keywords: [def.title, def.id],
+    requiredPredicates: [...def.allowedClaims],
+    missing: [],
+  };
+}
+
+function activeCatalog(): CatalogEntry[] {
+  const live = Object.values(livePurposes()).map(entryFromPurpose);
+  const refs = PURPOSE_CATALOG.filter((entry) => !live.some((row) => row.id === entry.id));
+  return [...live, ...refs];
+}
+
 /** Filter the issuable profile. Not a web search. */
 export function searchCatalog(query: string): CatalogEntry[] {
+  const catalog = activeCatalog();
   const t = compactText(query);
-  if (!t) return sortCatalog([...PURPOSE_CATALOG]);
+  if (!t) return sortCatalog(catalog);
 
   const topics = topicsFromUtterance(query);
   const specific = topics.filter((topic) => topic !== "general");
 
-  const hits = PURPOSE_CATALOG.filter((entry) => {
+  const hits = catalog.filter((entry) => {
     if (specific.some((topic) => entry.topics.includes(topic))) return true;
     const hay = compactText(
       [entry.id, entry.title, entry.summary, entry.agencyName, ...entry.keywords].join(""),
@@ -139,7 +163,7 @@ export function searchCatalog(query: string): CatalogEntry[] {
   });
 
   if (hits.length > 0) return sortCatalog(hits);
-  if (topics.includes("general")) return sortCatalog([...PURPOSE_CATALOG]);
+  if (topics.includes("general")) return sortCatalog(catalog);
   return [];
 }
 

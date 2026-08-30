@@ -5,6 +5,7 @@
 import { keyPairFromSeed, sign, b64u } from "../lib/crypto";
 import { registerPrincipalKey, signGrant } from "../lib/authz";
 import { FLOOD_UTTERANCE } from "../lib/catalog";
+import { upsertPurpose } from "../lib/registry";
 import { getState, resetState } from "../lib/store";
 import { callTool, TOOL_NAMES, vaultLeakIn, type ToolName } from "./tools";
 
@@ -73,6 +74,23 @@ async function main() {
     }
     check("搜尋不讀金庫", !vaultLeakIn(flood.data));
     check("搜尋不建匣", getState().grants.length === 0);
+
+    upsertPurpose({
+      id: "move-bonus",
+      title: "遷入獎勵",
+      agency: "jia",
+      legalBasis: ["個人資料保護法 §15 第 1 款：執行法定職務必要範圍"],
+      allowedClaims: ["resident.inNewTaipei", "resident.movedWithin12m"],
+      maxTtlSeconds: 600,
+      necessity: "只要確認設籍本市與一年內遷入，不需要地址本身。",
+    });
+    const hung = await call("search_purposes", { query: "遷入獎勵" });
+    const hungMatches = hung.data.matches as { id: string; issuable: boolean }[];
+    check(
+      "登記台掛上的目的會進可發票子集",
+      hungMatches.some((m) => m.id === "move-bonus" && m.issuable),
+      JSON.stringify(hungMatches.map((m) => m.id)),
+    );
   }
 
   console.log("\nplan_applications");

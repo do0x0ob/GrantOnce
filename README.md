@@ -12,8 +12,8 @@
 npm install
 npm run dev            # http://localhost:43127
 
-npm run test:flow      # 90 項授權層檢查
-npm run test:mcp       # 32 項 MCP 檢查
+npm run test:flow      # 99 項授權層檢查
+npm run test:mcp       # 33 項 MCP 檢查
 npm run test:race      # 6 項跨 process 檢查（會開子行程）
 npm run test:all       # 以上三個
 npm run test:rehearsal # 67 項，逐句對照演示腳本，需先開 dev
@@ -32,7 +32,7 @@ npm run test:mutate    # 24 個注入的 bug，每個都必須被上面某個測
 
 | 法規 | 在程式裡是什麼 |
 | --- | --- |
-| §15／§16 執行法定職務必要範圍 | `lib/purposes.ts` 的目的登記表。每個目的寫死允許的述詞集合與法源。 |
+| §15／§16 執行法定職務必要範圍 | 目的登記表。內建兩筆在 `lib/purposes.ts`；兌現機關在前端「登記台」掛上或下架，寫入 store。每個目的寫死允許的述詞集合與法源。 |
 | §5 不得逾越特定目的必要範圍 | 述詞取代原始欄位。育兒津貼一個原始欄位都不需要。 |
 
 主辦方那句「重點不是你有沒有憑證，而是**驗證方有沒有權力驗證**」，就是第二把鑰匙。
@@ -148,7 +148,23 @@ npm run mcp
 
 工具：`search_purposes`、`plan_applications`、`get_grant_for_signature`、`redeem_grant`、`request_claims`、`submit_application`、`revoke_grant`、`stop_delegation`、`get_audit`。
 
-`search_purposes` 會做公開搜尋（維基、`*.gov.tw` 連結），並另外標出本 runtime **目前能 mint Grant** 的子集。目的登記表不是全世界；搜到補助 ≠ 授權。`plan_applications` 只有登記表＋資格成立才提案，不能發明述詞。宿主若已有網搜，應先搜，不要被兩筆可發票目的綁死。
+`search_purposes` 會做公開搜尋（維基、`*.gov.tw` 連結），並另外標出本 runtime **目前能 mint Grant** 的子集。目的登記表不是全世界；搜到補助 ≠ 授權。`plan_applications` 只有登記表＋資格成立才提案，不能發明述詞。宿主若已有網搜，應先搜，不要被兩筆可發票目的綁死。MCP **沒有**寫入登記表的工具——掛上／下架是人類在前端「登記台」做的。
+
+## 登記台
+
+頂欄膠囊「授權 | 金庫 | 機關 | 登記台」。兌現機關在登記台掛目的、改允許述詞、下架。發證端已上線的述詞才能勾；不能發明 `disaster.*` 這類還沒 adapter 的欄位。
+
+寫入走既有的 `POST /api/state`：
+
+```json
+{ "action": "registry.upsert", "purpose": { "id": "move-bonus", "title": "遷入獎勵", "agency": "jia", "legalBasis": ["…"], "allowedClaims": ["resident.inNewTaipei"], "maxTtlSeconds": 600, "necessity": "只要確認設籍，不需要地址。" } }
+```
+
+```json
+{ "action": "registry.retire", "id": "move-bonus" }
+```
+
+重設會回到內建兩筆（育兒／冷氣）。下架後該目的不能再 mint，已提案的匣不會自動改寫，兌現時若目的已不在登記台會 fail closed。
 
 ## 這個設計的名字
 

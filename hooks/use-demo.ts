@@ -149,6 +149,16 @@ export function useDemo(initialView: PrincipalView) {
     setClock: (offsetDays: number) => post("/api/clock", { offsetDays }),
     scanNotifications: () => post("/api/notifications"),
     reset: () => post("/api/reset"),
+    upsertPurpose: (purpose: {
+      id: string;
+      title: string;
+      agency: string;
+      legalBasis: string[];
+      allowedClaims: string[];
+      maxTtlSeconds: number;
+      necessity: string;
+    }) => post("/api/state", { action: "registry.upsert", purpose }),
+    retirePurpose: (id: string) => post("/api/state", { action: "registry.retire", id }),
   };
 }
 

@@ -14,6 +14,7 @@ import { normalizeGrantId } from "../lib/fields";
 import { evaluateInquiry, formatInquiryMessage, inquiryPayload } from "../lib/inquiry";
 import { isKnownAgency } from "../lib/parties";
 import { isPurposeId, PURPOSES } from "../lib/purposes";
+import { isLivePurposeId, livePurpose } from "../lib/registry";
 import { researchWorld } from "../lib/research";
 import { AGENT_NOTES, effectiveToday, HAPPY_PATH_UTTERANCE } from "../lib/rules";
 import { appendChat, getState, mutate } from "../lib/store";
@@ -84,7 +85,7 @@ function grantPublic(grantId: GrantId) {
     id: grant.id,
     status: grant.status,
     purpose: grant.body.purpose,
-    programTitle: PURPOSES[grant.body.purpose].title,
+    programTitle: (livePurpose(grant.body.purpose) ?? PURPOSES[grant.body.purpose])?.title ?? grant.body.purpose,
     audience: grant.body.aud,
     boundToAgencyKey: grant.body.cnf.jkt,
     jti: grant.body.jti,
@@ -217,7 +218,7 @@ export function redeem(grantIdRaw: string, agencyRaw: string) {
 
 export function requestClaimsTool(agencyRaw: string, purposeRaw: string, claims: string[]) {
   const agency = requireAgency(agencyRaw);
-  if (!isPurposeId(purposeRaw)) throw new Error(`未登記的目的：${purposeRaw}`);
+  if (!isLivePurposeId(purposeRaw) && !isPurposeId(purposeRaw)) throw new Error(`未登記的目的：${purposeRaw}`);
   const { blocked, notes } = requestClaims(agency, purposeRaw, claims);
   const payload = {
     ok: !blocked,

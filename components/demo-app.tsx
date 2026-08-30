@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { AgencyPane } from "@/components/agency-pane";
 import { BrandMark } from "@/components/brand-mark";
 import { PrincipalPane } from "@/components/principal-pane";
+import { RegistryPane } from "@/components/registry-pane";
 import { VaultPane } from "@/components/vault-pane";
 import { Button } from "@/components/ui/button";
 import { useDemo } from "@/hooks/use-demo";
@@ -14,6 +15,7 @@ const VIEWS = [
   { id: "authorize", label: "授權" },
   { id: "vault", label: "金庫" },
   { id: "agency", label: "機關" },
+  { id: "registry", label: "登記台" },
 ] as const;
 
 type ViewId = (typeof VIEWS)[number]["id"];
@@ -129,6 +131,7 @@ export function DemoApp({ initialView }: { initialView: PrincipalView }) {
         />
       ) : null}
       {viewId === "agency" ? <AgencyPane demo={demo} /> : null}
+      {viewId === "registry" ? <RegistryPane demo={demo} /> : null}
     </div>
   );
 }

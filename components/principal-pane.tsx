@@ -137,6 +137,7 @@ export function PrincipalPane({
             <DelegationCard
               delegation={view.delegation}
               busy={busy}
+              purposeTitles={Object.fromEntries(view.registry.purposes.map((row) => [row.id, row.title]))}
               onStop={() => void demo.stopDelegation()}
               onRestore={() => void demo.restoreDelegation()}
               onSetMax={(level) => void demo.setMaxSensitivity(level)}
