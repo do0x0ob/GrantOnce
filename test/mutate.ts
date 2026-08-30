@@ -188,30 +188,50 @@ const MUTATIONS: Mutation[] = [
   },
 ];
 
+/**
+ * Cheapest first, and `race` last: it spawns a dozen subprocesses, so running it
+ * for a mutation three earlier suites already caught is most of the wall clock
+ * for none of the information.
+ */
 const SUITES = [
   { name: "flow", file: "test/flow.ts" },
-  { name: "mcp", file: "mcp/test.ts" },
   { name: "agent", file: "test/agent.ts" },
+  { name: "mcp", file: "mcp/test.ts" },
   { name: "race", file: "test/race.ts" },
 ];
 
-function runSuites(): { name: string; ok: boolean; firstFailure: string }[] {
-  return SUITES.map(({ name, file }) => {
-    const store = `/tmp/grantonce-mutate-${name}-${randomBytes(4).toString("hex")}.json`;
-    try {
-      execFileSync("npx", ["tsx", file], {
-        cwd: ROOT,
-        env: { ...process.env, GRANTONCE_STORE: store },
-        encoding: "utf8",
-        stdio: "pipe",
-      });
-      return { name, ok: true, firstFailure: "" };
-    } catch (error) {
-      const out = String((error as { stdout?: string }).stdout ?? "");
-      const line = out.split("\n").find((l) => l.includes("FAIL")) ?? "";
-      return { name, ok: false, firstFailure: line.trim().slice(0, 90) };
-    }
-  });
+function runSuite(name: string, file: string): { name: string; ok: boolean; firstFailure: string } {
+  const store = `/tmp/grantonce-mutate-${name}-${randomBytes(4).toString("hex")}.json`;
+  try {
+    execFileSync("npx", ["tsx", file], {
+      cwd: ROOT,
+      env: { ...process.env, GRANTONCE_STORE: store },
+      encoding: "utf8",
+      stdio: "pipe",
+    });
+    return { name, ok: true, firstFailure: "" };
+  } catch (error) {
+    const out = String((error as { stdout?: string }).stdout ?? "");
+    const line = out.split("\n").find((l) => l.includes("FAIL")) ?? "";
+    return { name, ok: false, firstFailure: line.trim().slice(0, 90) };
+  }
+}
+
+/** Every suite. Used once, to prove the baseline is green. */
+function runSuites() {
+  return SUITES.map(({ name, file }) => runSuite(name, file));
+}
+
+/**
+ * Stops at the first red. A mutation is either caught or it is not; which
+ * *other* suites would also have caught it costs minutes and answers nothing.
+ */
+function firstCatch(): { name: string; firstFailure: string } | null {
+  for (const { name, file } of SUITES) {
+    const result = runSuite(name, file);
+    if (!result.ok) return { name, firstFailure: result.firstFailure };
+  }
+  return null;
 }
 
 const baseline = runSuites();
@@ -232,9 +252,9 @@ for (const mutation of MUTATIONS) {
   }
   writeFileSync(path, original.replace(mutation.find, mutation.replace), "utf8");
   try {
-    const caught = runSuites().filter((r) => !r.ok);
-    if (caught.length) {
-      console.log(`  抓到  ${mutation.label}  →  ${caught.map((c) => c.name).join(",")}`);
+    const caught = firstCatch();
+    if (caught) {
+      console.log(`  抓到  ${mutation.label}  →  ${caught.name}`);
     } else {
       console.log(`  漏掉  ${mutation.label}`);
       missed.push(mutation.label);
