@@ -1,6 +1,6 @@
 import { searchCatalog, topicsFromUtterance } from "./catalog";
-import { ageBandOf, DEMO_TODAY, monthsBetween } from "./claims";
-import { PURPOSES } from "./purposes";
+import { ageBandOf, CLAIM_DEFS, DEMO_TODAY, monthsBetween, type ClaimId } from "./claims";
+import { PURPOSES, type PurposeId } from "./purposes";
 import type { DemoState, NotificationDraft, ProgramPlan } from "./types";
 
 /**
@@ -70,6 +70,54 @@ export function situationFromUtterance(
  * Deterministic eligibility. The model never calls this with extra claims and is
  * never the thing that mints a grant.
  */
+/**
+ * What the agency still needs, after subtracting what it already holds.
+ *
+ * The registry's `allowedClaims` is a ceiling — the most this purpose may ever
+ * ask for. Handing that same list over every time is not minimisation, it is a
+ * well-chosen maximum; the agency should be asking for the least it needs *this
+ * time*, which is what makes 免重複繳交 real rather than a slogan.
+ *
+ * Holdings count only within the same purpose. Reusing what 甲 collected for
+ * 育兒津貼 to save a step in 托育補助 would be 特定目的外之利用 under 個資法
+ * §16 — a different question, and not one a convenience feature gets to answer.
+ *
+ * A claim ages out on its own `ttlDays`, so a stale copy is re-requested rather
+ * than silently relied on.
+ */
+export function stillNeeded(
+  state: DemoState,
+  purpose: PurposeId,
+  ceiling: ClaimId[],
+  now: Date,
+): { claims: ClaimId[]; alreadyHeld: ClaimId[] } {
+  const inbox = state.inboxes[purpose];
+  const held = new Set(
+    (inbox?.claims ?? [])
+      .filter((delivered) => {
+        const def = CLAIM_DEFS[delivered.claimId];
+        if (!def) return false;
+        const age = now.getTime() - new Date(delivered.receivedAt).getTime();
+        return age < def.ttlDays * 86400000;
+      })
+      .map((delivered) => delivered.claimId),
+  );
+  const alreadyHeld = ceiling.filter((id) => held.has(id));
+  return { claims: ceiling.filter((id) => !held.has(id)), alreadyHeld };
+}
+
+/** Re-ask each matched programme for the least it needs right now. */
+export function narrowToStillNeeded(
+  state: DemoState,
+  programs: ProgramPlan[],
+  now: Date,
+): ProgramPlan[] {
+  return programs.map((program) => ({
+    ...program,
+    ...stillNeeded(state, program.purpose, program.ceiling, now),
+  }));
+}
+
 export function matchPrograms(situation: DeclaredSituation): ProgramPlan[] {
   const programs: ProgramPlan[] = [];
   const band = ageBandOf(situation.childAgeMonths);
@@ -92,6 +140,8 @@ export function matchPrograms(situation: DeclaredSituation): ProgramPlan[] {
         "家中幼兒落在 0–2 歲育兒津貼年齡帶",
       ],
       claims: [...purpose.allowedClaims],
+      ceiling: [...purpose.allowedClaims],
+      alreadyHeld: [],
       hint: "滿 2 歲後改適用「未滿 5 歲幼兒托育補助」，屆時要換一張新的匣",
     });
   }
@@ -112,6 +162,8 @@ export function matchPrograms(situation: DeclaredSituation): ProgramPlan[] {
         "幼兒已離開育兒津貼的年齡帶，落在托育補助的適用範圍",
       ],
       claims: [...purpose.allowedClaims],
+      ceiling: [...purpose.allowedClaims],
+      alreadyHeld: [],
       hint: "與育兒津貼是不同的目的，述詞組合也不同——要另外簽一張匣",
     });
   }
@@ -126,6 +178,8 @@ export function matchPrograms(situation: DeclaredSituation): ProgramPlan[] {
       agencyName: `乙｜${purpose.agencyName}`,
       reasons: ["有住宅用電戶，可用用電級距證明居住事實"],
       claims: [...purpose.allowedClaims],
+      ceiling: [...purpose.allowedClaims],
+      alreadyHeld: [],
     });
   }
 

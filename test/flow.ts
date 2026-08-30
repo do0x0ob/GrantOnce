@@ -28,8 +28,15 @@ import { originBlocker } from "../lib/passkey";
 import { runAgentTick } from "../lib/agent";
 import { FLOOD_UTTERANCE } from "../lib/catalog";
 import { evaluateInquiry } from "../lib/inquiry";
-import { effectiveToday, matchPrograms, scanForChanges, situationFromUtterance } from "../lib/rules";
-import { getState, mutate, notify, purposeOf, resetState } from "../lib/store";
+import {
+  effectiveNow,
+  effectiveToday,
+  matchPrograms,
+  narrowToStillNeeded,
+  scanForChanges,
+  situationFromUtterance,
+} from "../lib/rules";
+import { getState, grantById, mutate, notify, purposeOf, resetState } from "../lib/store";
 import { formatClock, formatDate, formatStamp, formatTime } from "../lib/view";
 import { verifyCredential } from "../lib/wallet";
 import type { Grant, GrantId } from "../lib/types";
@@ -407,6 +414,85 @@ section("邊界輸入");
   check("原型鏈上的鍵不算合法述詞", !isClaimId("constructor") && !isClaimId("__proto__"));
   check("原型鏈上的鍵不算合法目的", !isPurposeId("toString") && !isPurposeId("__proto__"));
   check("原型鏈上的鍵不算已掛目的", !isLivePurposeId("toString") && !isLivePurposeId("valueOf"));
+}
+
+section("上限不等於需求");
+{
+  resetState();
+  const sit = situationFromUtterance("我剛搬家，看我能申請什麼。", effectiveToday(getState()))!;
+  const first = matchPrograms(sit);
+  const childcare = first.find((p) => p.purpose === "childcare-allowance")!;
+  check("第一次：上限與需求相同（機關什麼都沒有）", childcare.claims.length === childcare.ceiling.length);
+  check("第一次沒有已持有", childcare.alreadyHeld.length === 0);
+
+  // Deliver everything once, then move the clock past the short-lived claims but
+  // inside the year-long parent-child credential.
+  mutate((s) => proposeGrantsFromPlan(s, first));
+  const grant = grantById(getState(), "G-甲")!;
+  registerPrincipalKey({ publicKey: pk, method: "software" });
+  signGrant({ grantId: "G-甲", signature: sign(grant.serialized, principal.secret), publicKey: pk });
+  const redeemed = redeemGrant("G-甲", makeAgencyProof("jia", "G-甲"));
+  check("交付成功", redeemed.result.ok, JSON.stringify(redeemed.result));
+  check("收件匣拿到四項", getState().inboxes["childcare-allowance"].claims.length === 4);
+
+  mutate((s) => {
+    s.clockOffsetDays = 60;
+  });
+  const later = narrowToStillNeeded(
+    getState(),
+    matchPrograms(situationFromUtterance("我剛搬家，看我能申請什麼。", effectiveToday(getState()))!),
+    effectiveNow(getState()),
+  );
+  const again = later.find((p) => p.purpose === "childcare-allowance")!;
+  check("60 天後只剩親子關係仍在效期內", again.alreadyHeld.join(",") === "parentChild.verified", again.alreadyHeld.join(","));
+  check("所以這次只要三項", again.claims.length === 3, String(again.claims.length));
+  check("要的三項都不含已持有的那項", !again.claims.includes("parentChild.verified"));
+  check("需求仍在登記上限之內", again.claims.every((c) => again.ceiling.includes(c)));
+
+  // 個資法 §16: reuse must stay inside the purpose the data was collected for.
+  // Letting 甲 skip a claim in 托育補助 because it holds it for 育兒津貼 would be
+  // 特定目的外之利用 dressed up as a convenience.
+  const sibling = narrowToStillNeeded(
+    getState(),
+    [
+      {
+        ...again,
+        purpose: "childcare-service-subsidy",
+        ceiling: [...PURPOSES["childcare-service-subsidy"].allowedClaims],
+      },
+    ],
+    effectiveNow(getState()),
+  )[0];
+  check(
+    "同機關的另一個目的不能沿用",
+    sibling.alreadyHeld.length === 0,
+    sibling.alreadyHeld.join(","),
+  );
+
+  // A smaller request must not delete what the agency was not asked for.
+  const before = getState().inboxes["childcare-allowance"].claims.length;
+  mutate((s) => proposeGrantsFromPlan(s, later));
+  const g2 = grantById(getState(), "G-甲")!;
+  signGrant({ grantId: "G-甲", signature: sign(g2.serialized, principal.secret), publicKey: pk });
+  redeemGrant("G-甲", makeAgencyProof("jia", "G-甲"));
+  // Re-issuing after expiry replaces the dead copy. Stacking meant the holder
+  // was shown several credentials for the one fact, most of them useless.
+  const forClaim = getState().wallet.filter((c) => c.claimId === "resident.inNewTaipei");
+  check(
+    "過期後重發，皮夾裡該述詞只留一張",
+    forClaim.length === 1,
+    `${forClaim.length} 張：${forClaim.map((c) => c.expiresAt).join(", ")}`,
+  );
+  check("留下的那張是還有效的", forClaim.every((c) => new Date(c.expiresAt) > effectiveNow(getState())));
+
+  check(
+    "少要幾項不會讓機關弄丟原本持有的",
+    getState().inboxes["childcare-allowance"].claims.length === before,
+    `${before} -> ${getState().inboxes["childcare-allowance"].claims.length}`,
+  );
+  mutate((s) => {
+    s.clockOffsetDays = 0;
+  });
 }
 
 section("登記台");

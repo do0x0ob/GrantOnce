@@ -1,4 +1,5 @@
 import { CLAIM_DEFS, ISSUERS, isClaimId } from "./claims";
+import { FIELD_META } from "./fields";
 import { PURPOSES } from "./purposes";
 import { purposesFrom, registryView } from "./registry";
 import { RISK_LABEL } from "./risk";
@@ -146,7 +147,16 @@ export function principalView(state: DemoState) {
         claimId: claim,
         label: claimLabel(claim),
         shape: CLAIM_DEFS[claim].shape,
+        // The raw fields consumed to compute it. They stay in the vault; showing
+        // them is what makes the minimisation legible instead of asserted.
+        derivedFrom: CLAIM_DEFS[claim].derivedFrom.map((field) => FIELD_META[field].label),
       })),
+      alreadyHeld: request.alreadyHeld.map((claim) => ({
+        claimId: claim,
+        label: claimLabel(claim),
+        shape: CLAIM_DEFS[claim].shape,
+      })),
+      ceilingCount: request.ceiling.length,
       dataSources: request.dataSources.map((source) => ({
         id: source,
         name: ISSUERS[source].name,

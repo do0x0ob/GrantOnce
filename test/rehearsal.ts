@@ -125,7 +125,12 @@ const grantOf = (view: View, id: string) => view.grants.find((g) => g.id === id)
  * service, because a single 「確認」 covering everything is exactly the shortcut
  * the two-beat split exists to avoid.
  */
-async function applyAndConfirm() {
+async function applyAndConfirm(offsetDays = 0) {
+  // Time is why anyone re-applies. Once the agency keeps what it was given, a
+  // second run inside the claims' lifetime needs nothing at all — so a step that
+  // wants a fresh capsule has to move the clock, not pretend the holdings are
+  // not there.
+  if (offsetDays) await post("/api/clock", { offsetDays });
   await post("/api/chat", { message: "我剛搬家，看我能申請什麼。" });
   await post("/api/chat", { message: "確認育兒津貼的資料需求" });
   await post("/api/chat", { message: "確認住宅冷氣汰換補助的資料需求" });
@@ -304,7 +309,7 @@ async function main() {
     check("blocked response leaks no vault value", leaksIn(r.view).length === 0, leaksIn(r.view).join(","));
   }
 
-  say("STEP 7 - the parent-child credential lasts a year and is presented again, not re-fetched");
+  say("STEP 7 - re-applying two months on asks for less: the agency keeps what it was given");
   {
     const view = await get();
     const pc = view.wallet.find((c) => c.claimId === "parentChild.verified");
@@ -314,8 +319,25 @@ async function main() {
       check("its lifetime is one year", Math.round(days) === 365, Math.round(days) + " days");
     }
     const walletBefore = view.wallet.length;
+
+    // Two months on: the 30-day predicates have gone stale, the year-long
+    // parent-child credential has not, and 甲 still holds what it was handed.
     // 7b signs the energy capsule this produces.
-    await applyAndConfirm();
+    await applyAndConfirm(60);
+    const request = (await get()).serviceRequests
+      .filter((r) => r.purpose === "childcare-allowance" && r.status !== "cancelled")
+      .at(-1)!;
+    check(
+      "this time it asks for three of the four",
+      request.claims.length === 3,
+      String(request.claims.length),
+    );
+    check(
+      "the one it already holds is the year-long one",
+      request.alreadyHeld.length === 1,
+      String(request.alreadyHeld.length),
+    );
+
     const again = grantOf(await get(), "G-甲");
     await post("/api/grants/sign", {
       grantId: "G-甲",
@@ -324,11 +346,27 @@ async function main() {
     });
     const r = await post("/api/grants/redeem", { grantId: "G-甲", agency: "jia" });
     check("second application redeems", r.status === 200, String(r.view.code));
-    check("no new credential was issued", r.view.wallet.length === walletBefore, walletBefore + " -> " + r.view.wallet.length);
+    check(
+      "the wallet does not grow: stale credentials are replaced, not stacked",
+      r.view.wallet.length === walletBefore,
+      walletBefore + " -> " + r.view.wallet.length,
+    );
+
+    // The saving lands twice over: the source is never asked to re-verify the
+    // parent-child relationship, and the principal never re-authorises it.
     const pc2 = r.view.wallet.find((c) => c.claimId === "parentChild.verified")!;
-    check("the same credential was presented again", pc2.presentedCount >= 2, "presented " + pc2.presentedCount);
-    const issued = r.view.audit.filter((a) => a.action === "issue").length;
-    check("audit shows issuance happened once", issued === 1, issued + " issuances");
+    check("the parent-child credential was not presented again", pc2.presentedCount === 1, "presented " + pc2.presentedCount);
+    const reIssued = r.view.audit.filter(
+      (a) => a.action === "issue" && a.detail.includes("是否為法定親子關係"),
+    ).length;
+    check("戶政 was never asked to re-verify it", reIssued === 1, reIssued + " issuances naming it");
+
+    // Asking for less must not cost the agency what it already had.
+    check(
+      "the agency still holds all four",
+      r.view.inboxes["childcare-allowance"].claims.length === 4,
+      String(r.view.inboxes["childcare-allowance"].claims.length),
+    );
   }
 
   say("STEP 7b - the two agencies get different identifiers and cannot join their records");
@@ -421,7 +459,7 @@ async function main() {
 
   say("STEP 10 - the audit trail carries every action type");
   {
-    await applyAndConfirm();
+    await applyAndConfirm(180);
     const g = grantOf(await get(), "G-甲");
     await post("/api/grants/sign", { grantId: "G-甲", signature: sign(g.serialized, wallet.secret), publicKey });
     await post("/api/grants/redeem", { grantId: "G-甲", agency: "jia" });

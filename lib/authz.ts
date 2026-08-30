@@ -11,6 +11,7 @@ import type {
   AgencyId,
   ServiceRequest,
   AgencyInbox,
+  DeliveredClaim,
   DemoState,
   Grant,
   GrantBody,
@@ -239,6 +240,8 @@ export function openServiceRequests(state: DemoState, programs: ProgramPlan[]): 
       requester: program.agencyId,
       requesterName: program.agencyName.replace(/^[甲乙丙]｜/, ""),
       claims: [...program.claims],
+      ceiling: [...program.ceiling],
+      alreadyHeld: [...program.alreadyHeld],
       dataSources: sourcesForClaims(program.claims),
       privacyBasis: [...(def?.privacyBasis ?? [])],
       necessity: def?.necessity ?? "",
@@ -442,6 +445,8 @@ export function requestClaims(
         agencyName: live.agencyName,
         reasons: ["服務端依目的登記內容回傳本次辦理所需的最小資料。"],
         claims: recognizedClaims,
+        ceiling: [...live.allowedClaims],
+        alreadyHeld: [],
       },
     ]);
     const grant = grantById(s, live.slot);
@@ -853,19 +858,29 @@ export function redeemGrant(
       });
     }
 
+    const at = nowIso();
+    const arriving: DeliveredClaim[] = credentials.map((c) => ({
+      claimId: c.claimId,
+      receivedAt: at,
+      label: c.label,
+      value: c.value,
+      sensitivity: c.sensitivity,
+      issuer: c.issuer,
+      issuerName: c.issuerName,
+      issuerSignatureValid: verifyCredential(c),
+    }));
+    // Merge rather than replace. Once a request can be smaller than the ceiling,
+    // replacing would delete the very claims the agency was not asked for
+    // *because* it already held them — it would lose data by asking for less.
+    const kept = inboxFor(s, grant.body.purpose).claims.filter(
+      (existing) => !arriving.some((fresh) => fresh.claimId === existing.claimId),
+    );
+
     s.inboxes[grant.body.purpose] = {
       ...inboxFor(s, grant.body.purpose),
       purpose: grant.body.purpose,
       programTitle: purposeDef.title,
-      claims: credentials.map((c) => ({
-        claimId: c.claimId,
-        label: c.label,
-        value: c.value,
-        sensitivity: c.sensitivity,
-        issuer: c.issuer,
-        issuerName: c.issuerName,
-        issuerSignatureValid: verifyCredential(c),
-      })),
+      claims: [...kept, ...arriving],
       grantDigest: grant.digest,
       receivedAt: nowIso(),
       // A fresh redemption is a fresh application. Carrying the old timestamp

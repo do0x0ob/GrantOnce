@@ -129,6 +129,14 @@ export type Grant = {
 
 export type DeliveredClaim = {
   claimId: ClaimId;
+  /**
+   * When this particular claim reached the agency.
+   *
+   * Per claim rather than per delivery, because once a requirement can be
+   * smaller than the ceiling, one inbox holds claims that arrived at different
+   * times and each ages out on its own schedule.
+   */
+  receivedAt: string;
   label: string;
   value: string;
   sensitivity: Sensitivity;
@@ -213,7 +221,18 @@ export type ProgramPlan = {
   agencyId: AgencyId;
   agencyName: string;
   reasons: string[];
+  /**
+   * What the agency asks for this time.
+   *
+   * Distinct from `ceiling`: the registry says what this purpose may ever ask
+   * for, and asking for the maximum every time is not minimisation, it is just a
+   * well-chosen maximum.
+   */
   claims: ClaimId[];
+  /** The registry's cap on this purpose. `claims` must stay inside it. */
+  ceiling: ClaimId[];
+  /** Already delivered for this same purpose and not yet stale, so not asked again. */
+  alreadyHeld: ClaimId[];
   hint?: string;
 };
 
@@ -243,6 +262,10 @@ export type ServiceRequest = {
   requester: AgencyId;
   requesterName: string;
   claims: ClaimId[];
+  /** The registry cap this request had to stay inside. */
+  ceiling: ClaimId[];
+  /** Not asked for, because the agency already holds it and it is still current. */
+  alreadyHeld: ClaimId[];
   dataSources: IssuerId[];
   privacyBasis: string[];
   necessity: string;

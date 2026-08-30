@@ -156,8 +156,8 @@ const MUTATIONS: Mutation[] = [
   {
     label: "指名一項補助卻連別的一起給",
     file: "lib/agent/turn.ts",
-    find: "  const programs = narrowed",
-    replace: "  const programs = false",
+    find: "  const matched = narrowed",
+    replace: "  const matched = false",
   },
   {
     label: "資格比對改回看你怎麼講而不是看事實",
@@ -284,6 +284,44 @@ const MUTATIONS: Mutation[] = [
     file: "lib/agent/turn.ts",
     find: "  if (!named.length && !situation.movedRecently) {",
     replace: "  if (false) {",
+  },
+  {
+    // Asking for the registry cap every time is a well-chosen maximum, not
+    // minimisation.
+    label: "每次都照登記上限索取，不扣掉機關已持有的",
+    file: "lib/rules.ts",
+    find: "  const alreadyHeld = ceiling.filter((id) => held.has(id));\n  return { claims: ceiling.filter((id) => !held.has(id)), alreadyHeld };",
+    replace: "  const alreadyHeld = ceiling.filter((id) => held.has(id));\n  return { claims: [...ceiling], alreadyHeld };",
+  },
+  {
+    // 個資法 §16: reuse has to stay inside the purpose the data was collected
+    // for. Reading holdings across purposes is 特定目的外之利用.
+    label: "跨目的沿用已持有的述詞",
+    file: "lib/rules.ts",
+    find: "  const inbox = state.inboxes[purpose];",
+    replace: "  const inbox = { claims: Object.values(state.inboxes).flatMap((i) => i.claims) };",
+  },
+  {
+    // A stale copy must be re-requested, not silently relied on.
+    label: "機關持有的述詞永不過期",
+    file: "lib/rules.ts",
+    find: "        return age < def.ttlDays * 86400000;",
+    replace: "        return true;",
+  },
+  {
+    // Merging matters precisely because a request can now be smaller: replacing
+    // would delete the claims the agency was not asked for because it had them.
+    label: "少要幾項就把機關原本持有的洗掉",
+    file: "lib/authz.ts",
+    find: "      claims: [...kept, ...arriving],",
+    replace: "      claims: arriving,",
+  },
+  {
+    // Re-issuing after expiry must replace the dead copy, not stack on it.
+    label: "過期憑證重發時把舊的留在皮夾裡",
+    file: "lib/wallet.ts",
+    find: "  state.wallet = state.wallet.filter(\n    (existing) => !(existing.claimId === claimId && existing.audience === audience),\n  );\n",
+    replace: "",
   },
   {
     label: "述詞換回原始欄位",

@@ -3,9 +3,11 @@ import { PURPOSE_IDS, PURPOSES, type PurposeId } from "@/lib/purposes";
 import {
   ageHint,
   childAgeMonthsAt,
+  effectiveNow,
   effectiveToday,
   HAPPY_PATH_UTTERANCE,
   matchPrograms,
+  narrowToStillNeeded,
   PERSONA_DECLARED,
   situationFromUtterance,
 } from "@/lib/rules";
@@ -409,9 +411,17 @@ export function runTurn(state: DemoState, utterance: string, ctx?: TurnContext):
     return id === "aircon-subsidy" && situation.wantsAircon;
   });
   const narrowed = named.length < PURPOSE_IDS.length;
-  const programs = narrowed
+  const matched = narrowed
     ? eligible.filter((program) => named.includes(program.purpose))
     : eligible;
+
+  // The agency asks for the least it needs right now, not for its registry
+  // ceiling. Anything it already holds for this same purpose, still within that
+  // claim's own lifetime, is not requested again.
+  // Holdings age in days, so they follow the demo clock like everything else
+  // measured in days. Using the wall clock here meant fast-forwarding a year
+  // still left every delivered claim looking fresh.
+  const programs = narrowToStillNeeded(state, matched, effectiveNow(state));
 
   // Asked about something no registered purpose covers. Not the same as being
   // ineligible, and saying 「目前不符合」 with nothing after it — which is what an
@@ -450,6 +460,27 @@ export function runTurn(state: DemoState, utterance: string, ctx?: TurnContext):
           text: `目前不符合${asked}。${hint}\n\n符合的是：${eligible
             .map((p) => p.title)
             .join("、")}。要看嗎？`,
+        },
+        { suggestions: MENU.suggestions },
+      ],
+    };
+  }
+
+  // Everything this purpose could need is already with the agency and current, so
+  // there is nothing left to authorise. The strongest possible outcome of
+  // minimisation, and it has to be sayable rather than looking like a failure.
+  const settled = programs.filter((program) => !program.claims.length);
+  if (settled.length && settled.length === programs.length) {
+    return {
+      programs: [],
+      matched: true,
+      confirms: [],
+      outputs: [
+        ...lead,
+        {
+          text: `${settled
+            .map((p) => p.title)
+            .join("、")}：${settled[0].agencyName.replace(/^[甲乙丙]｜/, "")}已經持有本次所需的全部述詞，而且都還在效期內。這次不需要你再授權任何東西。`,
         },
         { suggestions: MENU.suggestions },
       ],
