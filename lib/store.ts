@@ -38,7 +38,7 @@ const STORE_PATH = process.env.GRANTONCE_STORE ?? "/tmp/grantonce-runtime.json";
  * 5 re-keys `inboxes` by purpose instead of by agency, so a v4 file's `jia`/`yi`
  * keys no longer name anything the loader can find.
  */
-const STORE_VERSION = 5;
+const STORE_VERSION = 6;
 export function nowIso(): string {
   return new Date().toISOString();
 }
@@ -87,6 +87,7 @@ export function createInitialState(): DemoState {
       note: FIELD_META[fieldId].note,
     })),
     wallet: [],
+    serviceRequests: [],
     grants: [],
     inboxes: emptyInboxes(),
     usedJti: [],
@@ -112,7 +113,7 @@ export function createInitialState(): DemoState {
         role: "agent",
         at,
         text:
-          "我是補助代理人。資格用規則引擎比對；能不能取得資料，要兩把鑰匙同時轉：你的簽章，加上機關的法定職務範圍。\n\n金鑰就緒之後，跟我說：「我剛搬家，看我能申請什麼。」",
+          "我是 GrantOnce 的服務申請助手。我會先找已登記服務，再顯示該服務本次需要的最小資料；你簽署後，資料來源才會直接交付辦理機關。\n\n我不能替你簽名，也不會把資料值交給語言模型。你可以先說：「我剛搬家，看我能申請什麼。」",
       },
     ],
     plan: null,
@@ -147,6 +148,7 @@ function isCurrentSchema(value: unknown): value is DemoState {
       s.version === STORE_VERSION &&
       s.principal?.key &&
       Array.isArray(s.grants) &&
+      Array.isArray(s.serviceRequests) &&
       Array.isArray(s.wallet) &&
       Array.isArray(s.audit) &&
       Array.isArray(s.usedJti) &&

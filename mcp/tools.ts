@@ -1,6 +1,6 @@
 import {
   makeAgencyProof,
-  proposeGrantsFromPlan,
+  openServiceRequests,
   redeemGrant,
   requestClaims,
   revokeDelegation,
@@ -125,6 +125,11 @@ function grantPublic(grantId: GrantId) {
     status: grant.status,
     purpose: grant.body.purpose,
     programTitle: (livePurpose(grant.body.purpose) ?? PURPOSES[grant.body.purpose])?.title ?? grant.body.purpose,
+    requestId: grant.body.requestId,
+    requester: grant.body.requester,
+    dataSources: grant.body.dataSources,
+    delivery: grant.body.delivery,
+    notice: grant.body.notice,
     audience: grant.body.aud,
     boundToAgencyKey: grant.body.cnf.jkt,
     jti: grant.body.jti,
@@ -151,7 +156,7 @@ export async function searchPurposes(query: string) {
     issuablePurposeIds: hits
       .filter((entry) => entry.issuable && entry.purposeId)
       .map((entry) => entry.purposeId),
-    note: "world 是公開搜尋。issuable 才是本 runtime 能 mint Grant 的子集。不要把登記表當成全世界。不能發明述詞。",
+    note: "world 是公開搜尋；issuable 才是已登記且能進入服務需求流程的子集。搜尋結果不等於授權，也不能發明述詞。",
     notes: [...AGENT_NOTES],
   };
   assertNoVaultLeak(payload, "search_purposes");
@@ -164,12 +169,16 @@ export async function planApplications(utterance: string) {
   const inquiry = evaluateInquiry(message, today);
   const world = await researchWorld(message);
 
+  // Discovery only. This used to open a requirement and mint a capsule in one
+  // call, so an external agent could put a signable Grant in front of someone who
+  // had not chosen the service, let alone accepted what it wanted. The invariant
+  // 「未確認就沒有匣」 held in the app and not here, which is worse than not
+  // claiming it at all.
   mutate((s) => {
     appendChat(s, "user", message);
     appendChat(s, "agent", formatInquiryMessage(inquiry, today, world));
     if (!inquiry.canIssue) return;
     s.plan = { utterance: message, matchedAt: new Date().toISOString() };
-    proposeGrantsFromPlan(s, inquiry.programs);
     pushChanges(s, new Date());
   });
 
@@ -178,7 +187,7 @@ export async function planApplications(utterance: string) {
       inquiry,
       [
         "模型無法簽署。請委託人在皮夾用生物辨識簽署後才能兌現。",
-        "搜到真實世界的補助不會自動發票。只有 canIssue 時才會提案。",
+        "這一步只是比對，沒有建立任何服務需求，也沒有建立 Grant。",
       ],
       world,
     ),
@@ -192,12 +201,68 @@ export async function planApplications(utterance: string) {
       claimIds: p.claims,
       claimLabels: claimLabels(p.claims),
       sensitivities: p.claims.map((c) => SENSITIVITY_LABEL[CLAIM_DEFS[c].sensitivity]),
+      dataSources: [...new Set(p.claims.map((claim) => CLAIM_DEFS[claim].issuer))],
       privacyBasis: PURPOSES[p.purpose].privacyBasis,
       programBasis: PURPOSES[p.purpose].programBasis ?? [],
       hint: p.hint,
     })),
   };
   assertNoVaultLeak(payload, "plan_applications");
+  return payload;
+}
+
+/**
+ * Relay 「我要辦這個」 to one agency, and report what it says it needs.
+ *
+ * The model may carry this message — it is the same act as the person tapping
+ * the service in the app. What it may not do is accept the answer: confirming a
+ * requirement is the principal agreeing to hand something over, so it has no
+ * tool, for the same reason signing has none.
+ */
+export function requestService(purposeRaw: string) {
+  const purpose = purposeRaw.trim();
+  if (!isPurposeId(purpose) && !isLivePurposeId(purpose)) {
+    return { error: `「${purpose}」不是已登記的目的，不能提出辦理申請。` };
+  }
+
+  const today = effectiveToday(getState());
+  const inquiry = evaluateInquiry(getState().plan?.utterance ?? HAPPY_PATH_UTTERANCE, today);
+  const program = inquiry.programs.find((p) => p.purpose === purpose);
+  if (!program) {
+    return {
+      error: `目前的情境不符合「${purpose}」的資格條件，不能提出辦理申請。`,
+      canIssue: false,
+    };
+  }
+
+  let opened: string | null = null;
+  mutate((s) => {
+    const [request] = openServiceRequests(s, [program]);
+    opened = request?.id ?? null;
+    pushChanges(s, new Date());
+  });
+
+  const def = PURPOSES[program.purpose] ?? livePurpose(program.purpose);
+  const payload = {
+    requestId: opened,
+    purpose: program.purpose,
+    title: program.title,
+    requester: program.agencyId,
+    requesterName: program.agencyName.replace(/^[甲乙丙]｜/, ""),
+    status: "awaiting-confirmation",
+    ceilingCount: program.ceiling.length,
+    alreadyHeld: claimLabels(program.alreadyHeld),
+    claimIds: program.claims,
+    claimLabels: claimLabels(program.claims),
+    dataSources: [...new Set(program.claims.map((claim) => CLAIM_DEFS[claim].issuer))],
+    privacyBasis: def?.privacyBasis ?? [],
+    notes: [
+      "這是服務需求，不是授權。到這一步為止沒有建立任何 Grant。",
+      "沒有工具可以代替本人確認這份需求——確認要在 App 由本人做，之後才會有待簽 Grant。",
+      "本次需求已扣掉該機關同一目的下仍在效期內、已持有的述詞。",
+    ],
+  };
+  assertNoVaultLeak(payload, "request_service");
   return payload;
 }
 
@@ -219,7 +284,7 @@ export function getGrantForSignature(grantIdRaw: string) {
     consentText: grant.body.displayText,
     bytesToSign: grant.serialized,
     digest: grant.digest,
-    note: "模型不能代簽。請委託人在皮夾以 passkey 生物辨識簽署這串 bytes。同意畫面文字已包含在簽署內容裡。",
+    note: "模型不能代簽。請委託人在皮夾確認請求機關、資料來源、最小需求與個資告知事項，再以 passkey 簽署；這些內容都包含在 bytes 裡。",
   };
   assertNoVaultLeak(payload, "get_grant_for_signature");
   return payload;
@@ -235,9 +300,10 @@ export function redeem(grantIdRaw: string, agencyRaw: string) {
       ok: true as const,
       grantId: result.grantId,
       deliveredTo: result.deliveredTo,
+      releasedBy: result.releasedBy,
       claimIds: result.claimIds,
       claimLabels: claimLabels(result.claimIds),
-      note: "兩把鑰匙都通過。述詞值直接進入機關收件匣，不回傳給模型。",
+      note: "使用者簽章與請求機關持有證明都通過。資料來源機關把述詞直接交付請求機關，不回傳給語言模型。",
     };
     assertNoVaultLeak(payload, "redeem_grant");
     return payload;
@@ -259,7 +325,7 @@ export function redeem(grantIdRaw: string, agencyRaw: string) {
 export function requestClaimsTool(agencyRaw: string, purposeRaw: string, claims: string[]) {
   const agency = requireAgency(agencyRaw);
   if (!isLivePurposeId(purposeRaw) && !isPurposeId(purposeRaw)) throw new Error(`未登記的目的：${purposeRaw}`);
-  const { blocked, notes } = requestClaims(agency, purposeRaw, claims);
+  const { blocked, notes, grantId, requestId } = requestClaims(agency, purposeRaw, claims);
   const payload = {
     ok: !blocked,
     blocked,
@@ -267,10 +333,12 @@ export function requestClaimsTool(agencyRaw: string, purposeRaw: string, claims:
     purpose: purposeRaw,
     requested: claims,
     requestedLabels: claimLabels(claims),
+    grantId,
+    requestId,
     notes,
     note: blocked
       ? "提案階段即攔截，委託人根本不會看到可以按的同意按鈕。"
-      : "在法定職務範圍內，可交由委託人決定是否簽署。",
+      : "已依登記內容建立服務需求。這不是授權，也還沒有 Grant——要由本人在 App 確認需求後才會鑄出待簽的匣。",
   };
   assertNoVaultLeak(payload, "request_claims");
   return payload;
@@ -509,7 +577,7 @@ export function getPendingActions() {
       actions.push({
         id: `awaiting-redeem:${grant.id}:${grant.body.jti}`,
         blockedOn: "agency",
-        what: "等機關以自己的金鑰兌現",
+        what: "等請求機關持 Grant 向資料來源機關取證",
         grantId: grant.id,
         suggestedTool: "redeem_grant",
         suggestedArgs: { grantId: grant.id, agency: grant.body.aud },
@@ -520,7 +588,7 @@ export function getPendingActions() {
       actions.push({
         id: `awaiting-submit:${grant.id}:${grant.body.jti}`,
         blockedOn: "agent",
-        what: "述詞已交付，可以送件",
+        what: "資料來源已直接交付述詞，請求機關可以開始處理",
         grantId: grant.id,
         suggestedTool: "submit_application",
         suggestedArgs: { grantId: grant.id },
@@ -595,6 +663,8 @@ export async function callTool(
       return wrap(await searchPurposes(str("query")));
     case "plan_applications":
       return wrap(await planApplications(str("utterance")));
+    case "request_service":
+      return wrap(requestService(str("purpose")));
     case "get_grant_for_signature":
       return wrap(getGrantForSignature(str("grantId")));
     case "redeem_grant":

@@ -202,6 +202,10 @@ export function useDemo(initialView: PrincipalView) {
       allowedClaims: string[];
       maxTtlSeconds: number;
       necessity: string;
+      retentionPolicy: string;
+      processingArea: string;
+      processingMethod: string;
+      declineEffect: string;
     }) => post("/api/state", { action: "registry.upsert", purpose }),
     retirePurpose: (id: string) => post("/api/state", { action: "registry.retire", id }),
   };

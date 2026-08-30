@@ -124,8 +124,10 @@ const MUTATIONS: Mutation[] = [
   {
     label: "索取時不看是誰在問",
     file: "lib/authz.ts",
-    find: "    if (PURPOSES[purpose].agency !== agency) {",
-    replace: "    if (false) {",
+    // Keep the unregistered-purpose guard and drop only the requester check, so
+    // what the mutation removes is exactly the property under test.
+    find: "    if (!live || live.agency !== agency) {",
+    replace: "    if (!live) {",
   },
   {
     label: "先發證再驗憑證",
@@ -154,8 +156,8 @@ const MUTATIONS: Mutation[] = [
   {
     label: "指名一項補助卻連別的一起給",
     file: "lib/agent/turn.ts",
-    find: "  const programs = narrowed",
-    replace: "  const programs = false",
+    find: "  const matched = narrowed",
+    replace: "  const matched = false",
   },
   {
     label: "資格比對改回看你怎麼講而不是看事實",
@@ -228,6 +230,159 @@ const MUTATIONS: Mutation[] = [
     file: "lib/authz.ts",
     find: "  const existing = state.inboxes[purpose];\n  if (existing) return existing;",
     replace: "  const existing = state.inboxes[purpose];\n  if (!existing) return {} as AgencyInbox;",
+  },
+  {
+    // The beat this whole split exists for: discovery must not mint.
+    label: "比對完就直接鑄匣（需求與授權又黏回去）",
+    file: "lib/agent/turn.ts",
+    find: "      for (const program of chosen) outputs.push({ serviceRequirement: program.purpose });",
+    replace: "      for (const program of chosen) {\n        outputs.push({ serviceRequirement: program.purpose });\n        outputs.push({ grantId: program.grantId });\n      }",
+  },
+  {
+    // Confirming names one thing. Falling back to 「唯一還開著的那項」 after
+    // something was named hands over a capsule nobody asked for.
+    label: "指名已簽掉的那項，就順手確認別的",
+    file: "lib/agent/turn.ts",
+    find: "      : mentioned.length\n        ? []",
+    replace: "      : mentioned.length\n        ? pending",
+  },
+  {
+    // A word must not be enough to mint. Without the state gate, 「確認」 with
+    // nothing open falls through and starts a proposal on its own.
+    label: "沒有待確認的需求也照樣往下走",
+    file: "lib/agent/turn.ts",
+    find: '  const pending = state.serviceRequests.filter((r) => r.status === "awaiting-confirmation");',
+    replace: "  const pending = state.serviceRequests;",
+  },
+  {
+    // The registry and 個資法 check belongs after the person agrees, and its
+    // result is what the card shows.
+    label: "確認後不再記錄檢查結果",
+    file: "lib/authz.ts",
+    find: "  request.checkNotes = [...fresh.riskNotes];",
+    replace: "  request.checkNotes = [];",
+  },
+  {
+    // The classifier reports whether a move was described and nothing else.
+    // Taking the whole situation from its branch throws away which benefit was
+    // named, and only shows up with a router configured.
+    label: "模型接手後就忘了你指名哪一項",
+    file: "lib/agent/turn.ts",
+    find: "  const fromWords = situationFromUtterance(utterance, today) ?? DECLARED_SITUATION(today);",
+    replace: "  const fromWords = DECLARED_SITUATION(today);",
+  },
+  {
+    // Public search is the fallback, not the opening move.
+    label: "登記表有答案還是先去公開搜尋",
+    file: "lib/agent/intent.ts",
+    find: "  return matchPrograms(situation).length === 0;",
+    replace: "  return true;",
+  },
+  {
+    // Naming an unregistered benefit is not the same as being ineligible.
+    label: "沒登記的服務被說成不符合資格",
+    file: "lib/agent/turn.ts",
+    find: "  if (!named.length && !situation.movedRecently) {",
+    replace: "  if (false) {",
+  },
+  {
+    // Asking for the registry cap every time is a well-chosen maximum, not
+    // minimisation.
+    label: "每次都照登記上限索取，不扣掉機關已持有的",
+    file: "lib/rules.ts",
+    find: "  const alreadyHeld = ceiling.filter((id) => held.has(id));\n  return { claims: ceiling.filter((id) => !held.has(id)), alreadyHeld };",
+    replace: "  const alreadyHeld = ceiling.filter((id) => held.has(id));\n  return { claims: [...ceiling], alreadyHeld };",
+  },
+  {
+    // 個資法 §16: reuse has to stay inside the purpose the data was collected
+    // for. Reading holdings across purposes is 特定目的外之利用.
+    label: "跨目的沿用已持有的述詞",
+    file: "lib/rules.ts",
+    find: "  const inbox = state.inboxes[purpose];",
+    replace: "  const inbox = { claims: Object.values(state.inboxes).flatMap((i) => i.claims) };",
+  },
+  {
+    // A stale copy must be re-requested, not silently relied on.
+    label: "機關持有的述詞永不過期",
+    file: "lib/rules.ts",
+    find: "        return age < def.ttlDays * 86400000;",
+    replace: "        return true;",
+  },
+  {
+    // Merging matters precisely because a request can now be smaller: replacing
+    // would delete the claims the agency was not asked for because it had them.
+    label: "少要幾項就把機關原本持有的洗掉",
+    file: "lib/authz.ts",
+    find: "      claims: [...kept, ...arriving],",
+    replace: "      claims: arriving,",
+  },
+  {
+    // Re-issuing after expiry must replace the dead copy, not stack on it.
+    label: "過期憑證重發時把舊的留在皮夾裡",
+    file: "lib/wallet.ts",
+    find: "  state.wallet = state.wallet.filter(\n    (existing) => !(existing.claimId === claimId && existing.audience === audience),\n  );\n",
+    replace: "",
+  },
+  {
+    // Discovery must not leave records behind for services nobody chose.
+    label: "還沒選就替每個比對到的服務開需求",
+    file: "lib/agent/apply.ts",
+    find: "  if (turn.opens.length) openServiceRequests(state, turn.opens);",
+    replace: "  openServiceRequests(state, turn.opens.length ? turn.opens : turn.programs);",
+  },
+  {
+    // The plan is the described situation, not the narrow pick that follows it.
+    label: "選了一項就把當初描述的情境覆蓋掉",
+    file: "lib/agent/apply.ts",
+    find: "  if (turn.programs.length && !turn.opens.length) {",
+    replace: "  if (turn.programs.length) {",
+  },
+  {
+    // A button has to route where it says it goes. 「先不要辦育兒津貼」 matched the
+    // apply pattern on 「津貼」 and quietly restarted discovery.
+    label: "婉拒被 apply 的正則吃掉，變成重新比對",
+    file: "lib/agent/turn.ts",
+    find: '  ["decline", /先不要|不要辦|不想辦|算了|不用了|拒絕/],\n',
+    replace: "",
+  },
+  {
+    // 「未確認就沒有匣」 has to hold on every path, not just in the app. This one
+    // used to open a requirement and mint in a single MCP call.
+    label: "MCP 比對那一步又順手鑄匣",
+    file: "mcp/tools.ts",
+    find: "    s.plan = { utterance: message, matchedAt: new Date().toISOString() };\n    pushChanges(s, new Date());",
+    replace: "    s.plan = { utterance: message, matchedAt: new Date().toISOString() };\n    for (const r of openServiceRequests(s, inquiry.programs)) confirmServiceRequest(s, r.id);\n    pushChanges(s, new Date());",
+  },
+  {
+    // An agency asking on its own behalf opens a requirement; it does not get to
+    // accept it on the person's behalf as well.
+    label: "機關直接索取就順便替你鑄匣",
+    file: "lib/authz.ts",
+    find: "    grantId = null;\n    requestId = request?.id ?? null;",
+    replace: "    if (request) confirmServiceRequest(s, request.id);\n    grantId = grantById(s, live.slot)?.id ?? null;\n    requestId = request?.id ?? null;",
+  },
+  {
+    // The clock moving re-opens requirements; minting because time passed is an
+    // authorisation nobody gave.
+    label: "時鐘一動就替你鑄好新匣",
+    file: "lib/clock.ts",
+    find: "  openServiceRequests(state, programs);",
+    replace: "  for (const r of openServiceRequests(state, programs)) confirmServiceRequest(state, r.id);",
+  },
+  {
+    // A card sends a sentence; a title long enough to slip past the pattern lands
+    // the tap on the wrong beat. 「未滿 5 歲幼兒托育補助」 did exactly that.
+    label: "長標題的服務選不進 request 那一拍",
+    file: "lib/agent/turn.ts",
+    find: "/提出[^。]{0,40}辦理申請|索取需求|我要辦|幫我辦|就辦這/",
+    replace: "/提出.{0,10}辦理申請|索取需求|幫我辦|就辦這/",
+  },
+  {
+    // The band has to end where the programme it gates ends.
+    label: "「未滿 5 歲」的年齡帶放到六歲",
+    file: "lib/claims.ts",
+    find: '  if (months < 60) return "2-5";',
+    replace: '  if (months < 72) return "2-5";',
   },
   {
     label: "述詞換回原始欄位",

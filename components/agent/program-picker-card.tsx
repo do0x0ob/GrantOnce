@@ -8,9 +8,12 @@ import type { ProgramPickerPayload } from "@/lib/agent/blocks/types";
 /**
  * A card that talks back.
  *
- * Without this the agent has to ask "which one?" in prose and then hope it
- * parses the reply. With it the choice returns as structure, and the model —
- * or the rule engine — never has to read free text twice.
+ * Without this the agent has to ask "which one?" in prose and then hope the
+ * reply is unambiguous. The button still sends a sentence rather than a typed
+ * action — the wording is chosen by the turn, not by the card, so the same tap
+ * always lands on the same beat — but the routing is still a pattern match, and
+ * a title long enough to slip past one has already sent a tap to the wrong
+ * place once.
  */
 export function ProgramPickerCard({
   payload,
@@ -30,7 +33,7 @@ export function ProgramPickerCard({
             key={option.purpose}
             type="button"
             disabled={busy}
-            onClick={() => onPick(option.title)}
+            onClick={() => onPick(option.utterance)}
             className="rounded-[20px] bg-white/70 px-4 py-3 text-left transition-transform hover:-translate-y-0.5 disabled:opacity-40"
           >
             <span className="block text-[14px] leading-6 text-stone-900">{option.title}</span>

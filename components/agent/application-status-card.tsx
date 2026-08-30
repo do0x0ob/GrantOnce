@@ -9,18 +9,17 @@ type Stage = { id: string; label: string; simulated: boolean };
 /**
  * Where the application stands.
  *
- * The last two stages are drawn but never light up: this demo does not talk to
- * a real agency, and pretending otherwise is the kind of overclaim a government
- * reviewer is trained to look for. Showing the boundary is worth more than
- * showing a full bar.
+ * Every stage is driven by the service-request record. The result stage can be
+ * advanced manually for the demo, but is styled as simulated because no real
+ * agency system is connected.
  */
 const STAGES: Stage[] = [
-  { id: "matched", label: "比對", simulated: true },
-  { id: "signed", label: "簽署", simulated: true },
-  { id: "redeemed", label: "兌現", simulated: true },
-  { id: "submitted", label: "送件", simulated: true },
-  { id: "review", label: "機關審核", simulated: false },
-  { id: "decided", label: "核定", simulated: false },
+  { id: "found", label: "找到服務", simulated: true },
+  { id: "requirements", label: "確認需求", simulated: true },
+  { id: "signed", label: "使用者簽署", simulated: true },
+  { id: "delivered", label: "來源交付", simulated: true },
+  { id: "processing", label: "機關處理", simulated: true },
+  { id: "result", label: "回覆結果", simulated: false },
 ];
 
 export function ApplicationStatusCard({
@@ -31,13 +30,18 @@ export function ApplicationStatusCard({
   view: PrincipalView;
 }) {
   const def = PURPOSES[purpose];
-  const inbox = view.inboxes[purpose];
-  const grant = view.grants.find((g) => g.purpose === purpose);
+  const request = [...view.serviceRequests].reverse().find((item) => item.purpose === purpose);
 
-  const reached = new Set<string>(["matched"]);
-  if (grant && grant.status !== "proposed") reached.add("signed");
-  if (grant?.status === "redeemed" || inbox?.receivedAt) reached.add("redeemed");
-  if (inbox?.submittedAt) reached.add("submitted");
+  const reached = new Set<string>(["found"]);
+  if (request) reached.add("requirements");
+  if (request && ["authorized", "data-delivered", "processing", "completed"].includes(request.status)) {
+    reached.add("signed");
+  }
+  if (request && ["data-delivered", "processing", "completed"].includes(request.status)) {
+    reached.add("delivered");
+  }
+  if (request && ["processing", "completed"].includes(request.status)) reached.add("processing");
+  if (request?.status === "completed") reached.add("result");
 
   return (
     <section className={cn(SURFACE, "space-y-4 px-6 py-5")}>
@@ -71,7 +75,7 @@ export function ApplicationStatusCard({
       </ol>
 
       <p className="text-[12px] leading-5 text-stone-500">
-        虛線的兩格本演示沒有接真實機關，不會亮起。送件之後的事我們不模擬。
+        本演示會模擬到機關處理；「回覆結果」只有手動切換案件狀態時才會亮起，不代表已串接真實機關。
       </p>
     </section>
   );

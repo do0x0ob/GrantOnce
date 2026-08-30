@@ -43,6 +43,18 @@ type View = {
     cnfJkt: string;
     programTitle: string;
   }[];
+  serviceRequests: {
+    id: string;
+    title: string;
+    purpose: string;
+    status: string;
+    grantId: string | null;
+    confirmedAt: string | null;
+    checkNotes: string[];
+    claims: { claimId: string; label: string; shape: string }[];
+    alreadyHeld: { claimId: string; label: string }[];
+    ceilingCount: number;
+  }[];
   inboxes: Record<
     string,
     {
@@ -110,6 +122,27 @@ function leaksIn(payload: unknown): string[] {
 
 const grantOf = (view: View, id: string) => view.grants.find((g) => g.id === id)!;
 
+/**
+ * Discovery states the requirements; confirming is what mints. Steps that only
+ * need capsules on the table walk both beats through this, one confirmation per
+ * service, because a single 「確認」 covering everything is exactly the shortcut
+ * the two-beat split exists to avoid.
+ */
+async function applyAndConfirm(offsetDays = 0) {
+  // Time is why anyone re-applies. Once the agency keeps what it was given, a
+  // second run inside the claims' lifetime needs nothing at all — so a step that
+  // wants a fresh capsule has to move the clock, not pretend the holdings are
+  // not there.
+  if (offsetDays) await post("/api/clock", { offsetDays });
+  await post("/api/chat", { message: "我剛搬家，看我能申請什麼。" });
+  // Picking the service is its own beat; typed here rather than clicked, so the
+  // wording is not the only thing that reaches it.
+  await post("/api/chat", { message: "我要辦育兒津貼" });
+  await post("/api/chat", { message: "確認育兒津貼的資料需求" });
+  await post("/api/chat", { message: "我要辦住宅冷氣汰換補助" });
+  await post("/api/chat", { message: "確認住宅冷氣汰換補助的資料需求" });
+}
+
 async function main() {
   await post("/api/reset");
 
@@ -123,11 +156,48 @@ async function main() {
     );
   }
 
-  say("STEP 2 - the rule engine decides eligibility; two capsules appear");
+  say("STEP 2 - discovery lists what is on offer and creates nothing");
   {
     const { view } = await post("/api/chat", { message: "我剛搬家，看我能申請什麼。" });
+    // Merely asking must not leave records behind for services nobody chose.
+    check("no service requirement yet", view.serviceRequests.length === 0, "got " + view.serviceRequests.length);
+    check("no capsule exists yet", view.grants.length === 0, "got " + view.grants.length);
+  }
+
+  say("STEP 2a - picking one asks that agency, and only that agency, what it needs");
+  {
+    const { view } = await post("/api/chat", { message: "我要辦育兒津貼" });
+    check("one requirement, for the service picked", view.serviceRequests.length === 1, "got " + view.serviceRequests.length);
+    check("it is 育兒津貼", view.serviceRequests[0]?.purpose === "childcare-allowance");
+    check(
+      "waiting on the person, not on a signature",
+      view.serviceRequests[0]?.status === "awaiting-confirmation",
+      view.serviceRequests[0]?.status,
+    );
+    // A requirement is not an authorisation: nothing signable exists yet.
+    check("still no capsule", view.grants.length === 0, "got " + view.grants.length);
+    check("the requirement carries no capsule", view.serviceRequests[0]?.grantId === null);
+  }
+
+  say("STEP 2b - confirming runs the check and mints; the other service is untouched");
+  {
+    const first = await post("/api/chat", { message: "確認育兒津貼的資料需求" });
+    check("confirming one mints one", first.view.grants.length === 1, "got " + first.view.grants.length);
+    check(
+      "nothing was created for the service not picked",
+      !first.view.serviceRequests.some((r) => r.purpose === "aircon-subsidy"),
+    );
+
+    await post("/api/chat", { message: "我要辦住宅冷氣汰換補助" });
+    const { view } = await post("/api/chat", { message: "確認住宅冷氣汰換補助的資料需求" });
     check("two capsules", view.grants.length === 2, "got " + view.grants.length);
     check("both awaiting signature", view.grants.every((g) => g.status === "proposed"));
+    check(
+      "each confirmation is stamped",
+      view.serviceRequests
+        .filter((r) => r.status === "awaiting-signature")
+        .every((r) => Boolean(r.confirmedAt)),
+    );
   }
 
   say("STEP 3 - the agency receives four facts; no name, address, household id or birth date");
@@ -162,7 +232,11 @@ async function main() {
     const jia = grantOf(await get(), "G-甲");
     const body = JSON.parse(jia.serialized) as Record<string, unknown>;
     check("signed bytes contain the consent text", body.displayText === jia.displayText);
-    check("consent text matches what the card renders", jia.displayText.includes("新北市政府社會局 將取得以下關於你的資訊"));
+    check(
+      "consent text names the collecting agency and the purpose",
+      jia.displayText.includes("「育兒津貼」服務由 新北市政府社會局 辦理"),
+      jia.displayText.slice(0, 60),
+    );
     check("signed scope includes aud", body.aud === "jia");
     check("signed scope includes cnf", JSON.stringify(body.cnf) === JSON.stringify({ jkt: jia.cnfJkt }), jia.serialized);
     check("the key binding is literally in the signed bytes", jia.serialized.includes(jia.cnfJkt));
@@ -199,7 +273,7 @@ async function main() {
     check("every claim has a valid issuer signature", inbox.claims.every((c) => c.issuerSignatureValid));
     check(
       "delivered values are booleans and bands only",
-      inbox.claims.every((c) => ["true", "false", "0-2", "2-6", "6+"].includes(c.value)),
+      inbox.claims.every((c) => ["true", "false", "0-2", "2-5", "5+"].includes(c.value)),
       JSON.stringify(inbox.claims.map((c) => c.value)),
     );
 
@@ -251,7 +325,7 @@ async function main() {
     check("blocked response leaks no vault value", leaksIn(r.view).length === 0, leaksIn(r.view).join(","));
   }
 
-  say("STEP 7 - the parent-child credential lasts a year and is presented again, not re-fetched");
+  say("STEP 7 - re-applying two months on asks for less: the agency keeps what it was given");
   {
     const view = await get();
     const pc = view.wallet.find((c) => c.claimId === "parentChild.verified");
@@ -261,7 +335,25 @@ async function main() {
       check("its lifetime is one year", Math.round(days) === 365, Math.round(days) + " days");
     }
     const walletBefore = view.wallet.length;
-    await post("/api/chat", { message: "我剛搬家，看我能申請什麼。" });
+
+    // Two months on: the 30-day predicates have gone stale, the year-long
+    // parent-child credential has not, and 甲 still holds what it was handed.
+    // 7b signs the energy capsule this produces.
+    await applyAndConfirm(60);
+    const request = (await get()).serviceRequests
+      .filter((r) => r.purpose === "childcare-allowance" && r.status !== "cancelled")
+      .at(-1)!;
+    check(
+      "this time it asks for three of the four",
+      request.claims.length === 3,
+      String(request.claims.length),
+    );
+    check(
+      "the one it already holds is the year-long one",
+      request.alreadyHeld.length === 1,
+      String(request.alreadyHeld.length),
+    );
+
     const again = grantOf(await get(), "G-甲");
     await post("/api/grants/sign", {
       grantId: "G-甲",
@@ -270,17 +362,33 @@ async function main() {
     });
     const r = await post("/api/grants/redeem", { grantId: "G-甲", agency: "jia" });
     check("second application redeems", r.status === 200, String(r.view.code));
-    check("no new credential was issued", r.view.wallet.length === walletBefore, walletBefore + " -> " + r.view.wallet.length);
+    check(
+      "the wallet does not grow: stale credentials are replaced, not stacked",
+      r.view.wallet.length === walletBefore,
+      walletBefore + " -> " + r.view.wallet.length,
+    );
+
+    // The saving lands twice over: the source is never asked to re-verify the
+    // parent-child relationship, and the principal never re-authorises it.
     const pc2 = r.view.wallet.find((c) => c.claimId === "parentChild.verified")!;
-    check("the same credential was presented again", pc2.presentedCount >= 2, "presented " + pc2.presentedCount);
-    const issued = r.view.audit.filter((a) => a.action === "issue").length;
-    check("audit shows issuance happened once", issued === 1, issued + " issuances");
+    check("the parent-child credential was not presented again", pc2.presentedCount === 1, "presented " + pc2.presentedCount);
+    const reIssued = r.view.audit.filter(
+      (a) => a.action === "issue" && a.detail.includes("是否為法定親子關係"),
+    ).length;
+    check("戶政 was never asked to re-verify it", reIssued === 1, reIssued + " issuances naming it");
+
+    // Asking for less must not cost the agency what it already had.
+    check(
+      "the agency still holds all four",
+      r.view.inboxes["childcare-allowance"].claims.length === 4,
+      String(r.view.inboxes["childcare-allowance"].claims.length),
+    );
   }
 
   say("STEP 7b - the two agencies get different identifiers and cannot join their records");
   {
-    // Step 7 re-ran the application, which re-proposes both capsules with fresh
-    // one-time ids, so the energy capsule needs signing again.
+    // Step 7 re-ran the application and confirmed both requirements, which mints
+    // fresh one-time ids, so the energy capsule needs signing again.
     const yi = grantOf(await get(), "G-乙");
     await post("/api/grants/sign", {
       grantId: "G-乙",
@@ -314,16 +422,18 @@ async function main() {
       r.view.notifications.some((n) => n.key === "eligibility:gained:childcare-service-subsidy"),
       JSON.stringify(r.view.notifications.map((n) => n.key)),
     );
-    check(
-      "the childcare-service capsule is proposed in its place",
-      r.view.grants.some((g) => g.id === "G-丙"),
-      r.view.grants.map((g) => g.id).join(","),
-    );
+    // Time passing re-opens the requirement; it does not mint. A capsule that
+    // appeared because the calendar moved would be an authorisation nobody gave.
+    const bing = r.view.serviceRequests
+      .filter((req) => req.purpose === "childcare-service-subsidy" && req.status !== "cancelled")
+      .at(-1);
+    check("the childcare-service requirement is opened in its place", Boolean(bing), JSON.stringify(r.view.serviceRequests.map((req) => [req.purpose, req.status])));
+    check("it is waiting on the person, not signed for them", bing?.status === "awaiting-confirmation", bing?.status);
+    check("and no capsule was minted by the clock alone", !r.view.grants.some((g) => g.id === "G-丙"), r.view.grants.map((g) => g.id).join(","));
     check(
       "its claims are predicates only, and one fewer than the allowance capsule",
-      grantOf(r.view, "G-丙").claims.length === 3 &&
-        grantOf(r.view, "G-丙").claims.every((c) => c.sensitivity === "predicate"),
-      JSON.stringify(grantOf(r.view, "G-丙").claims.map((c) => [c.claimId, c.sensitivity])),
+      bing?.claims.length === 3 && bing.claims.every((c) => c.shape !== "原始值"),
+      JSON.stringify(bing?.claims.map((c) => [c.claimId, c.shape])),
     );
     check("the push carries a suggested next step", 
       r.view.notifications.some((n) => n.suggestedAction !== null),
@@ -350,7 +460,7 @@ async function main() {
 
   say("STEP 9 - stopping the delegation is instant; what was already delivered cannot be recalled");
   {
-    await post("/api/chat", { message: "我剛搬家，看我能申請什麼。" });
+    await applyAndConfirm();
     const beforeInbox = (await get()).inboxes["childcare-allowance"].claims.length;
     const r = await post("/api/delegation", { action: "revoke", reason: "彩排" });
     check("delegation stopped", !r.view.delegation.active);
@@ -367,7 +477,7 @@ async function main() {
 
   say("STEP 10 - the audit trail carries every action type");
   {
-    await post("/api/chat", { message: "我剛搬家，看我能申請什麼。" });
+    await applyAndConfirm(180);
     const g = grantOf(await get(), "G-甲");
     await post("/api/grants/sign", { grantId: "G-甲", signature: sign(g.serialized, wallet.secret), publicKey });
     await post("/api/grants/redeem", { grantId: "G-甲", agency: "jia" });
@@ -395,7 +505,7 @@ async function main() {
   {
     await post("/api/reset");
     await post("/api/wallet/register", { publicKey, method: "software" });
-    await post("/api/chat", { message: "我剛搬家，看我能申請什麼。" });
+    await applyAndConfirm();
     const fresh = grantOf(await get(), "G-甲");
     const ttl = (new Date(fresh.exp).getTime() - Date.now()) / 1000;
     check("at least ten minutes of budget", ttl > 590, Math.round(ttl) + "s");

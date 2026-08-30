@@ -13,6 +13,8 @@ import type { GrantId } from "@/lib/types";
 export type Block =
   | { kind: "text"; text: string }
   | { kind: "eligibility"; payload: EligibilityPayload }
+  | { kind: "serviceRequirement"; purpose: PurposeId }
+  | { kind: "legalCheck"; purpose: PurposeId }
   | { kind: "signGrant"; grantId: GrantId }
   | { kind: "applicationStatus"; purpose: PurposeId }
   | { kind: "programPicker"; payload: ProgramPickerPayload }
@@ -34,7 +36,9 @@ export type EligibilityPayload = {
 
 export type ProgramPickerPayload = {
   question: string;
-  options: { purpose: PurposeId; title: string; detail: string }[];
+  /** `utterance` is what the button sends back, decided by the turn rather than
+   *  invented by the card — the same choice has to route the same way. */
+  options: { purpose: PurposeId; title: string; detail: string; utterance: string }[];
 };
 
 /** Claims a card may show as "this is what the agency receives". */

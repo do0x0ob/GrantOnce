@@ -93,7 +93,7 @@ export function assessRisk(input: {
 
   // 3. Standing delegation must actually cover this.
   if (!input.delegation.active) {
-    notes.push("委託已停用，代理人不能再簽任何新的匣。");
+    notes.push("委託已停用，這個流程不再接受新的 Grant 簽署。");
     escalate("blocked");
   } else if (new Date(input.delegation.validUntil).getTime() < input.now.getTime()) {
     notes.push("委託已逾期，需要委託人重新設定。");

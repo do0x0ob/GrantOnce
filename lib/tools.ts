@@ -10,6 +10,7 @@
 export const TOOL_NAMES = [
   "search_purposes",
   "plan_applications",
+  "request_service",
   "get_grant_for_signature",
   "redeem_grant",
   "request_claims",

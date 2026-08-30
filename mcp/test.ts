@@ -3,7 +3,13 @@
  * the model never sees a vault value, and the model can never sign a grant.
  */
 import { keyPairFromSeed, sign, b64u } from "../lib/crypto";
-import { makeAgencyProof, redeemGrant, registerPrincipalKey, signGrant } from "../lib/authz";
+import {
+  confirmServiceRequest,
+  makeAgencyProof,
+  redeemGrant,
+  registerPrincipalKey,
+  signGrant,
+} from "../lib/authz";
 import { FLOOD_UTTERANCE } from "../lib/catalog";
 import { upsertPurpose } from "../lib/registry-io";
 import { getState, mutate, resetState } from "../lib/store";
@@ -33,6 +39,22 @@ async function call(name: ToolName, args: Record<string, unknown> = {}) {
   const leak = vaultLeakIn(data);
   if (leak) throw new Error(`${name} leaked ${leak}`);
   return { data: data as Record<string, unknown>, isError };
+}
+
+
+/**
+ * Walk the beats the way a person does: the tools discover and relay the pick,
+ * and the confirmation happens outside them — there is no tool for it, and that
+ * is the point being tested elsewhere in this file.
+ */
+async function reachSignable(purpose = "childcare-allowance") {
+  await call("plan_applications", { utterance: "我剛搬家，看我能申請什麼。" });
+  await call("request_service", { purpose });
+  mutate((s) => {
+    for (const request of s.serviceRequests.filter((r) => r.status === "awaiting-confirmation")) {
+      confirmServiceRequest(s, request.id);
+    }
+  });
 }
 
 async function main() {
@@ -71,7 +93,7 @@ async function main() {
     check("回傳公開搜尋區塊", Boolean(world && world.source));
     check(
       "公開搜尋不是把登記表當成全世界",
-      String(flood.data.note).includes("不要把登記表當成全世界"),
+      String(flood.data.note).includes("搜尋結果不等於授權"),
     );
     const blob = JSON.stringify(world.findings ?? []);
     if ((world.findings?.length ?? 0) > 0) {
@@ -90,6 +112,10 @@ async function main() {
       allowedClaims: ["resident.inNewTaipei", "resident.movedWithin12m"],
       maxTtlSeconds: 600,
       necessity: "只要確認設籍本市與一年內遷入，不需要地址本身。",
+      retentionPolicy: "案件辦理期間及依法應保存的期限。",
+      processingArea: "中華民國境內",
+      processingMethod: "由戶政簽發述詞並直接交付服務機關。",
+      declineEffect: "不提供則無法自動查驗，仍可改走人工申請。",
     });
     const hung = await call("search_purposes", { query: "遷入獎勵" });
     const hungMatches = hung.data.matches as { id: string; issuable: boolean }[];
@@ -127,8 +153,28 @@ async function main() {
     check("只回述詞 ID 與標籤，無金庫值", !vaultLeakIn(data));
   }
 
+  console.log("\nrequest_service");
+  {
+    resetState();
+    registerPrincipalKey({ publicKey: pk, method: "software" });
+    await call("plan_applications", { utterance: "我剛搬家，看我能申請什麼。" });
+    const { data } = await call("request_service", { purpose: "childcare-allowance" });
+    check("開了一筆服務需求", getState().serviceRequests.length === 1);
+    check("只開被指名的那一個目的", data.purpose === "childcare-allowance", String(data.purpose));
+    check("仍然停在等本人確認", data.status === "awaiting-confirmation", String(data.status));
+    // The whole point: relaying 「我要辦這個」 is allowed; accepting what the
+    // agency asks for is not something a tool may do.
+    check("到這一步仍然沒有匣", getState().grants.length === 0, String(getState().grants.length));
+    check("明講沒有工具能代替本人確認", JSON.stringify(data.notes).includes("沒有工具"));
+    check("回傳不含金庫值", !vaultLeakIn(data));
+
+    const bogus = await call("request_service", { purpose: "flood-relief" });
+    check("沒登記的目的不能提出辦理申請", Boolean(bogus.data.error), JSON.stringify(bogus.data));
+  }
+
   console.log("\nget_grant_for_signature");
   {
+    await reachSignable();
     const { data } = await call("get_grant_for_signature", { grantId: "G-甲" });
     check("提供待簽 bytes", typeof data.bytesToSign === "string");
     // The consent text must carry the privacy grounds, since those bytes are
@@ -147,7 +193,7 @@ async function main() {
     for (const name of TOOL_NAMES) {
       resetState();
       registerPrincipalKey({ publicKey: pk, method: "software" });
-      await call("plan_applications", { utterance: "我剛搬家，看我能申請什麼。" });
+      await reachSignable();
       const bytes = getState().grants.find((g) => g.id === "G-甲")!.serialized;
       try {
         await callTool(name, {
@@ -168,9 +214,35 @@ async function main() {
     }
     check("沒有任何工具能讓匣變成已簽署", couldSign.length === 0, couldSign.join(","));
 
+    // The same invariant one step earlier. Accepting what an agency asks for is
+    // the principal handing something over, so it must be as unreachable from the
+    // tool surface as signing is — `plan_applications` used to do both in one go.
+    const couldMint: string[] = [];
+    for (const name of TOOL_NAMES) {
+      resetState();
+      registerPrincipalKey({ publicKey: pk, method: "software" });
+      await call("plan_applications", { utterance: "我剛搬家，看我能申請什麼。" });
+      await call("request_service", { purpose: "childcare-allowance" });
+      try {
+        await callTool(name, {
+          utterance: "我剛搬家，看我能申請什麼。",
+          grantId: "G-甲",
+          agency: "jia",
+          purpose: "childcare-allowance",
+          requestId: getState().serviceRequests[0]?.id ?? "",
+          claims: ["resident.inNewTaipei"],
+          reason: "test",
+        });
+      } catch {
+        // a tool that rejects these arguments is still a tool that did not mint
+      }
+      if (getState().grants.length > 0) couldMint.push(name);
+    }
+    check("沒有任何工具能替本人確認需求並鑄匣", couldMint.length === 0, couldMint.join(","));
+
     resetState();
     registerPrincipalKey({ publicKey: pk, method: "software" });
-    await call("plan_applications", { utterance: "我剛搬家，看我能申請什麼。" });
+    await reachSignable();
     const { data } = await call("redeem_grant", { grantId: "G-甲", agency: "jia" });
     check("未簽的匣兌現失敗", data.ok === false && data.code === "UNSIGNED", JSON.stringify(data));
   }
@@ -186,6 +258,9 @@ async function main() {
 
   console.log("\n跨機關與重放");
   {
+    // The energy capsule needs its own walk: picking one service no longer opens
+    // a requirement for every other one that matched.
+    await reachSignable("aircon-subsidy");
     const grant = getState().grants.find((g) => g.id === "G-乙")!;
     signGrant({ grantId: "G-乙", signature: sign(grant.serialized, principal.secret), publicKey: pk });
     const wrong = await call("redeem_grant", { grantId: "G-乙", agency: "jia" });
@@ -219,7 +294,7 @@ async function main() {
     // no-predicate-values invariant has something to catch.
     resetState();
     registerPrincipalKey({ publicKey: pk, method: "software" });
-    await call("plan_applications", { utterance: "我剛搬家，看我能申請什麼。" });
+    await reachSignable();
     const jia = getState().grants.find((g) => g.id === "G-甲")!;
     signGrant({ grantId: "G-甲", signature: sign(jia.serialized, principal.secret), publicKey: pk });
     redeemGrant("G-甲", makeAgencyProof("jia", "G-甲"));
@@ -322,7 +397,7 @@ async function main() {
   {
     resetState();
     registerPrincipalKey({ publicKey: pk, method: "software" });
-    await call("plan_applications", { utterance: "我剛搬家，看我能申請什麼。" });
+    await reachSignable();
 
     type Action = { id: string; blockedOn: string; grantId: string | null; suggestedTool: string | null };
     const pendingFor = async (grantId: string) =>
@@ -360,7 +435,7 @@ async function main() {
     for (const tool of new Set(suggested)) {
       resetState();
       registerPrincipalKey({ publicKey: pk, method: "software" });
-      await call("plan_applications", { utterance: "我剛搬家，看我能申請什麼。" });
+      await reachSignable();
       const bytes = getState().grants.find((g) => g.id === "G-甲")!.serialized;
       const action = ((await call("get_pending_actions")).data.actions as (Action & {
         suggestedArgs: Record<string, string>;
@@ -406,6 +481,7 @@ async function main() {
 
   console.log("\nstop_delegation");
   {
+    await reachSignable("aircon-subsidy");
     const yi = getState().grants.find((g) => g.id === "G-乙")!;
     signGrant({ grantId: "G-乙", signature: sign(yi.serialized, principal.secret), publicKey: pk });
     const { data } = await call("stop_delegation", {});

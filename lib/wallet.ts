@@ -88,6 +88,13 @@ export function issueCredential(
     presentedCount: 0,
   };
 
+  // A replacement, not an addition. Re-issuing after expiry used to leave the
+  // dead copy in the wallet, so the wallet grew every time a 30-day predicate
+  // aged out — and the screen showed the holder several credentials for the one
+  // fact, most of them useless.
+  state.wallet = state.wallet.filter(
+    (existing) => !(existing.claimId === claimId && existing.audience === audience),
+  );
   state.wallet.push(cred);
   return cred;
 }

@@ -9,10 +9,13 @@ import type { AuditAction } from "@/lib/types";
 
 const ACTION_LABEL: Record<AuditAction, string> = {
   register: "設定",
+  request: "服務需求",
   issue: "發證",
+  release: "來源釋放",
   sign: "簽署",
   redeem: "兌現",
   submit: "送件",
+  complete: "完成",
   revoke: "撤銷",
   deny: "拒絕",
   notify: "推送",
@@ -21,10 +24,13 @@ const ACTION_LABEL: Record<AuditAction, string> = {
 
 const ACTION_TONE: Record<AuditAction, "stone" | "rose" | "mint" | "amber"> = {
   register: "stone",
+  request: "amber",
   issue: "amber",
+  release: "mint",
   sign: "mint",
   redeem: "mint",
   submit: "mint",
+  complete: "mint",
   revoke: "stone",
   deny: "rose",
   notify: "amber",

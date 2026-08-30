@@ -8,12 +8,26 @@
  */
 import { toBlocks } from "../lib/agent/blocks/of";
 import type { Block, BlockKind } from "../lib/agent/blocks/types";
-import { cleanReply, modelAvailable } from "../lib/agent/intent";
-import { runTurn } from "../lib/agent/turn";
+import {
+  cleanReply,
+  modelAvailable,
+  shouldClassifyForChat,
+  shouldResearchForChat,
+} from "../lib/agent/intent";
+import { shouldResearch } from "../lib/agent/intent";
+import { agentSkillsPrompt, loadAgentSkills } from "../lib/agent/skills";
+import { applyTurn } from "../lib/agent/apply";
+import { patternIntent, runTurn } from "../lib/agent/turn";
 import { evaluateInquiry } from "../lib/inquiry";
-import { effectiveToday } from "../lib/rules";
-import { proposeGrantsFromPlan } from "../lib/authz";
-import { PURPOSES } from "../lib/purposes";
+import { effectiveToday, HAPPY_PATH_UTTERANCE, matchPrograms, situationFromUtterance } from "../lib/rules";
+import { isRelevantProgramTitle } from "../lib/research";
+import {
+  confirmServiceRequest,
+  declineServiceRequest,
+} from "../lib/authz";
+import { ageBandOf, CLAIM_DEFS } from "../lib/claims";
+import { PURPOSE_IDS, PURPOSES } from "../lib/purposes";
+import { openAndConfirm } from "./helpers";
 import { getState, mutate, resetState } from "../lib/store";
 
 let pass = 0;
@@ -61,26 +75,166 @@ console.log("\n聽不懂的時候給得出下一步");
   }
 }
 
-console.log("\n比對成功時，每個申請案都有一張簽署卡與一張進度卡");
+console.log("\n第一拍只回服務名單，什麼都不建立");
 {
+  // Discovery used to open a requirement for everything it matched and render a
+  // card per programme, so merely asking left records behind for services nobody
+  // chose and the first reply was a wall of decisions not yet made.
+  resetState();
   const turn = runTurn(getState(), "我剛搬家，看我能申請什麼。");
-  mutate((s) => proposeGrantsFromPlan(s, turn.programs));
+  const blocks = toBlocks(turn.outputs);
+  check("有服務名單可以選", kinds(blocks).includes("programPicker"), kinds(blocks).join(","));
+  check("這一拍沒有需求卡", !kinds(blocks).includes("serviceRequirement"), kinds(blocks).join(","));
+  check("這一拍沒有法源檢查卡", !kinds(blocks).includes("legalCheck"));
+  check("這一拍沒有簽署卡", !kinds(blocks).includes("signGrant"));
+  check("比對結果卡在名單前面", kinds(blocks).indexOf("eligibility") < kinds(blocks).indexOf("programPicker"));
+
+  check("這一拍不開任何需求", turn.opens.length === 0);
+  mutate((s) => applyTurn(s, "我剛搬家，看我能申請什麼。", turn));
+  check("state 裡沒有任何服務需求", getState().serviceRequests.length === 0, String(getState().serviceRequests.length));
+  check("一張匣都沒鑄", getState().grants.length === 0);
+  check("記住的是當初描述的情境", getState().plan?.utterance === "我剛搬家，看我能申請什麼。", getState().plan?.utterance ?? "");
+
+  // The buttons have to route where they say they go. 「先不要辦育兒津貼」 used to
+  // match the apply pattern on 「津貼」 and silently restart discovery.
+  const picker = blocks.find((b) => b.kind === "programPicker");
+  check(
+    "名單上每個選項都送得到 request 那一拍",
+    picker?.kind === "programPicker" &&
+      picker.payload.options.every((o) => patternIntent(o.utterance) === "request"),
+    picker?.kind === "programPicker" ? picker.payload.options.map((o) => o.utterance).join(" | ") : "",
+  );
+}
+
+console.log("\n選了服務，才去要需求");
+{
+  const turn = runTurn(getState(), "向新北市政府社會局提出育兒津貼的辦理申請");
+  const blocks = toBlocks(turn.outputs);
+  check("只開被選的那一項", turn.opens.length === 1 && turn.opens[0].purpose === "childcare-allowance");
+  check("這一拍才出現需求卡", kinds(blocks).includes("serviceRequirement"), kinds(blocks).join(","));
+  check("仍然沒有簽署卡", !kinds(blocks).includes("signGrant"), kinds(blocks).join(","));
+
+  mutate((s) => applyTurn(s, "向新北市政府社會局提出育兒津貼的辦理申請", turn));
+  check("只建立了一筆需求", getState().serviceRequests.length === 1);
+  // The plan is the described situation; the pick must not overwrite it, or the
+  // watch loop re-derives a situation containing only the benefit just chosen.
+  check(
+    "選一項不會覆蓋當初描述的情境",
+    getState().plan?.utterance === "我剛搬家，看我能申請什麼。",
+    getState().plan?.utterance ?? "",
+  );
+  check("需求停在等待確認且沒有匣", getState().serviceRequests.every((r) => r.status === "awaiting-confirmation" && r.grantId === null));
+  check("這一拍仍然一張匣都沒鑄", getState().grants.length === 0);
+
+  const chips = blocks.find((b) => b.kind === "suggestions");
+  check(
+    "接受與婉拒都送得到自己那一拍",
+    chips?.kind === "suggestions" &&
+      chips.payload.options.some((o) => patternIntent(o.utterance) === "confirm") &&
+      chips.payload.options.some((o) => patternIntent(o.utterance) === "decline"),
+    chips?.kind === "suggestions" ? chips.payload.options.map((o) => `${o.utterance}→${patternIntent(o.utterance)}`).join(" | ") : "",
+  );
+  check("需求卡只帶 purpose id，不夾帶資料值", blocks.filter((b) => b.kind === "serviceRequirement").every((block) =>
+    Object.keys(block).sort().join(",") === "kind,purpose"));
+}
+
+console.log("\n確認之後才檢查法源，才鑄匣");
+{
+  const turn = runTurn(getState(), "確認育兒津貼的資料需求");
+  mutate((s) => {
+    for (const id of turn.confirms) confirmServiceRequest(s, id);
+  });
   const blocks = toBlocks(turn.outputs);
   const signCards = blocks.filter((b) => b.kind === "signGrant");
-  const statusCards = blocks.filter((b) => b.kind === "applicationStatus");
-  check("簽署卡數量等於申請案數量", signCards.length === turn.programs.length, `${signCards.length} vs ${turn.programs.length}`);
-  check("進度卡數量等於申請案數量", statusCards.length === turn.programs.length);
+  check("確認的是被指名的那一項", turn.confirms.length === 1);
+  check("先出法源檢查卡，才出簽署卡", kinds(blocks).indexOf("legalCheck") < kinds(blocks).indexOf("signGrant"));
+  check("這一拍才出現簽署卡", signCards.length === 1, kinds(blocks).join(","));
   check(
     "每張簽署卡都指向一張真的存在的匣",
     signCards.every((b) => b.kind === "signGrant" && getState().grants.some((g) => g.id === b.grantId)),
   );
-  check("比對結果卡在簽署卡前面", kinds(blocks).indexOf("eligibility") < kinds(blocks).indexOf("signGrant"));
+  check("只鑄了被確認的那一張匣", getState().grants.length === 1, String(getState().grants.length));
+  check(
+    "沒被選的服務連需求都沒有",
+    !getState().serviceRequests.some((r) => r.purpose === "aircon-subsidy"),
+    getState().serviceRequests.map((r) => r.purpose).join(","),
+  );
+  check("法源檢查卡也只帶 purpose id", blocks.filter((b) => b.kind === "legalCheck").every((block) =>
+    Object.keys(block).sort().join(",") === "kind,purpose"));
+
+  // The card has nothing to render unless the check writes down what it found,
+  // and what it found must be the capsule's own verdict rather than a retelling.
+  const confirmed = getState().serviceRequests.find((r) => r.status === "awaiting-signature")!;
+  const minted = getState().grants.find((g) => g.id === confirmed.grantId)!;
+  check("檢查結果記在需求上", confirmed.checkNotes.length > 0, JSON.stringify(confirmed.checkNotes));
+  check(
+    "記的就是這張匣的判定，不是另一套說法",
+    confirmed.checkNotes.join("|") === minted.riskNotes.join("|"),
+    confirmed.checkNotes.join("|"),
+  );
+  check("確認的時間有留下", Boolean(confirmed.confirmedAt));
+}
+
+console.log("\n婉拒就停在那裡");
+{
+  const opened = runTurn(getState(), "向新北市政府社會局提出育兒津貼的辦理申請");
+  mutate((s) => applyTurn(s, "向新北市政府社會局提出育兒津貼的辦理申請", opened));
+  const before = getState().grants.length;
+  const turn = runTurn(getState(), "先不要辦育兒津貼");
+  check("婉拒的是那一筆需求", turn.declines.length === 1);
+  check("婉拒不會開新需求，也不會鑄匣", turn.opens.length === 0 && turn.confirms.length === 0);
+  mutate((s) => {
+    for (const id of turn.declines) declineServiceRequest(s, id);
+  });
+  check(
+    "被婉拒的那一筆標成 declined",
+    getState().serviceRequests.filter((r) => r.declinedAt).length === 1,
+  );
+  check("沒有鑄出任何匣", getState().grants.length === before);
+  check("稽核留下婉拒紀錄", getState().audit.some((a) => a.detail.includes("婉拒")));
+}
+
+console.log("\n指名一項已經簽掉的，不會順手確認別的");
+{
+  // The fallback to 「唯一一項」 must not apply once something was named: saying
+  // 確認育兒津貼 twice used to confirm 冷氣汰換補助 instead, which is exactly the
+  // handed-a-capsule-you-did-not-name failure this whole design is against.
+  // Two requirements have to be open for the fallback to have anything wrong to
+  // reach for; picking a second service is how that happens now.
+  const second = runTurn(getState(), "我要辦住宅冷氣汰換補助");
+  mutate((s) => applyTurn(s, "我要辦住宅冷氣汰換補助", second));
+  check(
+    "冷氣的需求已開，且是唯一還等確認的",
+    getState().serviceRequests.filter((r) => r.status === "awaiting-confirmation").length === 1,
+    getState().serviceRequests.map((r) => `${r.purpose}:${r.status}`).join(","),
+  );
+
+  const before = getState().grants.length;
+  const again = runTurn(getState(), "確認育兒津貼的資料需求");
+  check("重複確認不會再鑄任何匣", again.confirms.length === 0, again.confirms.join(","));
+  mutate((s) => {
+    for (const id of again.confirms) confirmServiceRequest(s, id);
+  });
+  check("匣的數量沒有變", getState().grants.length === before, String(getState().grants.length));
+  check("也沒有替冷氣汰換補助鑄匣", !getState().grants.some((g) => g.body.purpose === "aircon-subsidy"));
+}
+
+console.log("\n沒有待確認的東西時，「確認」不會憑空開始比對");
+{
+  resetState();
+  const turn = runTurn(getState(), "確認");
+  check("不會生出服務需求", turn.programs.length === 0);
+  check("不會鑄匣", turn.confirms.length === 0);
+  check("只是說明沒有東西要確認", !kinds(toBlocks(turn.outputs)).includes("serviceRequirement"));
 }
 
 console.log("\n卡片只帶 id，不帶快照");
 {
   // A grant carries plenty that a card must not snapshot; feed the matcher a
-  // whole grant and require that only the id survives.
+  // whole grant and require that only the id survives. Built here rather than
+  // inherited, so reordering the sections above cannot leave this with nothing.
+  const situation = situationFromUtterance(HAPPY_PATH_UTTERANCE, effectiveToday(getState()))!;
+  mutate((s) => openAndConfirm(s, matchPrograms(situation)));
   const grant = getState().grants[0];
   const smuggled = toBlocks([{ ...grant.body, ...grant, grantId: grant.id }]);
   const signCard = smuggled.find((b) => b.kind === "signGrant");
@@ -196,6 +350,105 @@ console.log("\n模型寫的那句話擋得住什麼");
   check("不是字串的丟掉", cleanReply({ text: "x" }) === undefined && cleanReply(null) === undefined);
 }
 
+console.log("\n模型接手之後，指名一項仍然只給一項");
+{
+  // Every other test here runs with no router configured, so the whole
+  // classifier branch went uncovered — and that is the branch that dropped the
+  // narrowing: 「要搞育兒津貼」 came back with 冷氣汰換補助 attached.
+  const withModel = (utterance: string, movedRecently: boolean) => {
+    resetState();
+    return runTurn(getState(), utterance, {
+      today: effectiveToday(getState()),
+      resolved: { intent: "apply", movedRecently },
+    }).programs.map((p) => p.purpose);
+  };
+
+  check(
+    "有模型時指名育兒津貼，不會多給冷氣",
+    withModel("要搞育兒津貼", false).join(",") === "childcare-allowance",
+    withModel("要搞育兒津貼", false).join(","),
+  );
+  check(
+    "有模型時指名冷氣，不會多給育兒津貼",
+    withModel("我要換冷氣的補助", false).join(",") === "aircon-subsidy",
+    withModel("我要換冷氣的補助", false).join(","),
+  );
+
+  // The classifier earns its place by reading a move the patterns cannot; that
+  // must keep working, and a bare move still lists everything.
+  const unseen = withModel("我換了個地方住", true);
+  check("正則看不懂的搬家說法，模型仍然能打開兩項", unseen.length === 2, unseen.join(","));
+
+  const patterned = withModel("我剛搬家，看我能申請什麼。", true);
+  check("一般的搬家問法照樣兩項都列", patterned.length === 2, patterned.join(","));
+}
+
+console.log("\n登記表先問，公開搜尋是退路");
+{
+  resetState();
+  const ask = (m: string) => shouldResearch(getState(), m, { intent: "apply", movedRecently: false });
+
+  // 「要搞育兒津貼」 used to open with a Wikipedia disambiguation page for a
+  // service registered right here.
+  check("已登記且符合的服務，不浪費一次公開搜尋", !ask("要搞育兒津貼"));
+  check("一般的搬家問法也由登記表回答", !shouldResearch(getState(), HAPPY_PATH_UTTERANCE, { intent: "apply", movedRecently: true }));
+
+  // Where it earns its place: something real that this runtime cannot issue.
+  check("登記表撈不到時才去公開搜尋", ask("我想申請水災救助"));
+  check("不是在找補助的句子一律不搜", !shouldResearch(getState(), "你是誰", { intent: "help", movedRecently: false }));
+}
+
+console.log("\n沒登記 ≠ 不符合資格");
+{
+  resetState();
+  const blocks = toBlocks(
+    runTurn(getState(), "我想申請水災救助", { today: effectiveToday(getState()) }).outputs,
+  );
+  const text = blocks.filter((b) => b.kind === "text").map((b) => (b as { text: string }).text).join("\n");
+  // An empty `named` used to fall into the ineligibility branch and produce
+  // 「目前不符合。」 with nothing after it — telling the person their situation
+  // was the problem when the truth is there is no adapter for what they asked.
+  check("講的是沒有登記，不是不符合", text.includes("沒有登記"), text.slice(0, 60));
+  check("不會說成資格問題", !text.includes("目前不符合"), text.slice(0, 60));
+  check("仍然說得出真實世界有這筆補助", text.includes("不是世界上沒有"), text.slice(0, 60));
+  check("不會憑空生出需求", !blocks.some((b) => b.kind === "serviceRequirement"));
+}
+
+console.log("\n每一顆按鈕都要送到它自己說的那一拍");
+{
+  // The bug class this keeps catching: a card sends a sentence, and a title long
+  // enough to slip past a pattern lands the tap on the wrong beat. 「未滿 5 歲幼兒
+  // 托育補助」 was 11 characters and fell out of the request pattern's window, so
+  // picking it restarted discovery.
+  for (const title of PURPOSE_IDS.map((id) => PURPOSES[id].title)) {
+    check(
+      `選「${title}」送得到 request`,
+      patternIntent(`向某機關提出${title}的辦理申請`) === "request",
+      String(patternIntent(`向某機關提出${title}的辦理申請`)),
+    );
+    check(
+      `確認「${title}」送得到 confirm`,
+      patternIntent(`確認${title}的資料需求`) === "confirm",
+      String(patternIntent(`確認${title}的資料需求`)),
+    );
+    check(
+      `婉拒「${title}」送得到 decline`,
+      patternIntent(`先不要辦${title}`) === "decline",
+      String(patternIntent(`先不要辦${title}`)),
+    );
+  }
+}
+
+console.log("\n年齡帶的界線要對得上補助的名字");
+{
+  // 「未滿 5 歲幼兒托育補助」 was gated on a band that ran to six, so a
+  // five-year-old matched a programme whose own name excludes them.
+  check("滿 5 歲就離開托育補助的年齡帶", ageBandOf(60) !== ageBandOf(59), `${ageBandOf(59)} / ${ageBandOf(60)}`);
+  check("59 個月仍在帶內", ageBandOf(59) === "2-5");
+  check("60 個月已離開", ageBandOf(60) === "5+");
+  check("述詞說明的級距與實作一致", CLAIM_DEFS["child.ageBand"].shape.includes("2-5"));
+}
+
 console.log("\n模型只當「聽懂」那一層");
 {
   // The classifier's output must be able to change which intent runs, and
@@ -206,7 +459,7 @@ console.log("\n模型只當「聽懂」那一層");
     resolved: { intent: "apply", movedRecently: true },
   });
   const blocks = toBlocks(forced.outputs);
-  check("模型可以決定走哪個意圖", kinds(blocks).includes("signGrant"), kinds(blocks).join(","));
+  check("模型可以決定走哪個意圖", kinds(blocks).includes("programPicker"), kinds(blocks).join(","));
   check(
     "但述詞仍然只來自目的登記表",
     forced.programs.every((p) =>
@@ -229,6 +482,86 @@ console.log("\n模型只當「聽懂」那一層");
 
   // No router configured in the test environment: everything must still work.
   check("沒有設定 router 時模型不參與", !modelAvailable());
+}
+
+console.log("\nlocal skill 讓理解變寬，但不擴大權限");
+{
+  const skills = loadAgentSkills();
+  check("載入 apply-with-grant", skills.some((skill) => skill.id === "apply-with-grant"));
+  check("skill 內容真的進模型 context", agentSkillsPrompt().includes("Conversation is not consent"));
+
+  const explain = runTurn(getState(), "育兒津貼和托育補助差在哪？", {
+    today: effectiveToday(getState()),
+    resolved: {
+      intent: "apply",
+      movedRecently: false,
+      skill: "apply-with-grant",
+      skillAction: "explain",
+      reply: "我先說明兩者差異，不會因此替你建立授權。",
+    },
+  });
+  check("單純解釋不建 Grant", explain.programs.length === 0);
+  check("單純解釋不顯示簽署卡", !kinds(toBlocks(explain.outputs)).includes("signGrant"));
+  const explainText = toBlocks(explain.outputs)
+    .filter((block) => block.kind === "text")
+    .map((block) => block.text);
+  check("解釋分支保留固定能力邊界", explainText.some((text) => text.includes("明確要開始比對")));
+  check("解釋分支不混入模型寒暄", !explainText.includes("我先說明兩者差異，不會因此替你建立授權。"));
+
+  const plan = runTurn(getState(), "我剛搬家，幫我看看能申請什麼", {
+    today: effectiveToday(getState()),
+    resolved: {
+      intent: "apply",
+      movedRecently: true,
+      skill: "apply-with-grant",
+      skillAction: "plan",
+    },
+  });
+  check("明確 plan 才進規則引擎", plan.programs.length > 0);
+  check(
+    "skill 仍不能發明述詞",
+    plan.programs.every((program) =>
+      program.claims.every((claim) => PURPOSES[program.purpose].allowedClaims.includes(claim)),
+    ),
+  );
+}
+
+console.log("\n公開搜尋只在真的需要時出現");
+{
+  check("自我介紹直接走固定規則", !shouldClassifyForChat("你是誰"));
+  check("補助說法才交給語言模型理解", shouldClassifyForChat("搬家後有哪些方案適合我"));
+  check("自我介紹不搜尋", !shouldResearchForChat("你是誰", { intent: "help", movedRecently: false }));
+  check(
+    "模型誤判時，自我介紹仍不搜尋",
+    !shouldResearchForChat("你是誰", { intent: "apply", movedRecently: false }),
+  );
+  check("查申請進度不搜尋", !shouldResearchForChat("我的申請到哪了？", null));
+  check("詢問補助才搜尋", shouldResearchForChat("我剛搬家，看我能申請什麼", null));
+  check("保留真正的救助方案", isRelevantProgramTitle("社會救助", "住家淹水後有哪些補助？"));
+  check("排除名字碰巧含救助的組織", !isRelevantProgramTitle("中華基督教救助協會", "住家淹水後有哪些補助？"));
+  check("排除災害新聞事件", !isRelevantProgramTitle("花蓮馬太鞍溪堰塞湖災害", "住家淹水後有哪些補助？"));
+  check("固定主題以外仍接受方案型標題", isRelevantProgramTitle("青年租金補貼方案", "租屋族可以申請什麼？"));
+
+  const identity = runTurn(getState(), "你是誰", {
+    today: effectiveToday(getState()),
+    resolved: {
+      intent: "help",
+      movedRecently: false,
+      reply: "我是 GrantOnce 的語言理解層。",
+    },
+  });
+  const identityText = toBlocks(identity.outputs).filter((block) => block.kind === "text");
+  check("自我介紹只留一份", identityText.length === 1, JSON.stringify(identityText));
+  check(
+    "身份說明包含能力邊界",
+    identityText.some(
+      (block) =>
+        block.kind === "text" &&
+        block.text.includes("服務申請助手") &&
+        block.text.includes("不代簽") &&
+        block.text.includes("不取得資料值"),
+    ),
+  );
 }
 
 console.log(`\n${pass} passed, ${failures.length} failed`);

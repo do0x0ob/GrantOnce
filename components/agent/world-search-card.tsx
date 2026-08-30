@@ -13,7 +13,7 @@ import type { WorldSearchPayload } from "@/lib/agent/blocks/types";
 export function WorldSearchCard({ payload }: { payload: WorldSearchPayload }) {
   return (
     <section className={cn(SURFACE, "space-y-4 px-6 py-5")}>
-      <CardHead title="真實世界有什麼" sub="公開資料 · 不是授權，也沒讀金庫" />
+      <CardHead title="公開找到的方案" sub="僅供查找 · 不代表符合資格" />
 
       <ul className="space-y-3">
         {payload.findings.map((finding) => (

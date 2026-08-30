@@ -111,7 +111,7 @@ export function createGrantOnceServer(): McpServer {
     {
       title: "規劃申請",
       description:
-        "用規則引擎決定能不能提案。會附上公開搜尋結果供說明。搜到補助 ≠ 授權。只有目的登記表＋資格成立才 mint（目前綁定：育兒津貼、托育補助、冷氣補助）。不能發明述詞，不讀金庫，不能簽署。",
+        "搜尋已登記服務並用規則引擎比對，只回名單與理由。這一步不建立服務需求、也不建立 Grant——要向某個機關提出辦理申請請改用 request_service。搜尋結果不等於授權；不能發明述詞、不讀金庫、不能簽署。",
       inputSchema: {
         utterance: z.string().describe("委託人原話。任何補助問題都可以問；發票仍只在有綁定時發生。"),
       },
@@ -120,11 +120,24 @@ export function createGrantOnceServer(): McpServer {
   );
 
   server.registerTool(
+    "request_service",
+    {
+      title: "向某個機關提出辦理申請",
+      description:
+        "代委託人向一個已登記服務提出辦理申請，並取回該機關本次索取的最小資料。這一步只建立服務需求，不建立 Grant。沒有工具可以代替本人確認這份需求——確認與簽署都必須由本人完成。",
+      inputSchema: {
+        purpose: z.string().describe("已登記的目的 ID，例如 childcare-allowance"),
+      },
+    },
+    async ({ purpose }) => runTool("request_service", { purpose }),
+  );
+
+  server.registerTool(
     "get_grant_for_signature",
     {
       title: "取得待簽內容",
       description:
-        "回傳一張匣的同意畫面文字與待簽 bytes。模型不能代簽——私鑰只存在委託人的認證器後面，簽署必須由委託人以生物辨識完成。",
+        "回傳一張 Grant 的服務需求、請求機關、資料來源、最小資料範圍、個資告知文字與待簽 bytes。模型不能代簽；簽署必須由使用者在認證器完成。",
       inputSchema: {
         grantId: z.string().describe("匣編號：G-甲 / G-jia、G-乙 / G-yi 或 G-丙 / G-bing"),
       },
@@ -137,7 +150,7 @@ export function createGrantOnceServer(): McpServer {
     {
       title: "兌現授權匣",
       description:
-        "機關以自己的金鑰兌現一張已簽署的匣。兩把鑰匙都要通過：委託人簽章，以及機關持有證明＋法定職務範圍。述詞值只進機關收件匣，不回傳給模型。",
+        "請求機關以自己的金鑰向資料來源機關兌現已簽署 Grant。資料來源驗證使用者簽章、機關持有證明與法定目的後，把最小述詞直接交付請求機關；不回傳給語言模型。",
       inputSchema: {
         grantId: z.string().describe("匣編號：G-甲 / G-jia、G-乙 / G-yi 或 G-丙 / G-bing"),
         agency: z.string().describe("兌現的機關：jia / yi"),
@@ -168,7 +181,7 @@ export function createGrantOnceServer(): McpServer {
     "submit_application",
     {
       title: "送出申請",
-      description: "以已兌現的述詞送件。",
+      description: "請求機關使用資料來源直接交付的述詞開始處理服務。",
       inputSchema: {
         grantId: z.string().describe("匣編號：G-甲 / G-jia、G-乙 / G-yi 或 G-丙 / G-bing"),
       },
