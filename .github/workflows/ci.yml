@@ -31,7 +31,26 @@ jobs:
       - run: npm run test:agent
       - run: npm run test:docs
       - run: npm run test:race
-      - run: npm run test:rehearsal
+      # The rehearsal drives the real HTTP surface, so it needs the built app
+      # running. Added to CI without this it failed with ECONNREFUSED — green
+      # locally only because a dev server happened to be up. Server and test share
+      # one step so the process cannot outlive or be orphaned by the job.
+      - name: Rehearsal against the built app
+        env:
+          GRANTONCE_STORE: /tmp/grantonce-rehearsal.json
+        run: |
+          npm run start &
+          server=$!
+          trap 'kill "$server" 2>/dev/null || true' EXIT
+          for _ in $(seq 1 60); do
+            curl -sf http://localhost:43127/api/state >/dev/null && break
+            sleep 1
+          done
+          curl -sf http://localhost:43127/api/state >/dev/null || {
+            echo "app did not come up on :43127" >&2
+            exit 1
+          }
+          npm run test:rehearsal
 
   # The suites above only prove themselves if removing a defence turns one red.
   # Kept as its own job: it runs every suite once per injected bug, so it is the
