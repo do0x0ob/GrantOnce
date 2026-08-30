@@ -19,6 +19,7 @@ export type Block =
   | { kind: "suggestions"; payload: SuggestionsPayload }
   | { kind: "claimsExplainer"; payload: ClaimsExplainerPayload }
   | { kind: "auditTrail" }
+  | { kind: "worldSearch"; payload: WorldSearchPayload }
   | { kind: "toolError"; payload: { tool: string; message: string } };
 
 export type BlockKind = Block["kind"];
@@ -53,4 +54,15 @@ export type ClaimsExplainerPayload = {
     claims: { label: string; shape: string }[];
   }[];
   withheld: { label: string; basis: string }[];
+};
+
+/**
+ * What public sources say exists. Deliberately its own card: what the world has
+ * and what this runtime can issue are different questions, and merging them
+ * would let a search result read like an authorisation.
+ */
+export type WorldSearchPayload = {
+  query: string;
+  note: string;
+  findings: { title: string; url: string; snippet: string; publisher: string }[];
 };

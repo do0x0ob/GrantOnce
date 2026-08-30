@@ -1,5 +1,5 @@
 import { CLAIM_DEFS, SENSITIVITY_LABEL, SPECIAL_CLAIMS } from "@/lib/claims";
-import { namedPurposes, PURPOSE_IDS, PURPOSES } from "@/lib/purposes";
+import { PURPOSE_IDS, PURPOSES, type PurposeId } from "@/lib/purposes";
 import {
   ageHint,
   childAgeMonthsAt,
@@ -9,6 +9,7 @@ import {
   PERSONA_DECLARED,
   situationFromUtterance,
 } from "@/lib/rules";
+import type { ResearchResult } from "@/lib/research";
 import type { DemoState, ProgramPlan } from "@/lib/types";
 import { toBlocks } from "./blocks/of";
 import type { Block } from "./blocks/types";
@@ -104,18 +105,26 @@ function claimsExplainer() {
 function DECLARED_SITUATION(today: string) {
   return {
     movedRecently: false,
+    wantsChildcare: true,
+    wantsAircon: true,
     childAgeMonths: childAgeMonthsAt(today),
     hasResidentialMeter: PERSONA_DECLARED.hasResidentialMeter,
   };
 }
 
-export function runTurn(
-  state: DemoState,
-  utterance: string,
-  resolved?: { intent: Intent; movedRecently: boolean; reply?: string } | null,
-): TurnResult {
+export type TurnContext = {
+  today: string;
+  /** Public search: what the outside world has, which is not the same question
+   *  as what this runtime can issue. */
+  world?: ResearchResult;
+  resolved?: { intent: Intent; movedRecently: boolean; reply?: string } | null;
+};
+
+export function runTurn(state: DemoState, utterance: string, ctx?: TurnContext): TurnResult {
   const message = utterance.trim();
-  const today = effectiveToday(state);
+  const today = ctx?.today ?? effectiveToday(state);
+  const world = ctx?.world;
+  const resolved = ctx?.resolved;
   // Never trust a caller-supplied intent blindly: an unknown label falls back
   // to the patterns rather than dropping through to whatever branch is last.
   const supplied =
@@ -124,7 +133,15 @@ export function runTurn(
 
   // The acknowledgement leads; everything the user needs to rely on follows it
   // as a card, so a missing or rejected sentence costs nothing.
-  const lead: unknown[] = supplied?.reply ? [{ text: supplied.reply }] : [];
+  const ack: unknown[] = supplied?.reply ? [{ text: supplied.reply }] : [];
+
+  // What the outside world has is a separate question from what this runtime
+  // can issue, so it renders as its own card rather than being folded into the
+  // reply as prose.
+  const lead: unknown[] = [
+    ...(world && world.findings.length ? [{ research: world }] : []),
+    ...ack,
+  ];
 
   if (intent === "privacy") {
     return {
@@ -217,19 +234,27 @@ export function runTurn(
     ? { ...DECLARED_SITUATION(today), movedRecently: supplied.movedRecently }
     : (situationFromUtterance(message, today) ?? DECLARED_SITUATION(today));
 
-  const eligible = matchPrograms(situation);
+  // Eligibility is judged on facts alone — what this person qualifies for,
+  // regardless of which benefit they happened to name. Narrowing comes after,
+  // so the reply can say "you also qualify for X, but you did not ask".
+  const eligible = matchPrograms({ ...situation, wantsChildcare: true, wantsAircon: true });
   const hint = ageHint(childAgeMonthsAt(today));
 
-  // Naming a benefit narrows the answer to it. Asking for 育兒津貼 and being
-  // handed a capsule for 冷氣汰換補助 as well is the agent deciding on your
+  // Naming a benefit narrows the answer to it. Being handed a capsule for
+  // 冷氣汰換補助 when you asked about 育兒津貼 is the agent deciding on your
   // behalf what else to authorise, which is the whole thing this is against.
-  const named = namedPurposes(message);
-  const programs = named.length
+  // A bare move leaves both `wants` flags true, so a generic question still
+  // lists everything.
+  const named: PurposeId[] = PURPOSE_IDS.filter((id) =>
+    id === "childcare-allowance" ? situation.wantsChildcare : situation.wantsAircon,
+  );
+  const narrowed = named.length < PURPOSE_IDS.length;
+  const programs = narrowed
     ? eligible.filter((program) => named.includes(program.purpose))
     : eligible;
 
   // Named something real but not currently eligible: say which, and what is.
-  if (named.length && !programs.length) {
+  if (narrowed && !programs.length && eligible.length) {
     const asked = named.map((id) => PURPOSES[id].title).join("、");
     return {
       programs: [],
@@ -260,7 +285,7 @@ export function runTurn(
       text:
         programs.length > 1
           ? `比對到 ${programs.length} 項補助。每一項都要你單獨簽署一次——沒有「一次全給」。`
-          : named.length && eligible.length > 1
+          : narrowed && eligible.length > 1
             ? `只準備了${programs[0].title}這一張。你其實也符合${eligible
                 .filter((p) => p.purpose !== programs[0].purpose)
                 .map((p) => p.title)

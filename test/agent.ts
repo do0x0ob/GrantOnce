@@ -10,6 +10,7 @@ import { toBlocks } from "../lib/agent/blocks/of";
 import type { Block, BlockKind } from "../lib/agent/blocks/types";
 import { cleanReply, modelAvailable } from "../lib/agent/intent";
 import { runTurn } from "../lib/agent/turn";
+import { effectiveToday } from "../lib/rules";
 import { proposeGrantsFromPlan } from "../lib/authz";
 import { PURPOSES } from "../lib/purposes";
 import { getState, mutate, resetState } from "../lib/store";
@@ -160,8 +161,8 @@ console.log("\n模型只當「聽懂」那一層");
   // nothing else. Claim it says "apply" for a sentence the patterns would not
   // match, and the rule engine still governs what gets asked for.
   const forced = runTurn(getState(), "隨便講一句不相干的話", {
-    intent: "apply",
-    movedRecently: true,
+    today: effectiveToday(getState()),
+    resolved: { intent: "apply", movedRecently: true },
   });
   const blocks = toBlocks(forced.outputs);
   check("模型可以決定走哪個意圖", kinds(blocks).includes("signGrant"), kinds(blocks).join(","));
@@ -176,8 +177,8 @@ console.log("\n模型只當「聽懂」那一層");
   // branch happens to be last. Use a sentence the patterns do not match, so the
   // only thing that could produce a capsule is trusting the bogus label.
   const bogus = runTurn(getState(), "隨便講一句不相干的話", {
-    intent: "not-an-intent" as never,
-    movedRecently: true,
+    today: effectiveToday(getState()),
+    resolved: { intent: "not-an-intent" as never, movedRecently: true },
   });
   check(
     "不認識的意圖被忽略，退回正則",

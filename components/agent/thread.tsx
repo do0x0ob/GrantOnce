@@ -11,6 +11,7 @@ import { FallbackCard } from "@/components/agent/fallback-card";
 import { ProgramPickerCard } from "@/components/agent/program-picker-card";
 import { SignGrantCard } from "@/components/agent/sign-grant-card";
 import { SuggestionsCard } from "@/components/agent/suggestions-card";
+import { WorldSearchCard } from "@/components/agent/world-search-card";
 import type { Block } from "@/lib/agent/blocks/types";
 import type { Demo } from "@/hooks/use-demo";
 
@@ -65,6 +66,12 @@ function renderBlock(block: Block, key: string, demo: Demo) {
       return (
         <CardBoundary key={key} label="會拿到什麼">
           <ClaimsExplainerCard payload={block.payload} />
+        </CardBoundary>
+      );
+    case "worldSearch":
+      return (
+        <CardBoundary key={key} label="公開搜尋">
+          <WorldSearchCard payload={block.payload} />
         </CardBoundary>
       );
     case "auditTrail":

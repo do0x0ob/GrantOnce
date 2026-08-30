@@ -8,6 +8,7 @@ import type {
   EligibilityPayload,
   ProgramPickerPayload,
   SuggestionsPayload,
+  WorldSearchPayload,
 } from "./types";
 
 /**
@@ -142,6 +143,28 @@ export function claimsExplainerOf(o: unknown): ClaimsExplainerPayload | null {
   return { purposes, withheld };
 }
 
+export function worldSearchOf(o: unknown): WorldSearchPayload | null {
+  const v = asObj(o);
+  const research = asObj(v?.research);
+  if (!research) return null;
+  const raw = Array.isArray(research.findings) ? research.findings : [];
+  const findings = raw
+    .map((entry) => {
+      const e = asObj(entry);
+      const title = str(e?.title);
+      if (!title) return null;
+      return {
+        title,
+        url: str(e?.url) ?? "",
+        snippet: str(e?.snippet) ?? "",
+        publisher: str(e?.publisher) ?? "",
+      };
+    })
+    .filter((x): x is WorldSearchPayload["findings"][number] => x !== null);
+  if (!findings.length) return null;
+  return { query: str(research.query) ?? "", note: str(research.note) ?? "", findings };
+}
+
 export function auditTrailOf(o: unknown): true | null {
   const v = asObj(o);
   return v?.auditTrail === true ? true : null;
@@ -167,6 +190,11 @@ export function toBlocks(outputs: unknown[]): Block[] {
     const eligibility = eligibilityOf(o);
     if (eligibility) {
       out.push({ kind: "eligibility", payload: eligibility });
+      continue;
+    }
+    const world = worldSearchOf(o);
+    if (world) {
+      out.push({ kind: "worldSearch", payload: world });
       continue;
     }
     const explainer = claimsExplainerOf(o);

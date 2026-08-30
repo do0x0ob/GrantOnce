@@ -154,14 +154,14 @@ const MUTATIONS: Mutation[] = [
   {
     label: "指名一項補助卻連別的一起給",
     file: "lib/agent/turn.ts",
-    find: "  const programs = named.length",
+    find: "  const programs = narrowed",
     replace: "  const programs = false",
   },
   {
     label: "資格比對改回看你怎麼講而不是看事實",
     file: "lib/rules.ts",
-    find: '  if (band === "0-2") {',
-    replace: '  if (situation.movedRecently && band === "0-2") {',
+    find: '  if (situation.wantsChildcare && band === "0-2") {',
+    replace: '  if (situation.wantsChildcare && situation.movedRecently && band === "0-2") {',
   },
   {
     label: "模型可以宣稱動作已經完成",
