@@ -7,7 +7,7 @@ import type { Sensitivity } from "@/lib/claims";
 import { AGENCY_NAMES } from "@/lib/parties";
 import { PURPOSES } from "@/lib/purposes";
 import { cn } from "@/lib/utils";
-import type { PrincipalView } from "@/lib/view";
+import { formatDate, type PrincipalView } from "@/lib/view";
 
 const LEVELS: { id: Sensitivity; label: string }[] = [
   { id: "predicate", label: "只給述詞" },
@@ -54,7 +54,7 @@ export function DelegationCard({
         <dd className="text-stone-600">{delegation.grantTtlSeconds} 秒，一次性</dd>
         <dt className="text-stone-400">委託到期</dt>
         <dd className="text-stone-600">
-          {new Date(delegation.validUntil).toLocaleDateString("zh-TW")}
+          {formatDate(delegation.validUntil)}
         </dd>
       </dl>
 

@@ -12,16 +12,59 @@ export const GRANT_STATUS_LABEL: Record<GrantStatus, string> = {
   expired: "已逾效期",
 };
 
+/**
+ * Every timestamp on screen is assembled from parts, never from a locale's own
+ * joined output.
+ *
+ * `toLocaleString` renders the same instant differently on either side of
+ * hydration: Node's ICU puts U+2009 THIN SPACE between date and time where
+ * Chromium puts U+0020, and React compares the two strings byte for byte. The
+ * result was a hydration error and a re-rendered tree on every page load, plus
+ * a red issue badge in `next dev`. Reading `formatToParts` and joining the
+ * fields ourselves keeps the separators out of the locale's hands.
+ *
+ * The time zone is always pinned too. Without it the server formats in the
+ * container's zone and the browser in the viewer's, so the same capsule expiry
+ * printed two different clock times either side of hydration.
+ */
+const TAIPEI = "Asia/Taipei";
+
+function parts(
+  iso: string,
+  options: Intl.DateTimeFormatOptions,
+): Record<string, string> {
+  const found: Record<string, string> = {};
+  for (const part of new Intl.DateTimeFormat("zh-TW", {
+    ...options,
+    // h23 rather than `hour12: false`: with hour12 alone some ICU builds pick
+    // the h24 cycle and render midnight as 24:00:00.
+    hourCycle: "h23",
+    timeZone: TAIPEI,
+  }).formatToParts(new Date(iso))) {
+    found[part.type] = part.value;
+  }
+  return found;
+}
+
+const HMS = { hour: "2-digit", minute: "2-digit", second: "2-digit" } as const;
+const YMD = { year: "numeric", month: "2-digit", day: "2-digit" } as const;
+
+/** `08/30 00:04:01` — audit rows. */
 export function formatClock(iso: string): string {
-  return new Date(iso).toLocaleString("zh-TW", {
-    hour12: false,
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-    timeZone: "Asia/Taipei",
-  });
+  const p = parts(iso, { ...YMD, ...HMS });
+  return `${p.month}/${p.day} ${p.hour}:${p.minute}:${p.second}`;
+}
+
+/** `00:04:01` — capsule expiry, where the date is always today. */
+export function formatTime(iso: string): string {
+  const p = parts(iso, HMS);
+  return `${p.hour}:${p.minute}:${p.second}`;
+}
+
+/** `2026/9/28` — credential and delegation expiry. */
+export function formatDate(iso: string): string {
+  const p = parts(iso, YMD);
+  return `${p.year}/${Number(p.month)}/${Number(p.day)}`;
 }
 
 export function claimLabel(id: string): string {

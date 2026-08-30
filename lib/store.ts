@@ -193,7 +193,7 @@ function pause(ms: number) {
  * were lost the same way.
  */
 function withLock<T>(fn: () => T): T {
-  const deadline = Date.now() + LOCK_TIMEOUT_MS;
+  let deadline = Date.now() + LOCK_TIMEOUT_MS;
   let fd: number | null = null;
 
   while (fd === null) {
@@ -208,6 +208,10 @@ function withLock<T>(fn: () => T): T {
         } catch {
           // someone else got there first
         }
+        // Give the next holder a fresh window. Leaving the deadline in the past
+        // made every later failed open break the lock immediately, so under
+        // sustained contention mutual exclusion quietly stopped existing.
+        deadline = Date.now() + LOCK_TIMEOUT_MS;
         continue;
       }
       pause(2);

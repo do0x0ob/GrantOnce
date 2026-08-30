@@ -1,0 +1,45 @@
+name: CI
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      # 20 is the floor the README promises; 22 is what development runs on.
+      matrix:
+        node: ["20", "22"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - run: npm ci
+      - run: npm run lint
+      # `next typegen` first: LayoutProps and the other route types are generated
+      # into .next/types, so a bare `tsc --noEmit` on a fresh checkout fails on
+      # types that do not exist yet.
+      - run: npm run typecheck
+      - run: npm run build
+      - run: npm run test:flow
+      - run: npm run test:mcp
+      - run: npm run test:race
+
+  # The suites above only prove themselves if removing a defence turns one red.
+  # Kept as its own job: it runs every suite once per injected bug, so it is the
+  # slow one, and a failure here means the tests have stopped covering something.
+  mutation:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - run: npm ci
+      - run: npm run test:mutate

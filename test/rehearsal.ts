@@ -10,7 +10,7 @@
  */
 import { b64u, keyPairFromSeed, sign } from "../lib/crypto";
 
-const BASE = process.env.BASE ?? "http://127.0.0.1:43127";
+const BASE = process.env.BASE ?? "http://localhost:43127";
 const wallet = keyPairFromSeed("rehearsal-principal");
 const publicKey = b64u(wallet.publicKey);
 

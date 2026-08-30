@@ -151,6 +151,19 @@ const MUTATIONS: Mutation[] = [
     find: '      "parentChild.verified",',
     replace: '      "raw.child.name",',
   },
+  {
+    label: "同意文字宣稱的件數與實際述詞不符",
+    file: "lib/purposes.ts",
+    find: "「設籍本市」「一年內遷入」「具法定親子關係」「幼兒落在 0–2 歲」四件事",
+    replace: "「設籍本市」「具法定親子關係」「幼兒落在 0–2 歲」三件事",
+  },
+  {
+    label: "時間格式交還給 locale（伺服器與瀏覽器會不一致）",
+    file: "lib/view.ts",
+    find: '  return `${p.month}/${p.day} ${p.hour}:${p.minute}:${p.second}`;',
+    replace:
+      '  return new Date(iso).toLocaleString("zh-TW", { ...YMD, ...HMS, hour12: false, timeZone: TAIPEI });',
+  },
 ];
 
 const SUITES = [
