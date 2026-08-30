@@ -105,34 +105,33 @@ function InboxDesk({
         </p>
       )}
 
+      {inbox.lastDenial ? <DenialBanner reason={inbox.lastDenial} /> : null}
+
+      {canRedeem ? (
+        <Button
+          size="xl"
+          className="w-full"
+          disabled={demo.busy}
+          onClick={() => void demo.redeem(grantId, agency)}
+        >
+          兌現本匣
+        </Button>
+      ) : null}
+      {inbox.receivedAt && !inbox.submittedAt ? (
+        <Button
+          size="xl"
+          className="w-full"
+          disabled={demo.busy}
+          onClick={() => void demo.submit(grantId)}
+        >
+          送出申請
+        </Button>
+      ) : null}
       {inbox.grantDigest ? (
         <p className="font-mono text-[11px] leading-5 break-all text-stone-400">
           憑匣摘要 {inbox.grantDigest}
         </p>
       ) : null}
-
-      {inbox.lastDenial ? <DenialBanner reason={inbox.lastDenial} /> : null}
-
-      <div className="space-y-3">
-        <Button
-          size="xl"
-          className="w-full"
-          disabled={demo.busy || !canRedeem}
-          onClick={() => void demo.redeem(grantId, agency)}
-          title={!canRedeem ? "需要一張已簽署且未兌現的匣" : undefined}
-        >
-          兌現本匣
-        </Button>
-        <Button
-          size="lg"
-          variant="secondary"
-          className="w-full"
-          disabled={demo.busy || !inbox.receivedAt || Boolean(inbox.submittedAt)}
-          onClick={() => void demo.submit(grantId)}
-        >
-          送出申請
-        </Button>
-      </div>
 
       <details className="border-t border-stone-100 pt-5" open={Boolean(inbox.lastDenial)}>
         <summary className="cursor-pointer text-[13px] leading-5 text-stone-400 hover:text-stone-600">

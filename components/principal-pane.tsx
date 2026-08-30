@@ -65,11 +65,6 @@ export function PrincipalPane({
             >
               演示這句：{HAPPY_PATH_UTTERANCE}
             </button>
-            {view.chat.length ? (
-              <div className="mt-12 w-full">
-                <ChatTranscript chat={view.chat} />
-              </div>
-            ) : null}
           </div>
         ) : null}
 
