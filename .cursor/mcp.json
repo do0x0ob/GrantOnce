@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "grantonce": {
+      "command": "npx",
+      "args": ["tsx", "mcp/server.ts"],
+      "env": {
+        "GRANTONCE_STORE": "/tmp/grantonce-runtime.json"
+      }
+    }
+  }
+}

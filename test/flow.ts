@@ -6,6 +6,8 @@ import { b64u, digest, keyPairFromSeed, pairwiseId, serializeBody, sign, utf8 } 
 import { sha256 } from "@noble/hashes/sha2";
 import { CLAIM_DEFS, isClaimId } from "../lib/claims";
 import { isPurposeId, PURPOSES } from "../lib/purposes";
+import { purposesFrom, validatePurposeDraft } from "../lib/registry";
+import { isLivePurposeId, retirePurpose, upsertPurpose } from "../lib/registry-io";
 import { assessRisk } from "../lib/risk";
 import {
   makeAgencyProof,
@@ -22,6 +24,8 @@ import {
 } from "../lib/authz";
 import { AGENCY_KEYS } from "../lib/parties";
 import { originBlocker } from "../lib/passkey";
+import { FLOOD_UTTERANCE } from "../lib/catalog";
+import { evaluateInquiry } from "../lib/inquiry";
 import { effectiveToday, matchPrograms, scanForChanges, situationFromUtterance } from "../lib/rules";
 import { getState, mutate, resetState } from "../lib/store";
 import { formatClock, formatDate, formatTime } from "../lib/view";
@@ -97,6 +101,18 @@ check(
   JSON.stringify(programs.flatMap((p) => p.claims.map((c) => [c, CLAIM_DEFS[c].sensitivity]))),
 );
 check("冷氣補助用假名代替電號", programs[1].claims.includes("power.accountRef"));
+{
+  const flood = evaluateInquiry(FLOOD_UTTERANCE, effectiveToday(getState()));
+  check("水災不能發票", flood.canIssue === false);
+  check("水災不產出申請案", flood.programs.length === 0);
+  check(
+    "水災在可發票 profile 仍是未綁定",
+    flood.catalog.some((entry) => entry.id === "flood-relief" && entry.issuable === false),
+  );
+  const before = getState().grants.length;
+  mutate((s) => proposeGrantsFromPlan(s, flood.programs));
+  check("水災路徑不建匣", getState().grants.length === before);
+}
 mutate((s) => proposeGrantsFromPlan(s, programs));
 
 const jia: GrantId = "G-甲";
@@ -338,6 +354,69 @@ section("邊界輸入");
   check("無法辨識的委託上限 → fail closed", bad.level === "blocked", JSON.stringify(bad.notes));
   check("原型鏈上的鍵不算合法述詞", !isClaimId("constructor") && !isClaimId("__proto__"));
   check("原型鏈上的鍵不算合法目的", !isPurposeId("toString") && !isPurposeId("__proto__"));
+  check("原型鏈上的鍵不算已掛目的", !isLivePurposeId("toString") && !isLivePurposeId("valueOf"));
+}
+
+section("登記台");
+{
+  const invented = validatePurposeDraft({
+    id: "flood-relief",
+    title: "水災災害救助",
+    agency: "jia",
+    legalBasis: ["個人資料保護法 §15 第 1 款：執行法定職務必要範圍"],
+    allowedClaims: ["disaster.floodVictim"],
+    maxTtlSeconds: 600,
+    necessity: "核定災害救助需要受災事實，但本 runtime 還沒有這項述詞。",
+  });
+  check("不能發明 disaster.* 述詞", Boolean(invented.error), invented.error);
+  check("發明述詞的錯誤指向 adapter", Boolean(invented.error?.includes("adapter")), invented.error);
+
+  const proto = validatePurposeDraft({
+    id: "toString",
+    title: "偽造目的",
+    agency: "jia",
+    legalBasis: ["個人資料保護法 §15"],
+    allowedClaims: ["resident.inNewTaipei"],
+    maxTtlSeconds: 600,
+    necessity: "這不應該被當成合法目的寫進登記表。",
+  });
+  check("toString 不能當目的 ID", Boolean(proto.error));
+
+  const hung = upsertPurpose({
+    id: "move-bonus",
+    title: "遷入獎勵",
+    agency: "jia",
+    legalBasis: ["個人資料保護法 §15 第 1 款：執行法定職務必要範圍"],
+    allowedClaims: ["resident.inNewTaipei", "resident.movedWithin12m"],
+    maxTtlSeconds: 600,
+    necessity: "只要確認設籍本市與一年內遷入，不需要地址本身。",
+  });
+  check("既有述詞可以掛上新目的", !hung.error && isLivePurposeId("move-bonus"), hung.error);
+  check("委託範圍跟著掛上的目的打開", getState().delegation.purposes.includes("move-bonus"));
+
+  const hungRisk = assessRisk({
+    purpose: "move-bonus",
+    claims: ["resident.inNewTaipei", "resident.movedWithin12m"],
+    delegation: getState().delegation,
+    recentAudit: [],
+    now: new Date(),
+    purposes: purposesFrom(getState()),
+  });
+  check("掛上的目的可以用既有述詞通過風險檢查", hungRisk.level === "low", JSON.stringify(hungRisk));
+
+  const unknown = assessRisk({
+    purpose: "not-registered",
+    claims: ["resident.inNewTaipei"],
+    delegation: getState().delegation,
+    recentAudit: [],
+    now: new Date(),
+    purposes: purposesFrom(getState()),
+  });
+  check("未掛目的直接攔截", unknown.level === "blocked");
+
+  const retired = retirePurpose("move-bonus");
+  check("下架後不再是已掛目的", !retired.error && !isLivePurposeId("move-bonus"), retired.error);
+  check("下架後委託範圍拿掉該目的", !getState().delegation.purposes.includes("move-bonus"));
 }
 
 section("每一道防線各自都擋得住");

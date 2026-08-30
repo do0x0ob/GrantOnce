@@ -8,24 +8,21 @@ import {
   submitApplication,
 } from "../lib/authz";
 import { pushChanges } from "../lib/agent";
+import { catalogPublic, searchCatalog } from "../lib/catalog";
 import { CLAIM_DEFS, isClaimId, SENSITIVITY_LABEL } from "../lib/claims";
 import { normalizeGrantId } from "../lib/fields";
+import { evaluateInquiry, formatInquiryMessage, inquiryPayload } from "../lib/inquiry";
 import { isKnownAgency } from "../lib/parties";
 import { isPurposeId, PURPOSES } from "../lib/purposes";
-import {
-  AGENT_NOTES,
-  ageHint,
-  childAgeMonthsAt,
-  effectiveToday,
-  HAPPY_PATH_UTTERANCE,
-  matchPrograms,
-  situationFromUtterance,
-} from "../lib/rules";
+import { isLivePurposeId, livePurpose, livePurposes } from "../lib/registry-io";
+import { researchWorld } from "../lib/research";
+import { AGENT_NOTES, effectiveToday, HAPPY_PATH_UTTERANCE } from "../lib/rules";
 import { appendChat, getState, mutate } from "../lib/store";
 import type { AgencyId, GrantId } from "../lib/types";
 import { VAULT } from "../lib/vault";
 
 export const TOOL_NAMES = [
+  "search_purposes",
   "plan_applications",
   "get_grant_for_signature",
   "redeem_grant",
@@ -88,7 +85,7 @@ function grantPublic(grantId: GrantId) {
     id: grant.id,
     status: grant.status,
     purpose: grant.body.purpose,
-    programTitle: PURPOSES[grant.body.purpose].title,
+    programTitle: (livePurpose(grant.body.purpose) ?? PURPOSES[grant.body.purpose])?.title ?? grant.body.purpose,
     audience: grant.body.aud,
     boundToAgencyKey: grant.body.cnf.jkt,
     jti: grant.body.jti,
@@ -103,56 +100,50 @@ function grantPublic(grantId: GrantId) {
   };
 }
 
-export function planApplications(utterance: string) {
+export async function searchPurposes(query: string) {
+  const world = await researchWorld(query);
+  const hits = searchCatalog(query, Object.values(livePurposes()));
+  const payload = {
+    ok: true,
+    query,
+    world,
+    issuable: hits.map(catalogPublic),
+    matches: hits.map(catalogPublic),
+    issuablePurposeIds: hits
+      .filter((entry) => entry.issuable && entry.purposeId)
+      .map((entry) => entry.purposeId),
+    note: "world 是公開搜尋。issuable 才是本 runtime 能 mint Grant 的子集。不要把登記表當成全世界。不能發明述詞。",
+    notes: [...AGENT_NOTES],
+  };
+  assertNoVaultLeak(payload, "search_purposes");
+  return payload;
+}
+
+export async function planApplications(utterance: string) {
   const message = utterance.trim() || HAPPY_PATH_UTTERANCE;
   const today = effectiveToday(getState());
-  const situation = situationFromUtterance(message, today);
-
-  if (!situation || !situation.movedRecently) {
-    const payload = {
-      ok: false,
-      error: situation
-        ? "規則引擎沒有偵測到「搬家／遷徙」。"
-        : `這個演示只處理補助比對。請輸入：「${HAPPY_PATH_UTTERANCE}」`,
-      notes: ["資格由規則引擎決定，模型不決定授權。", "模型看不到金庫，也不能簽署任何匣。"],
-    };
-    mutate((s) => {
-      appendChat(s, "user", message);
-      appendChat(s, "agent", payload.error);
-    });
-    assertNoVaultLeak(payload, "plan_applications");
-    return payload;
-  }
-
-  const programs = matchPrograms(situation);
-  const hint = ageHint(childAgeMonthsAt(today));
+  const inquiry = evaluateInquiry(message, today);
+  const world = await researchWorld(message);
 
   mutate((s) => {
     appendChat(s, "user", message);
+    appendChat(s, "agent", formatInquiryMessage(inquiry, today, world));
+    if (!inquiry.canIssue) return;
     s.plan = { utterance: message, matchedAt: new Date().toISOString() };
-    proposeGrantsFromPlan(s, programs);
-    appendChat(
-      s,
-      "agent",
-      [
-        "規則引擎比對結果（非模型授權）：",
-        "",
-        ...programs.flatMap((p, i) => [
-          `${i + 1}. ${p.title} — ${p.agencyName}`,
-          `   本匣述詞：${claimLabels(p.claims).join("、")}`,
-          `   法定依據：${PURPOSES[p.purpose].legalBasis[0]}`,
-        ]),
-        "",
-        hint,
-      ].join("\n"),
-    );
+    proposeGrantsFromPlan(s, inquiry.programs);
     pushChanges(s, new Date());
   });
 
   const payload = {
-    ok: true,
-    ageHint: hint,
-    programs: programs.map((p) => ({
+    ...inquiryPayload(
+      inquiry,
+      [
+        "模型無法簽署。請委託人在皮夾用生物辨識簽署後才能兌現。",
+        "搜到真實世界的補助不會自動發票。只有 canIssue 時才會提案。",
+      ],
+      world,
+    ),
+    programs: inquiry.programs.map((p) => ({
       grantId: p.grantId,
       title: p.title,
       purpose: p.purpose,
@@ -165,7 +156,6 @@ export function planApplications(utterance: string) {
       legalBasis: PURPOSES[p.purpose].legalBasis,
       hint: p.hint,
     })),
-    notes: [...AGENT_NOTES, "模型無法簽署。請委託人在皮夾用生物辨識簽署後才能兌現。"],
   };
   assertNoVaultLeak(payload, "plan_applications");
   return payload;
@@ -228,7 +218,7 @@ export function redeem(grantIdRaw: string, agencyRaw: string) {
 
 export function requestClaimsTool(agencyRaw: string, purposeRaw: string, claims: string[]) {
   const agency = requireAgency(agencyRaw);
-  if (!isPurposeId(purposeRaw)) throw new Error(`未登記的目的：${purposeRaw}`);
+  if (!isLivePurposeId(purposeRaw) && !isPurposeId(purposeRaw)) throw new Error(`未登記的目的：${purposeRaw}`);
   const { blocked, notes } = requestClaims(agency, purposeRaw, claims);
   const payload = {
     ok: !blocked,
@@ -320,14 +310,16 @@ export function getAudit() {
   return payload;
 }
 
-export function callTool(
+export async function callTool(
   name: ToolName,
   args: Record<string, unknown>,
-): { data: unknown; isError: boolean } {
+): Promise<{ data: unknown; isError: boolean }> {
   const str = (key: string) => String(args[key] ?? "");
   switch (name) {
+    case "search_purposes":
+      return wrap(await searchPurposes(str("query")));
     case "plan_applications":
-      return wrap(planApplications(str("utterance")));
+      return wrap(await planApplications(str("utterance")));
     case "get_grant_for_signature":
       return wrap(getGrantForSignature(str("grantId")));
     case "redeem_grant":

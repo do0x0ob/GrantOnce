@@ -1,3 +1,4 @@
+import { searchCatalog, topicsFromUtterance } from "./catalog";
 import { ageBandOf, DEMO_TODAY, monthsBetween } from "./claims";
 import { PURPOSES } from "./purposes";
 import type { DemoState, ProgramPlan } from "./types";
@@ -15,6 +16,10 @@ export const HAPPY_PATH_UTTERANCE = "我剛搬家，看我能申請什麼。";
 
 export type DeclaredSituation = {
   movedRecently: boolean;
+  /** Explicit childcare ask, or a move that unlocks the bundled profile. */
+  wantsChildcare: boolean;
+  /** Explicit air-con ask, or a move that unlocks the bundled profile. */
+  wantsAircon: boolean;
   childAgeMonths: number;
   hasResidentialMeter: boolean;
 };
@@ -30,8 +35,7 @@ export function childAgeMonthsAt(today: string): number {
 }
 
 export function detectIntent(utterance: string): boolean {
-  const t = utterance.replace(/\s+/g, "");
-  return /搬家|遷徙|剛搬|搬到|遷入|申請|補助|津貼|能申|可以申/.test(t);
+  return topicsFromUtterance(utterance).length > 0 || searchCatalog(utterance).length > 0;
 }
 
 export function situationFromUtterance(
@@ -39,8 +43,12 @@ export function situationFromUtterance(
   today: string = DEMO_TODAY,
 ): DeclaredSituation | null {
   if (!detectIntent(utterance)) return null;
+  const topics = topicsFromUtterance(utterance);
+  const movedRecently = topics.includes("move");
   return {
-    movedRecently: /搬家|遷徙|剛搬|搬到|遷入/.test(utterance.replace(/\s+/g, "")),
+    movedRecently,
+    wantsChildcare: movedRecently || topics.includes("childcare"),
+    wantsAircon: movedRecently || topics.includes("aircon"),
     childAgeMonths: childAgeMonthsAt(today),
     hasResidentialMeter: PERSONA_DECLARED.hasResidentialMeter,
   };
@@ -54,7 +62,7 @@ export function matchPrograms(situation: DeclaredSituation): ProgramPlan[] {
   const programs: ProgramPlan[] = [];
   const band = ageBandOf(situation.childAgeMonths);
 
-  if (situation.movedRecently && band === "0-2") {
+  if (situation.wantsChildcare && situation.movedRecently && band === "0-2") {
     const purpose = PURPOSES["childcare-allowance"];
     programs.push({
       grantId: "G-甲",
@@ -71,7 +79,7 @@ export function matchPrograms(situation: DeclaredSituation): ProgramPlan[] {
     });
   }
 
-  if (situation.hasResidentialMeter) {
+  if (situation.wantsAircon && situation.hasResidentialMeter) {
     const purpose = PURPOSES["aircon-subsidy"];
     programs.push({
       grantId: "G-乙",
@@ -147,7 +155,8 @@ export function scanForChanges(state: DemoState, now: Date): PendingChange[] {
 /** The three things the agent says about how it works. Kept in one place so the
  *  web and MCP paths cannot drift apart. */
 export const AGENT_NOTES = [
-  "資格比對只用規則引擎，模型不決定授權。",
+  "公開搜尋不受目的登記表限制；登記表只決定能不能 mint Grant。",
+  "資格比對與發票只用規則引擎，模型不決定授權，也不能發明述詞。",
   "匣裡放的是述詞，不是原始欄位。",
   "取得資料要兩把鑰匙：委託人簽章，加上機關的法定職務範圍。",
 ] as const;

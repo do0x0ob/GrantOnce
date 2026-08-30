@@ -1,5 +1,6 @@
 import { CLAIM_DEFS, isClaimId } from "./claims";
 import { PURPOSES } from "./purposes";
+import { purposesFrom, registryView } from "./registry";
 import { RISK_LABEL } from "./risk";
 import type { DemoState, GrantStatus } from "./types";
 import { isCredentialValid, verifyCredential } from "./wallet";
@@ -132,10 +133,10 @@ export function principalView(state: DemoState) {
       status: effectiveStatus,
       statusLabel: GRANT_STATUS_LABEL[effectiveStatus],
       purpose: g.body.purpose,
-      programTitle: PURPOSES[g.body.purpose].title,
+      programTitle: purposesFrom(state)[g.body.purpose]?.title ?? PURPOSES[g.body.purpose]?.title ?? g.body.purpose,
       agencyId: g.body.aud,
-      agencyName: PURPOSES[g.body.purpose].agencyName,
-      legalBasis: PURPOSES[g.body.purpose].legalBasis,
+      agencyName: purposesFrom(state)[g.body.purpose]?.agencyName ?? PURPOSES[g.body.purpose]?.agencyName ?? g.body.aud,
+      legalBasis: purposesFrom(state)[g.body.purpose]?.legalBasis ?? PURPOSES[g.body.purpose]?.legalBasis ?? [],
       claims: g.body.claims.map((c) => ({
         claimId: c,
         label: claimLabel(c),
@@ -168,6 +169,7 @@ export function principalView(state: DemoState) {
     plan: state.plan,
     clockOffsetDays: state.clockOffsetDays ?? 0,
     usedJtiCount: state.usedJti.length,
+    registry: registryView(state),
   };
 }
 

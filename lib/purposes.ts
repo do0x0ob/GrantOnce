@@ -2,7 +2,8 @@ import type { ClaimId } from "./claims";
 import type { AgencyId } from "./types";
 
 export const PURPOSE_IDS = ["childcare-allowance", "aircon-subsidy"] as const;
-export type PurposeId = (typeof PURPOSE_IDS)[number];
+/** Builtin ids plus any purpose an agency hangs on the registry desk. */
+export type PurposeId = string;
 
 export type PurposeDef = {
   id: PurposeId;
@@ -65,12 +66,19 @@ export const PURPOSES: Record<PurposeId, PurposeDef> = {
   },
 };
 
-export function isPurposeId(value: string): value is PurposeId {
-  return Object.hasOwn(PURPOSES, value);
+export function isPurposeId(value: string, table: Record<string, PurposeDef> = PURPOSES): value is PurposeId {
+  if (value === "__proto__" || value === "constructor" || value === "toString") return false;
+  return Object.hasOwn(table, value);
 }
 
 /** Claims outside the statutory scope of this purpose. Empty means compliant. */
-export function claimsOutsidePurpose(purpose: PurposeId, claims: string[]): string[] {
-  const allowed = new Set<string>(PURPOSES[purpose].allowedClaims);
+export function claimsOutsidePurpose(
+  purpose: PurposeId,
+  claims: string[],
+  table: Record<string, PurposeDef> = PURPOSES,
+): string[] {
+  const def = table[purpose];
+  if (!def) return [...claims];
+  const allowed = new Set<string>(def.allowedClaims);
   return claims.filter((c) => !allowed.has(c));
 }

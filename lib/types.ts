@@ -1,5 +1,5 @@
 import type { ClaimId, IssuerId, Sensitivity } from "./claims";
-import type { PurposeId } from "./purposes";
+import type { PurposeDef, PurposeId } from "./purposes";
 
 /** Raw MyData vault fields. Only ever read when issuing a credential. */
 export const FIELD_IDS = [
@@ -214,6 +214,9 @@ export type DemoState = {
   plan: AgentPlan | null;
   /** Demo-only clock shift, so the 0–2 age band can be aged out on stage. */
   clockOffsetDays: number;
+  /** Agency-maintained purpose rows. Overlay on the builtin table. */
+  registeredPurposes: Record<string, PurposeDef>;
+  retiredPurposes: string[];
 };
 
 export type RedeemProof = {

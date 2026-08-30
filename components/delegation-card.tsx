@@ -25,12 +25,14 @@ export function DelegationCard({
   onStop,
   onRestore,
   onSetMax,
+  purposeTitles,
 }: {
   delegation: PrincipalView["delegation"];
   busy: boolean;
   onStop: () => void;
   onRestore: () => void;
   onSetMax: (level: Sensitivity) => void;
+  purposeTitles?: Record<string, string>;
 }) {
   return (
     <details className={cn(SURFACE, "group p-6")} open={!delegation.active}>
@@ -49,7 +51,7 @@ export function DelegationCard({
           </dd>
           <dt className="text-stone-400">目的</dt>
           <dd className="text-stone-600">
-            {delegation.purposes.map((p) => PURPOSES[p].title).join("、") || "無"}
+            {delegation.purposes.map((p) => purposeTitles?.[p] ?? PURPOSES[p]?.title ?? p).join("、") || "無"}
           </dd>
           <dt className="text-stone-400">單匣效期</dt>
           <dd className="text-stone-600">{delegation.grantTtlSeconds} 秒，一次性</dd>

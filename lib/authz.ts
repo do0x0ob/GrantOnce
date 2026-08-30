@@ -3,6 +3,7 @@ import { digest, randomId, serializeBody, sign, thumbprint, unb64u, verify } fro
 import { normalizeGrantId } from "./fields";
 import { AGENCY_KEYS, AGENCY_NAMES, isKnownAgency } from "./parties";
 import { claimsOutsidePurpose, PURPOSES, type PurposeId } from "./purposes";
+import { purposesFrom } from "./registry";
 import { assessRisk } from "./risk";
 import { appendAudit, agencyOf, getState, grantById, mutate, notify, nowIso } from "./store";
 import type {
@@ -33,12 +34,16 @@ function stampDenial(state: DemoState, agency: AgencyId | null, error: string) {
 
 /** The consent wording, signed alongside everything else so the record proves
  *  what was displayed, not merely that the principal tapped. */
+function purposeOn(state: DemoState, purpose: PurposeId) {
+  return purposesFrom(state)[purpose];
+}
+
 export function buildDisplayText(
   purpose: PurposeId,
   claims: ClaimId[],
   expIso: string,
+  def = PURPOSES[purpose],
 ): string {
-  const def = PURPOSES[purpose];
   const lines = [
     `${def.agencyName} 將取得以下關於你的資訊，用於「${def.title}」：`,
     ...claims.map((c) => `• ${CLAIM_DEFS[c].label}（${CLAIM_DEFS[c].shape}）`),
@@ -56,10 +61,13 @@ function buildGrant(
   input: { grantId: GrantId; purpose: PurposeId; claims: ClaimId[] },
   now: Date,
 ): Grant {
-  const def = PURPOSES[input.purpose];
+  const def = purposeOn(state, input.purpose);
+  if (!def) {
+    throw new Error(`目的「${input.purpose}」未掛在登記台，不能建匣。`);
+  }
   const ttl = Math.min(state.delegation.grantTtlSeconds, def.maxTtlSeconds);
   const exp = new Date(now.getTime() + ttl * 1000).toISOString();
-  const displayText = buildDisplayText(input.purpose, input.claims, exp);
+  const displayText = buildDisplayText(input.purpose, input.claims, exp, def);
 
   const body: GrantBody = {
     aud: def.agency,
@@ -80,6 +88,7 @@ function buildGrant(
     delegation: state.delegation,
     recentAudit: state.audit,
     now,
+    purposes: purposesFrom(state),
   });
 
   return {
@@ -148,12 +157,23 @@ export function requestClaims(
       delegation: s.delegation,
       recentAudit: s.audit,
       now,
+      purposes: purposesFrom(s),
     });
     notes = risk.notes;
     blocked = risk.level === "blocked";
 
     // The requester must be the agency the purpose belongs to. Without this,
     // 乙 could ask for childcare claims and be told the request is fine.
+    if (!Object.hasOwn(PURPOSES, purpose)) {
+      const live = purposeOn(s, purpose);
+      if (!live || live.agency !== agency) {
+        notes = [
+          `「${live?.title ?? purpose}」不屬於 ${AGENCY_NAMES[agency]} 的法定職務。`,
+          ...notes,
+        ];
+        blocked = true;
+      }
+    } else
     if (PURPOSES[purpose].agency !== agency) {
       notes = [
         `「${PURPOSES[purpose].title}」是 ${AGENCY_NAMES[PURPOSES[purpose].agency]} 的法定職務，${AGENCY_NAMES[agency]} 不能以此目的索取資料。`,
@@ -284,7 +304,7 @@ export function signGrant(input: {
       actorRole: "principal",
       action: "sign",
       grantId: grant.id,
-      detail: `以${grant.signMethod === "passkey" ? " passkey 生物辨識" : "軟體金鑰"}簽署匣 ${grant.id}（${PURPOSES[grant.body.purpose].title}）。簽章涵蓋 aud／cnf／jti／exp／述詞／同意畫面文字，摘要 ${grant.digest.slice(0, 12)}。`,
+      detail: `以${grant.signMethod === "passkey" ? " passkey 生物辨識" : "軟體金鑰"}簽署匣 ${grant.id}（${(purposeOn(s, grant.body.purpose) ?? PURPOSES[grant.body.purpose])?.title ?? grant.body.purpose}）。簽章涵蓋 aud／cnf／jti／exp／述詞／同意畫面文字，摘要 ${grant.digest.slice(0, 12)}。`,
       risk: grant.risk,
     });
   });
@@ -471,15 +491,21 @@ export function redeemGrant(
     // --- key two, part two: statutory purpose --------------------------------
     // assessRisk below repeats this, but a dedicated code says *which* rule
     // refused; RISK_BLOCKED alone reads as a generic denial.
-    const outside = claimsOutsidePurpose(grant.body.purpose, grant.body.claims);
+    const purposeDef = purposeOn(s, grant.body.purpose);
+    if (!purposeDef) {
+      return fail("OUTSIDE_PURPOSE", `目的「${grant.body.purpose}」未掛在登記台，拒絕兌現。`, {
+        failedKey: "agency",
+      });
+    }
+    const outside = claimsOutsidePurpose(grant.body.purpose, grant.body.claims, purposesFrom(s));
     if (outside.length) {
       return fail(
         "OUTSIDE_PURPOSE",
-        `${outside.map((c) => (isClaimId(c) ? CLAIM_DEFS[c].label : c)).join("、")} 逾越「${PURPOSES[grant.body.purpose].title}」的法定職務必要範圍，即使委託人已簽署仍拒絕。`,
+        `${outside.map((c) => (isClaimId(c) ? CLAIM_DEFS[c].label : c)).join("、")} 逾越「${purposeDef.title}」的法定職務必要範圍，即使委託人已簽署仍拒絕。`,
         { deniedClaims: outside, failedKey: "agency" },
       );
     }
-    if (PURPOSES[grant.body.purpose].agency !== claimer) {
+    if (purposeDef.agency !== claimer) {
       return fail("OUTSIDE_PURPOSE", "該目的不屬於此機關的法定職務。", {
         failedKey: "agency",
       });
@@ -491,6 +517,7 @@ export function redeemGrant(
       delegation: s.delegation,
       recentAudit: s.audit,
       now,
+      purposes: purposesFrom(s),
     });
     if (risk.level === "blocked") {
       return fail("RISK_BLOCKED", risk.notes.join(" "), {
@@ -524,7 +551,7 @@ export function redeemGrant(
     s.inboxes[claimer] = {
       ...s.inboxes[claimer],
       purpose: grant.body.purpose,
-      programTitle: PURPOSES[grant.body.purpose].title,
+      programTitle: purposeDef.title,
       claims: credentials.map((c) => ({
         claimId: c.claimId,
         label: c.label,
@@ -562,7 +589,7 @@ export function redeemGrant(
       actorRole: actor.role,
       action: "redeem",
       grantId: grant.id,
-      detail: `雙鑰匙通過（委託人簽章 ✓ 機關持有證明 ✓ 法定目的 ✓），交付 ${claims.length} 項述詞至「${PURPOSES[grant.body.purpose].title}」收件匣${reused.length ? `；其中 ${reused.length} 項沿用皮夾既有憑證，未再調閱` : ""}。匣 ${grant.id} 就此耗用。`,
+      detail: `雙鑰匙通過（委託人簽章 ✓ 機關持有證明 ✓ 法定目的 ✓），交付 ${claims.length} 項述詞至「${purposeDef.title}」收件匣${reused.length ? `；其中 ${reused.length} 項沿用皮夾既有憑證，未再調閱` : ""}。匣 ${grant.id} 就此耗用。`,
       risk: risk.level,
     });
 
