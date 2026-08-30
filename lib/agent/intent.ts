@@ -25,7 +25,17 @@ import { patternIntent, situationFor, type Intent } from "./turn";
  * models. Asking for one line and validating it here is both simpler and the
  * thing that actually works across them.
  */
-const INTENTS = ["apply", "confirm", "status", "audit", "privacy", "revoke", "help"] as const;
+const INTENTS = [
+  "apply",
+  "request",
+  "confirm",
+  "decline",
+  "status",
+  "audit",
+  "privacy",
+  "revoke",
+  "help",
+] as const;
 
 export type Classification = {
   intent: Intent;
@@ -89,7 +99,9 @@ export function shouldResearch(
 const SYSTEM = `你是 GrantOnce 的語言理解層。先判斷是否有一個 local skill 適用，再把使用者的話對應到下列標籤之一。
 
 apply    想知道自己能申請什麼補助，或描述了生活狀況的變動
-confirm  同意繼續進行剛才列出的資料需求（「確認」「就這樣」「繼續」「好，準備簽」）
+request  決定要辦名單上的某一項服務（「我要辦育兒津貼」「就辦這個」）
+confirm  看過該服務要的資料後同意往下走（「確認」「就這樣」「繼續」）
+decline  看過之後不想辦了（「先不要」「算了」「不用了」）
 status   想知道現有申請案的進度
 audit    想知道誰在什麼時候取用過自己的資料
 privacy  想知道機關會拿到哪些資料，或擔心某類資料外流

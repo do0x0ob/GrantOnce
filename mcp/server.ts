@@ -111,12 +111,25 @@ export function createGrantOnceServer(): McpServer {
     {
       title: "規劃申請",
       description:
-        "搜尋已登記服務並用規則引擎比對。服務先回傳本次必要資料，通過目的與最小範圍檢查後才建立待簽 Grant。搜尋結果不等於授權；不能發明述詞、不讀金庫、不能簽署。",
+        "搜尋已登記服務並用規則引擎比對，只回名單與理由。這一步不建立服務需求、也不建立 Grant——要向某個機關提出辦理申請請改用 request_service。搜尋結果不等於授權；不能發明述詞、不讀金庫、不能簽署。",
       inputSchema: {
         utterance: z.string().describe("委託人原話。任何補助問題都可以問；發票仍只在有綁定時發生。"),
       },
     },
     async ({ utterance }) => runTool("plan_applications", { utterance }),
+  );
+
+  server.registerTool(
+    "request_service",
+    {
+      title: "向某個機關提出辦理申請",
+      description:
+        "代委託人向一個已登記服務提出辦理申請，並取回該機關本次索取的最小資料。這一步只建立服務需求，不建立 Grant。沒有工具可以代替本人確認這份需求——確認與簽署都必須由本人完成。",
+      inputSchema: {
+        purpose: z.string().describe("已登記的目的 ID，例如 childcare-allowance"),
+      },
+    },
+    async ({ purpose }) => runTool("request_service", { purpose }),
   );
 
   server.registerTool(

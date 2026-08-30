@@ -273,7 +273,7 @@ async function main() {
     check("every claim has a valid issuer signature", inbox.claims.every((c) => c.issuerSignatureValid));
     check(
       "delivered values are booleans and bands only",
-      inbox.claims.every((c) => ["true", "false", "0-2", "2-6", "6+"].includes(c.value)),
+      inbox.claims.every((c) => ["true", "false", "0-2", "2-5", "5+"].includes(c.value)),
       JSON.stringify(inbox.claims.map((c) => c.value)),
     );
 
@@ -422,16 +422,18 @@ async function main() {
       r.view.notifications.some((n) => n.key === "eligibility:gained:childcare-service-subsidy"),
       JSON.stringify(r.view.notifications.map((n) => n.key)),
     );
-    check(
-      "the childcare-service capsule is proposed in its place",
-      r.view.grants.some((g) => g.id === "G-丙"),
-      r.view.grants.map((g) => g.id).join(","),
-    );
+    // Time passing re-opens the requirement; it does not mint. A capsule that
+    // appeared because the calendar moved would be an authorisation nobody gave.
+    const bing = r.view.serviceRequests
+      .filter((req) => req.purpose === "childcare-service-subsidy" && req.status !== "cancelled")
+      .at(-1);
+    check("the childcare-service requirement is opened in its place", Boolean(bing), JSON.stringify(r.view.serviceRequests.map((req) => [req.purpose, req.status])));
+    check("it is waiting on the person, not signed for them", bing?.status === "awaiting-confirmation", bing?.status);
+    check("and no capsule was minted by the clock alone", !r.view.grants.some((g) => g.id === "G-丙"), r.view.grants.map((g) => g.id).join(","));
     check(
       "its claims are predicates only, and one fewer than the allowance capsule",
-      grantOf(r.view, "G-丙").claims.length === 3 &&
-        grantOf(r.view, "G-丙").claims.every((c) => c.sensitivity === "predicate"),
-      JSON.stringify(grantOf(r.view, "G-丙").claims.map((c) => [c.claimId, c.sensitivity])),
+      bing?.claims.length === 3 && bing.claims.every((c) => c.shape !== "原始值"),
+      JSON.stringify(bing?.claims.map((c) => [c.claimId, c.shape])),
     );
     check("the push carries a suggested next step", 
       r.view.notifications.some((n) => n.suggestedAction !== null),

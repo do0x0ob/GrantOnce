@@ -346,6 +346,45 @@ const MUTATIONS: Mutation[] = [
     replace: "",
   },
   {
+    // 「未確認就沒有匣」 has to hold on every path, not just in the app. This one
+    // used to open a requirement and mint in a single MCP call.
+    label: "MCP 比對那一步又順手鑄匣",
+    file: "mcp/tools.ts",
+    find: "    s.plan = { utterance: message, matchedAt: new Date().toISOString() };\n    pushChanges(s, new Date());",
+    replace: "    s.plan = { utterance: message, matchedAt: new Date().toISOString() };\n    for (const r of openServiceRequests(s, inquiry.programs)) confirmServiceRequest(s, r.id);\n    pushChanges(s, new Date());",
+  },
+  {
+    // An agency asking on its own behalf opens a requirement; it does not get to
+    // accept it on the person's behalf as well.
+    label: "機關直接索取就順便替你鑄匣",
+    file: "lib/authz.ts",
+    find: "    grantId = null;\n    requestId = request?.id ?? null;",
+    replace: "    if (request) confirmServiceRequest(s, request.id);\n    grantId = grantById(s, live.slot)?.id ?? null;\n    requestId = request?.id ?? null;",
+  },
+  {
+    // The clock moving re-opens requirements; minting because time passed is an
+    // authorisation nobody gave.
+    label: "時鐘一動就替你鑄好新匣",
+    file: "lib/clock.ts",
+    find: "  openServiceRequests(state, programs);",
+    replace: "  for (const r of openServiceRequests(state, programs)) confirmServiceRequest(state, r.id);",
+  },
+  {
+    // A card sends a sentence; a title long enough to slip past the pattern lands
+    // the tap on the wrong beat. 「未滿 5 歲幼兒托育補助」 did exactly that.
+    label: "長標題的服務選不進 request 那一拍",
+    file: "lib/agent/turn.ts",
+    find: "/提出[^。]{0,40}辦理申請|索取需求|我要辦|幫我辦|就辦這/",
+    replace: "/提出.{0,10}辦理申請|索取需求|幫我辦|就辦這/",
+  },
+  {
+    // The band has to end where the programme it gates ends.
+    label: "「未滿 5 歲」的年齡帶放到六歲",
+    file: "lib/claims.ts",
+    find: '  if (months < 60) return "2-5";',
+    replace: '  if (months < 72) return "2-5";',
+  },
+  {
     label: "述詞換回原始欄位",
     file: "lib/purposes.ts",
     find: '      "parentChild.verified",',

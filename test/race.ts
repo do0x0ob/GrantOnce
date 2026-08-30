@@ -76,13 +76,17 @@ const setup = script(
   "setup",
   `
 import { keyPairFromSeed, sign, b64u } from "${LIB}/crypto";
-import { proposeGrantsFromPlan, registerPrincipalKey, signGrant } from "${LIB}/authz";
+import { confirmServiceRequest, openServiceRequests, registerPrincipalKey, signGrant } from "${LIB}/authz";
 import { matchPrograms, situationFromUtterance } from "${LIB}/rules";
 import { getState, mutate, resetState } from "${LIB}/store";
 resetState();
 const p = keyPairFromSeed("race-principal");
 registerPrincipalKey({ publicKey: b64u(p.publicKey), method: "software" });
-mutate((s) => proposeGrantsFromPlan(s, matchPrograms(situationFromUtterance("我剛搬家，看我能申請什麼。")!)));
+mutate((s) => {
+  for (const request of openServiceRequests(s, matchPrograms(situationFromUtterance("我剛搬家，看我能申請什麼。")!))) {
+    confirmServiceRequest(s, request.id);
+  }
+});
 const g = getState().grants.find((x) => x.id === "G-甲")!;
 signGrant({ grantId: "G-甲", signature: sign(g.serialized, p.secret), publicKey: b64u(p.publicKey) });
 console.log("ready");

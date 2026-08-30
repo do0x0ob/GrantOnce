@@ -86,8 +86,11 @@ export function childAgeMonths(today: string = DEMO_TODAY): number {
 
 export function ageBandOf(months: number): string {
   if (months < 24) return "0-2";
-  if (months < 72) return "2-6";
-  return "6+";
+  // 24–59, not 24–71. The band has to end where the programme it gates ends:
+  // 「未滿 5 歲幼兒托育補助」 was matching five-year-olds because the band ran to
+  // six, so a name in the registry and a boundary in the code disagreed.
+  if (months < 60) return "2-5";
+  return "5+";
 }
 
 export const CLAIM_DEFS: Record<ClaimId, ClaimDef> = {
@@ -125,7 +128,7 @@ export const CLAIM_DEFS: Record<ClaimId, ClaimDef> = {
   "child.ageBand": {
     id: "child.ageBand",
     label: "幼兒年齡帶",
-    shape: "0-2 ／ 2-6 ／ 6+",
+    shape: "0-2 ／ 2-5 ／ 5+",
     sensitivity: "predicate",
     issuer: "household-office",
     derivedFrom: ["parentChild.childBirthDate"],

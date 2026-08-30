@@ -24,9 +24,10 @@ import { isRelevantProgramTitle } from "../lib/research";
 import {
   confirmServiceRequest,
   declineServiceRequest,
-  proposeGrantsFromPlan,
 } from "../lib/authz";
-import { PURPOSES } from "../lib/purposes";
+import { ageBandOf, CLAIM_DEFS } from "../lib/claims";
+import { PURPOSE_IDS, PURPOSES } from "../lib/purposes";
+import { openAndConfirm } from "./helpers";
 import { getState, mutate, resetState } from "../lib/store";
 
 let pass = 0;
@@ -233,7 +234,7 @@ console.log("\n卡片只帶 id，不帶快照");
   // whole grant and require that only the id survives. Built here rather than
   // inherited, so reordering the sections above cannot leave this with nothing.
   const situation = situationFromUtterance(HAPPY_PATH_UTTERANCE, effectiveToday(getState()))!;
-  mutate((s) => proposeGrantsFromPlan(s, matchPrograms(situation)));
+  mutate((s) => openAndConfirm(s, matchPrograms(situation)));
   const grant = getState().grants[0];
   const smuggled = toBlocks([{ ...grant.body, ...grant, grantId: grant.id }]);
   const signCard = smuggled.find((b) => b.kind === "signGrant");
@@ -411,6 +412,41 @@ console.log("\n沒登記 ≠ 不符合資格");
   check("不會說成資格問題", !text.includes("目前不符合"), text.slice(0, 60));
   check("仍然說得出真實世界有這筆補助", text.includes("不是世界上沒有"), text.slice(0, 60));
   check("不會憑空生出需求", !blocks.some((b) => b.kind === "serviceRequirement"));
+}
+
+console.log("\n每一顆按鈕都要送到它自己說的那一拍");
+{
+  // The bug class this keeps catching: a card sends a sentence, and a title long
+  // enough to slip past a pattern lands the tap on the wrong beat. 「未滿 5 歲幼兒
+  // 托育補助」 was 11 characters and fell out of the request pattern's window, so
+  // picking it restarted discovery.
+  for (const title of PURPOSE_IDS.map((id) => PURPOSES[id].title)) {
+    check(
+      `選「${title}」送得到 request`,
+      patternIntent(`向某機關提出${title}的辦理申請`) === "request",
+      String(patternIntent(`向某機關提出${title}的辦理申請`)),
+    );
+    check(
+      `確認「${title}」送得到 confirm`,
+      patternIntent(`確認${title}的資料需求`) === "confirm",
+      String(patternIntent(`確認${title}的資料需求`)),
+    );
+    check(
+      `婉拒「${title}」送得到 decline`,
+      patternIntent(`先不要辦${title}`) === "decline",
+      String(patternIntent(`先不要辦${title}`)),
+    );
+  }
+}
+
+console.log("\n年齡帶的界線要對得上補助的名字");
+{
+  // 「未滿 5 歲幼兒托育補助」 was gated on a band that ran to six, so a
+  // five-year-old matched a programme whose own name excludes them.
+  check("滿 5 歲就離開托育補助的年齡帶", ageBandOf(60) !== ageBandOf(59), `${ageBandOf(59)} / ${ageBandOf(60)}`);
+  check("59 個月仍在帶內", ageBandOf(59) === "2-5");
+  check("60 個月已離開", ageBandOf(60) === "5+");
+  check("述詞說明的級距與實作一致", CLAIM_DEFS["child.ageBand"].shape.includes("2-5"));
 }
 
 console.log("\n模型只當「聽懂」那一層");

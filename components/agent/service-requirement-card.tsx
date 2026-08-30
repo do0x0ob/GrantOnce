@@ -14,7 +14,10 @@ export function ServiceRequirementCard({
 }) {
   const request = [...view.serviceRequests]
     .reverse()
-    .find((item) => item.purpose === purpose && item.status !== "cancelled");
+    .find(
+      (item) =>
+        item.purpose === purpose && item.status !== "cancelled" && item.status !== "declined",
+    );
 
   if (!request) return null;
 

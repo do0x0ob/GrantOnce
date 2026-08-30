@@ -12,7 +12,6 @@ import { assessRisk } from "../lib/risk";
 import {
   buildDisplayText,
   makeAgencyProof,
-  proposeGrantsFromPlan,
   redeemGrant,
   registerPrincipalKey,
   requestClaims,
@@ -36,6 +35,8 @@ import {
   scanForChanges,
   situationFromUtterance,
 } from "../lib/rules";
+import { shiftClock } from "../lib/clock";
+import { openAndConfirm } from "./helpers";
 import { getState, grantById, mutate, notify, purposeOf, resetState } from "../lib/store";
 import { formatClock, formatDate, formatStamp, formatTime } from "../lib/view";
 import { verifyCredential } from "../lib/wallet";
@@ -91,7 +92,7 @@ function resign(id: GrantId, edit: (body: Grant["body"]) => void) {
 }
 
 function freshProposal() {
-  mutate((s) => proposeGrantsFromPlan(s, matchPrograms(sit)));
+  mutate((s) => openAndConfirm(s, matchPrograms(sit)));
 }
 
 section("註冊皮夾金鑰");
@@ -124,10 +125,10 @@ check("冷氣補助用假名代替電號", programs[1].claims.includes("power.ac
     flood.catalog.some((entry) => entry.id === "flood-relief" && entry.issuable === false),
   );
   const before = getState().grants.length;
-  mutate((s) => proposeGrantsFromPlan(s, flood.programs));
+  mutate((s) => openAndConfirm(s, flood.programs));
   check("水災路徑不建匣", getState().grants.length === before);
 }
-mutate((s) => proposeGrantsFromPlan(s, programs));
+mutate((s) => openAndConfirm(s, programs));
 
 const jia: GrantId = PURPOSES["childcare-allowance"].slot;
 const yi: GrantId = PURPOSES["aircon-subsidy"].slot;
@@ -170,7 +171,7 @@ check("綁定機關金鑰指紋 cnf.jkt", g.body.cnf.jkt === AGENCY_KEYS.jia.jkt
 {
   // Uniqueness is the property that matters; a fixed prefix is not.
   const before = g.body.jti;
-  mutate((st) => proposeGrantsFromPlan(st, matchPrograms(sit)));
+  mutate((st) => openAndConfirm(st, matchPrograms(sit)));
   check("每次提案都換一個新的 jti", grantOf(jia).body.jti !== before, `${before} vs ${grantOf(jia).body.jti}`);
 }
 check(
@@ -290,7 +291,7 @@ section("憑證重用：出生證明那 3–5 天只付一次");
 );
   check("憑證發證簽章可獨立驗證", verifyCredential(pc));
   // Re-propose and redeem 甲 again: the parent-child credential must be reused.
-  mutate((s) => proposeGrantsFromPlan(s, matchPrograms(sit)));
+  mutate((s) => openAndConfirm(s, matchPrograms(sit)));
   signGrant({ grantId: jia, signature: sign(grantOf(jia).serialized, principal.secret), publicKey: pk });
   redeemGrant(jia, makeAgencyProof("jia", jia));
   check("第二次申請沒有重新發證", getState().wallet.length === before, `${before} → ${getState().wallet.length}`);
@@ -299,7 +300,7 @@ section("憑證重用：出生證明那 3–5 天只付一次");
 
 section("竄改：欄位與簽署內容必須一致");
 {
-  mutate((s) => proposeGrantsFromPlan(s, matchPrograms(sit)));
+  mutate((s) => openAndConfirm(s, matchPrograms(sit)));
   signGrant({ grantId: jia, signature: sign(grantOf(jia).serialized, principal.secret), publicKey: pk });
   const sigBefore = grantOf(jia).signature;
   const serBefore = grantOf(jia).serialized;
@@ -321,7 +322,7 @@ section("竄改：憑證的值必須是發證機構簽過的值");
 {
   resetState();
   registerPrincipalKey({ publicKey: pk, method: "software" });
-  mutate((s) => proposeGrantsFromPlan(s, matchPrograms(sit)));
+  mutate((s) => openAndConfirm(s, matchPrograms(sit)));
   signGrant({ grantId: yi, signature: sign(grantOf(yi).serialized, principal.secret), publicKey: pk });
   redeemGrant(yi, makeAgencyProof("yi", yi));
   mutate((s) => {
@@ -340,7 +341,7 @@ section("竄改：憑證的值必須是發證機構簽過的值");
   check("所得沒有出現在任何收件匣", !JSON.stringify(getState().inboxes).includes("720,000"));
   resetState();
   registerPrincipalKey({ publicKey: pk, method: "software" });
-  mutate((s) => proposeGrantsFromPlan(s, matchPrograms(sit)));
+  mutate((s) => openAndConfirm(s, matchPrograms(sit)));
 }
 
 section("成對假名是有金鑰的");
@@ -427,7 +428,7 @@ section("上限不等於需求");
 
   // Deliver everything once, then move the clock past the short-lived claims but
   // inside the year-long parent-child credential.
-  mutate((s) => proposeGrantsFromPlan(s, first));
+  mutate((s) => openAndConfirm(s, first));
   const grant = grantById(getState(), "G-甲")!;
   registerPrincipalKey({ publicKey: pk, method: "software" });
   signGrant({ grantId: "G-甲", signature: sign(grant.serialized, principal.secret), publicKey: pk });
@@ -471,7 +472,7 @@ section("上限不等於需求");
 
   // A smaller request must not delete what the agency was not asked for.
   const before = getState().inboxes["childcare-allowance"].claims.length;
-  mutate((s) => proposeGrantsFromPlan(s, later));
+  mutate((s) => openAndConfirm(s, later));
   const g2 = grantById(getState(), "G-甲")!;
   signGrant({ grantId: "G-甲", signature: sign(g2.serialized, principal.secret), publicKey: pk });
   redeemGrant("G-甲", makeAgencyProof("jia", "G-甲"));
@@ -493,6 +494,37 @@ section("上限不等於需求");
   mutate((s) => {
     s.clockOffsetDays = 0;
   });
+}
+
+section("時鐘前進不會替你鑄匣");
+{
+  resetState();
+  registerPrincipalKey({ publicKey: pk, method: "software" });
+  const sit = situationFromUtterance("我剛搬家，看我能申請什麼。", effectiveToday(getState()))!;
+  mutate((s) => {
+    s.plan = { utterance: "我剛搬家，看我能申請什麼。", matchedAt: new Date().toISOString() };
+    openAndConfirm(s, matchPrograms(sit));
+  });
+  check("先有一張待簽的匣", getState().grants.some((g) => g.id === "G-甲"));
+
+  // Ageing out re-derives the situation. What it must not do is mint: a capsule
+  // appearing because the calendar moved is an authorisation nobody gave.
+  mutate((s) => shiftClock(s, 400));
+  check("滿兩歲後原本的匣不再留著", !getState().grants.some((g) => g.id === "G-甲"));
+  const opened = getState().serviceRequests.filter(
+    (r) => r.purpose === "childcare-service-subsidy" && r.status === "awaiting-confirmation",
+  );
+  check("改開托育補助的需求", opened.length === 1, String(opened.length));
+  check("需求還沒有匣", opened.every((r) => r.grantId === null));
+  // Grants for programmes that still match are kept — they were signed for and
+  // remain valid. What must not happen is a capsule appearing for the newly
+  // eligible programme, which nobody has confirmed.
+  check(
+    "新符合的補助沒有被憑空鑄成匣",
+    !getState().grants.some((g) => g.body.purpose === "childcare-service-subsidy"),
+    getState().grants.map((g) => `${g.id}:${g.body.purpose}`).join(","),
+  );
+  mutate((s) => shiftClock(s, 0));
 }
 
 section("登記台");
@@ -748,9 +780,20 @@ section("特種個資是獨立的一道，不是靠其他檢查順便擋掉");
 section("高風險攔截");
 {
   const r = requestClaims("jia", "childcare-allowance", ["resident.inNewTaipei"]);
-  check("服務端的合法最小需求會建立待簽 Grant", !r.blocked && Boolean(r.grantId && r.requestId));
-  check("服務端請求仍然只是等待使用者簽署", getState().serviceRequests.find((request) =>
-    request.id === r.requestId)?.status === "awaiting-signature");
+  check("服務端的合法最小需求會建立服務需求", !r.blocked && Boolean(r.requestId));
+  // An agency asking on its own behalf does not get to mint the capsule too.
+  // 「未確認就沒有匣」 has to hold here as well, or it is a property of one code
+  // path rather than of the design.
+  check("但機關不能順便替你鑄匣", r.grantId === null, String(r.grantId));
+  check(
+    "需求停在等你確認",
+    getState().serviceRequests.find((request) => request.id === r.requestId)?.status ===
+      "awaiting-confirmation",
+  );
+  check(
+    "沒有任何匣被鑄出來",
+    !getState().grants.some((g) => g.body.purpose === "childcare-allowance" && g.status === "proposed"),
+  );
 }
 {
   const r = requestClaims("jia", "childcare-allowance", ["raw.income.annual", "raw.household.address"]);
@@ -769,14 +812,14 @@ section("高風險攔截");
 
 section("撤銷");
 {
-  mutate((s) => proposeGrantsFromPlan(s, matchPrograms(sit)));
+  mutate((s) => openAndConfirm(s, matchPrograms(sit)));
   signGrant({ grantId: yi, signature: sign(grantOf(yi).serialized, principal.secret), publicKey: pk });
   revokeGrant(yi, "測試撤銷");
   const r = redeemGrant(yi, makeAgencyProof("yi", yi));
   check("撤銷後兌現 → REVOKED", !r.result.ok && r.result.code === "REVOKED", JSON.stringify(r.result));
 }
 {
-  mutate((s) => proposeGrantsFromPlan(s, matchPrograms(sit)));
+  mutate((s) => openAndConfirm(s, matchPrograms(sit)));
   revokeDelegation("委託人停止委託");
   check("停止委託後所有未兌現的匣作廢", getState().grants.every((x) => x.status !== "proposed" && x.status !== "signed"));
   const r = redeemGrant(jia, makeAgencyProof("jia", jia));
@@ -794,7 +837,7 @@ section("委託上限");
 
 section("送件");
 {
-  mutate((s) => proposeGrantsFromPlan(s, matchPrograms(sit)));
+  mutate((s) => openAndConfirm(s, matchPrograms(sit)));
   signGrant({ grantId: jia, signature: sign(grantOf(jia).serialized, principal.secret), publicKey: pk });
   redeemGrant(jia, makeAgencyProof("jia", jia));
   check("送件成功", !submitApplication(jia).error);
@@ -805,7 +848,7 @@ section("送件");
 
 section("逾期");
 {
-  mutate((s) => proposeGrantsFromPlan(s, matchPrograms(sit)));
+  mutate((s) => openAndConfirm(s, matchPrograms(sit)));
   mutate((s) => {
     const g = s.grants.find((x) => x.id === yi)!;
     g.body.exp = new Date(Date.now() - 1000).toISOString();
@@ -817,7 +860,7 @@ section("逾期");
   const r = redeemGrant(yi, makeAgencyProof("yi", yi));
   check("逾期的匣兌現 → EXPIRED（不是 UNSIGNED）", !r.result.ok && r.result.code === "EXPIRED", JSON.stringify(r.result));
   check("逾期的匣不需要再撤銷", Boolean(revokeGrant(yi, "測試").error));
-  mutate((s) => proposeGrantsFromPlan(s, matchPrograms(sit)));
+  mutate((s) => openAndConfirm(s, matchPrograms(sit)));
 }
 
 section("可組合：登記表加一列就是一個新補助");
@@ -857,7 +900,7 @@ section("第三個補助走完全程，並沿用皮夾裡的憑證");
   check("改提出未滿 5 歲幼兒托育補助", programs.some((p) => p.purpose === "childcare-service-subsidy"), programs.map((p) => p.purpose).join(","));
 
   const bing = PURPOSES["childcare-service-subsidy"].slot;
-  mutate((s) => proposeGrantsFromPlan(s, programs));
+  mutate((s) => openAndConfirm(s, programs));
   resign(bing, () => {});
   const r = redeemGrant(bing, makeAgencyProof("jia", bing));
   check("新補助兌現成功", r.result.ok, JSON.stringify(r.result));
@@ -865,7 +908,7 @@ section("第三個補助走完全程，並沿用皮夾裡的憑證");
   const inbox = getState().inboxes["childcare-service-subsidy"];
   check("交付到它自己的收件匣", inbox.claims.length === 3, JSON.stringify(inbox.claims.map((c) => c.claimId)));
   check("育兒津貼的收件匣沒有被覆蓋", getState().inboxes["childcare-allowance"].claims.length === 4);
-  check("年齡帶已經換成 2-6", inbox.claims.some((c) => c.claimId === "child.ageBand" && c.value === "2-6"), JSON.stringify(inbox.claims.map((c) => c.value)));
+  check("年齡帶已經換成 2-5", inbox.claims.some((c) => c.claimId === "child.ageBand" && c.value === "2-5"), JSON.stringify(inbox.claims.map((c) => c.value)));
   // The expensive fact — the one a birth certificate takes 3–5 working days to
   // prove — must be the same credential, not a fresh one. The age band legitimately
   // is re-derived: its 30-day lifetime lapsed and its value actually changed.
@@ -875,7 +918,7 @@ section("第三個補助走完全程，並沿用皮夾裡的憑證");
   check("皮夾裡親子關係仍然只有一張", getState().wallet.filter((c) => c.claimId === "parentChild.verified").length === 1);
   check(
     "年齡帶則是重新派生的（效期到了、值也變了）",
-    getState().wallet.filter((c) => c.claimId === "child.ageBand").some((c) => c.value === "2-6"),
+    getState().wallet.filter((c) => c.claimId === "child.ageBand").some((c) => c.value === "2-5"),
   );
   check("第三個補助也不含任何原始個資", !JSON.stringify(inbox.claims).match(/林小禾|板橋|HH-DEMO|2025-07-15/), JSON.stringify(inbox.claims));
 

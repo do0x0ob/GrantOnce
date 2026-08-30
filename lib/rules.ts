@@ -149,7 +149,7 @@ export function matchPrograms(situation: DeclaredSituation): ProgramPlan[] {
   // Gated the same way as 育兒津貼: the principal has to have asked about
   // childcare (or declared a move, which bundles the profile) before the rule
   // engine offers them the programme the child has aged into.
-  if (situation.wantsChildcare && band === "2-6") {
+  if (situation.wantsChildcare && band === "2-5") {
     const purpose = PURPOSES["childcare-service-subsidy"];
     programs.push({
       grantId: purpose.slot,

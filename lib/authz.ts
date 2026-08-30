@@ -376,18 +376,6 @@ export function confirmServiceRequest(
   return request;
 }
 
-/**
- * Open a requirement and confirm it in one step.
- *
- * The direct path, where an agency asks on its own behalf and there is no
- * separate person to check back with mid-way. The conversational flow uses the
- * two halves above instead, so confirmation is a beat the person actually takes.
- */
-export function proposeGrantsFromPlan(state: DemoState, programs: ProgramPlan[]) {
-  for (const request of openServiceRequests(state, programs)) {
-    confirmServiceRequest(state, request.id);
-  }
-}
 
 export function requestClaims(
   agency: AgencyId,
@@ -464,7 +452,12 @@ export function requestClaims(
 
     if (!live) return;
 
-    proposeGrantsFromPlan(s, [
+    // An agency asking on its own behalf opens a requirement; it does not get to
+    // mint the capsule as well. The person accepting what was asked for is a
+    // separate act, and it belongs to the person — the same rule the
+    // conversational path follows, so 「未確認就沒有匣」 is true everywhere rather
+    // than in one code path.
+    const [request] = openServiceRequests(s, [
       {
         grantId: live.slot,
         purpose: live.id,
@@ -477,9 +470,8 @@ export function requestClaims(
         alreadyHeld: [],
       },
     ]);
-    const grant = grantById(s, live.slot);
-    grantId = grant?.id ?? null;
-    requestId = grant?.body.requestId ?? null;
+    grantId = null;
+    requestId = request?.id ?? null;
   });
 
   return { state, blocked, notes, grantId, requestId };

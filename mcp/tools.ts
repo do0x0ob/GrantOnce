@@ -1,6 +1,6 @@
 import {
   makeAgencyProof,
-  proposeGrantsFromPlan,
+  openServiceRequests,
   redeemGrant,
   requestClaims,
   revokeDelegation,
@@ -169,12 +169,16 @@ export async function planApplications(utterance: string) {
   const inquiry = evaluateInquiry(message, today);
   const world = await researchWorld(message);
 
+  // Discovery only. This used to open a requirement and mint a capsule in one
+  // call, so an external agent could put a signable Grant in front of someone who
+  // had not chosen the service, let alone accepted what it wanted. The invariant
+  // 「未確認就沒有匣」 held in the app and not here, which is worse than not
+  // claiming it at all.
   mutate((s) => {
     appendChat(s, "user", message);
     appendChat(s, "agent", formatInquiryMessage(inquiry, today, world));
     if (!inquiry.canIssue) return;
     s.plan = { utterance: message, matchedAt: new Date().toISOString() };
-    proposeGrantsFromPlan(s, inquiry.programs);
     pushChanges(s, new Date());
   });
 
@@ -183,7 +187,7 @@ export async function planApplications(utterance: string) {
       inquiry,
       [
         "模型無法簽署。請委託人在皮夾用生物辨識簽署後才能兌現。",
-        "已登記服務會先回傳本次必要資料；通過目的與最小範圍檢查後才建立待簽 Grant。",
+        "這一步只是比對，沒有建立任何服務需求，也沒有建立 Grant。",
       ],
       world,
     ),
@@ -204,6 +208,61 @@ export async function planApplications(utterance: string) {
     })),
   };
   assertNoVaultLeak(payload, "plan_applications");
+  return payload;
+}
+
+/**
+ * Relay 「我要辦這個」 to one agency, and report what it says it needs.
+ *
+ * The model may carry this message — it is the same act as the person tapping
+ * the service in the app. What it may not do is accept the answer: confirming a
+ * requirement is the principal agreeing to hand something over, so it has no
+ * tool, for the same reason signing has none.
+ */
+export function requestService(purposeRaw: string) {
+  const purpose = purposeRaw.trim();
+  if (!isPurposeId(purpose) && !isLivePurposeId(purpose)) {
+    return { error: `「${purpose}」不是已登記的目的，不能提出辦理申請。` };
+  }
+
+  const today = effectiveToday(getState());
+  const inquiry = evaluateInquiry(getState().plan?.utterance ?? HAPPY_PATH_UTTERANCE, today);
+  const program = inquiry.programs.find((p) => p.purpose === purpose);
+  if (!program) {
+    return {
+      error: `目前的情境不符合「${purpose}」的資格條件，不能提出辦理申請。`,
+      canIssue: false,
+    };
+  }
+
+  let opened: string | null = null;
+  mutate((s) => {
+    const [request] = openServiceRequests(s, [program]);
+    opened = request?.id ?? null;
+    pushChanges(s, new Date());
+  });
+
+  const def = PURPOSES[program.purpose] ?? livePurpose(program.purpose);
+  const payload = {
+    requestId: opened,
+    purpose: program.purpose,
+    title: program.title,
+    requester: program.agencyId,
+    requesterName: program.agencyName.replace(/^[甲乙丙]｜/, ""),
+    status: "awaiting-confirmation",
+    ceilingCount: program.ceiling.length,
+    alreadyHeld: claimLabels(program.alreadyHeld),
+    claimIds: program.claims,
+    claimLabels: claimLabels(program.claims),
+    dataSources: [...new Set(program.claims.map((claim) => CLAIM_DEFS[claim].issuer))],
+    privacyBasis: def?.privacyBasis ?? [],
+    notes: [
+      "這是服務需求，不是授權。到這一步為止沒有建立任何 Grant。",
+      "沒有工具可以代替本人確認這份需求——確認要在 App 由本人做，之後才會有待簽 Grant。",
+      "本次需求已扣掉該機關同一目的下仍在效期內、已持有的述詞。",
+    ],
+  };
+  assertNoVaultLeak(payload, "request_service");
   return payload;
 }
 
@@ -279,7 +338,7 @@ export function requestClaimsTool(agencyRaw: string, purposeRaw: string, claims:
     notes,
     note: blocked
       ? "提案階段即攔截，委託人根本不會看到可以按的同意按鈕。"
-      : "已依登記內容建立服務需求與待簽 Grant；這仍不是授權，須由使用者逐項確認並簽署。",
+      : "已依登記內容建立服務需求。這不是授權，也還沒有 Grant——要由本人在 App 確認需求後才會鑄出待簽的匣。",
   };
   assertNoVaultLeak(payload, "request_claims");
   return payload;
@@ -604,6 +663,8 @@ export async function callTool(
       return wrap(await searchPurposes(str("query")));
     case "plan_applications":
       return wrap(await planApplications(str("utterance")));
+    case "request_service":
+      return wrap(requestService(str("purpose")));
     case "get_grant_for_signature":
       return wrap(getGrantForSignature(str("grantId")));
     case "redeem_grant":
