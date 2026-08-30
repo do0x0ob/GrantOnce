@@ -472,6 +472,20 @@ const MUTATIONS: Mutation[] = [
     find: '  if (typeof alg !== "string" || !SIGNING_ALGS.has(alg)) {',
     replace: "  if (false) {",
   },
+  {
+    // The 皮夾 binds EC P-256 and our own issuer binds Ed25519, so from here on
+    // two key types are in play and the KB header must not get to pick.
+    label: "KB 的 alg 不必對得上 cnf.jwk 的金鑰型別",
+    file: "lib/sdjwt.ts",
+    find: "  if (header.alg !== holder.alg) {",
+    replace: "  if (false) {",
+  },
+  {
+    label: "_sd_alg 只找 payload 頂層",
+    file: "lib/sdjwt.ts",
+    find: "  if (isRecord(vc)) {",
+    replace: "  if (false && isRecord(vc)) {",
+  },
 ];
 
 /**

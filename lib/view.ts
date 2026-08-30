@@ -147,6 +147,8 @@ function twdiwView(state: DemoState) {
     enabled: config.enabled,
     disabledReason: config.disabledReason,
     issuerBase: config.issuerBase,
+    /** Identifier, not a secret — the api key beside it is never in the view. */
+    vcUid: config.vcUid,
     vpFullId: config.vpFullId,
     vpPartialId: config.vpPartialId,
     ttlDays: credentialTtlDays(),

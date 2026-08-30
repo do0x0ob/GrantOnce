@@ -18,13 +18,20 @@ import { CLAIM_DEFS, type ClaimId } from "./claims";
 import { p256 } from "@noble/curves/nist.js";
 import { sha256 } from "@noble/hashes/sha2";
 import { b64u, randomId, unb64u, utf8 } from "./crypto";
-import { sdDigest } from "./sdjwt";
+import { SD_JWT_TYP, sdDigest } from "./sdjwt";
 import type { DemoState } from "./types";
 
 export type IssuanceTicket = {
   transactionId: string;
   /** The sandbox returns a PNG data URI; render it, do not re-draw the QR. */
   qrCodeDataUri: string;
+  /**
+   * An HTTPS wrapper — `https://frontend-uat.wallet.gov.tw/api/moda/vcqrcode?…`
+   * — whose inner base64 payload is the `modadigitalwallet://` link. Put it in
+   * an `<a href>` exactly as it arrived: decoding it and rebuilding the scheme
+   * URL by hand drops whatever else the wrapper carries, and the wrapper is the
+   * part that works on a desktop browser.
+   */
   deepLink: string;
   expiresAt: string;
 };
@@ -105,14 +112,29 @@ export type TwdiwConfig = {
 };
 
 /**
- * `TWDIW_ENABLED=true` alone is not enough: without a `vcUid` there is no
- * template to issue against, and without the api_key header name there is no
- * way to authenticate, so either gap turns the whole section off rather than
+ * The template registered in the sandbox console for this demo.
+ *
+ * Templates, their fields and the per-field regex can only be created there —
+ * there is no API for any of it — so the code is a constant here, not something
+ * this process could provision. It is an identifier, not a secret; the api key
+ * beside it is the secret.
+ */
+export const DEMO_VC_UID = "0038403010_childcare_predicates_demo";
+
+/**
+ * Authentication is an `Access-Token` header. Not `Authorization: Bearer`, and
+ * not `X-API-KEY` — both are the obvious guesses and both get rejected.
+ */
+export const ISSUER_AUTH_HEADER = "Access-Token";
+
+/**
+ * `TWDIW_ENABLED=true` alone is not enough: without an api key there is nothing
+ * to authenticate with, so the gap turns the whole section off rather than
  * producing a request that would be rejected at the far end.
  */
 export function twdiwConfig(env: Record<string, string | undefined> = process.env): TwdiwConfig {
-  const vcUid = env.TWDIW_VC_UID ?? "";
-  const apiKeyHeader = env.TWDIW_API_KEY_HEADER ?? "api_key";
+  const vcUid = env.TWDIW_VC_UID ?? DEMO_VC_UID;
+  const apiKeyHeader = env.TWDIW_API_KEY_HEADER ?? ISSUER_AUTH_HEADER;
   const wanted = env.TWDIW_ENABLED === "true";
   const missing: string[] = [];
   if (!wanted) missing.push("TWDIW_ENABLED 不是 true");
@@ -136,6 +158,9 @@ const PLACEHOLDER_PNG =
   "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=";
 
 const TICKET_TTL_MS = 5 * 60_000;
+
+/** The page that hands a browser off to the wallet app. */
+const DEEPLINK_WRAPPER = "https://frontend-uat.wallet.gov.tw/api/moda/vcqrcode";
 
 /**
  * Offline implementation. Deterministic enough to test, complete enough to run
@@ -163,7 +188,8 @@ export class FixtureTwdiw implements TwdiwAdapter {
     return {
       transactionId,
       qrCodeDataUri: PLACEHOLDER_PNG,
-      deepLink: `modadigitalwallet://credential_offer?transaction_id=${transactionId}`,
+      // Same shape as the sandbox's: HTTPS wrapper, base64 payload inside.
+      deepLink: `${DEEPLINK_WRAPPER}?data=${b64u(utf8(`modadigitalwallet://credential_offer?transaction_id=${transactionId}`))}`,
       expiresAt: new Date(expiresAt).toISOString(),
     };
   }
@@ -239,14 +265,18 @@ const FIXTURE_PRESENTED: Record<string, string> = {
  * rather than guess a path. The interface is complete either way, so switching
  * them on later is a body change, not a redesign.
  */
+export function issuerHeaders(config: TwdiwConfig): Record<string, string> {
+  return {
+    "content-type": "application/json",
+    [config.apiKeyHeader]: config.apiKey,
+  };
+}
+
 export class SandboxTwdiw implements TwdiwAdapter {
   constructor(private config: TwdiwConfig = twdiwConfig()) {}
 
   private headers(): Record<string, string> {
-    return {
-      "content-type": "application/json",
-      [this.config.apiKeyHeader]: this.config.apiKey,
-    };
+    return issuerHeaders(this.config);
   }
 
   async issue(claims: Record<string, string>): Promise<IssuanceTicket> {
@@ -255,7 +285,8 @@ export class SandboxTwdiw implements TwdiwAdapter {
       ...TWDIW_FIELDS.map((f) => ({ ename: f.ename, content: claims[f.ename] })),
       { ename: SYNTHETIC_FIELD.ename, content: SYNTHETIC_FIELD.content },
     ];
-    // `/qrcode/nodata` takes only a vcUid, so it cannot carry these values.
+    // `/qrcode/nodata` takes only a `vcUid` in its schema, so it cannot carry a
+    // single one of these values. `/qrcode/data` is the only usable endpoint.
     const response = await fetch(`${this.config.issuerBase}/api/qrcode/data`, {
       method: "POST",
       headers: this.headers(),
@@ -299,11 +330,19 @@ export class SandboxTwdiw implements TwdiwAdapter {
     if (!response.ok) throw new Error(`撤銷回 ${response.status}`);
   }
 
-  async present(): Promise<PresentationTicket> {
+  /**
+   * DWVP-101. The verifier-side paths are not published yet, so the signature is
+   * complete and the body is honest about it — a guessed path would fail at the
+   * far end with a message about something else entirely.
+   */
+  async present(vp: VpProfile): Promise<PresentationTicket> {
+    void vp;
     throw new Error("verifier paths TBD");
   }
 
-  async result(): Promise<PresentationResult> {
+  /** DWVP-201. Same. */
+  async result(txId: string): Promise<PresentationResult> {
+    void txId;
     throw new Error("verifier paths TBD");
   }
 }
@@ -354,11 +393,55 @@ export function fixtureIssuerPublicKey(): string {
   return b64u(p256.getPublicKey(FIXTURE_SECRET, false));
 }
 
+/**
+ * Where the sandbox writes `_sd_alg`. The documentation points at three
+ * possible levels, so the fixture can produce any of them and `verify()` is
+ * expected to cope with all three.
+ */
+export type SdAlgPlacement = "top" | "vc" | "credentialSubject";
+
+/**
+ * A deterministic P-256 holder key, so the fixture credential binds the same
+ * shape the wallet does and the ES256 key-binding path has something to run on.
+ */
+export function fixtureHolderSecret(cid: string): Uint8Array {
+  let seed = sha256(utf8(`grantonce/twdiw-fixture-holder/${cid}`));
+  for (let i = 0; i < 8; i++) {
+    try {
+      p256.getPublicKey(seed);
+      return seed;
+    } catch {
+      seed = sha256(seed);
+    }
+  }
+  throw new Error("無法派生 fixture 的持有人金鑰");
+}
+
+export function fixtureHolderJwk(cid: string): {
+  kty: string;
+  crv: string;
+  x: string;
+  y: string;
+} {
+  const point = p256.getPublicKey(fixtureHolderSecret(cid), false);
+  return {
+    kty: "EC",
+    crv: "P-256",
+    x: b64u(point.subarray(1, 33)),
+    y: b64u(point.subarray(33, 65)),
+  };
+}
+
 export function mintSandboxShapedCredential(input: {
   claims: Record<string, string>;
   cid: string;
   now: Date;
   ttlDays: number;
+  sdAlgAt?: SdAlgPlacement;
+  /** Defaults to `sha-256`. A different value is how a test proves the field is
+   *  actually read at that level rather than defaulted. */
+  sdAlgValue?: string;
+  holderJwk?: { kty: string; crv: string; x: string; y: string };
 }): string {
   const did = "did:web:issuer-sandbox.wallet.gov.tw";
   const iat = Math.floor(input.now.getTime() / 1000);
@@ -377,31 +460,42 @@ export function mintSandboxShapedCredential(input: {
 
   const header = {
     alg: "ES256",
-    typ: "vc+sd-jwt",
+    // `vc+sd-jwt`, not `dc+sd-jwt`.
+    typ: SD_JWT_TYP,
     kid: `${did}#key-1`,
     jku: "https://issuer-sandbox.wallet.gov.tw/.well-known/jwks.json",
   };
-  const payload = {
+  const placement = input.sdAlgAt ?? "top";
+  const sdAlg = input.sdAlgValue ?? "sha-256";
+  const credentialSubject: Record<string, unknown> = { _sd: digests };
+  if (placement === "credentialSubject") credentialSubject._sd_alg = sdAlg;
+  const vc: Record<string, unknown> = {
+    "@context": ["https://www.w3.org/ns/credentials/v2"],
+    type: ["VerifiableCredential", "ChildcareAllowanceCredential"],
+    credentialStatus: {
+      type: "BitstringStatusListEntry",
+      statusPurpose: "revocation",
+      statusListIndex: "0",
+    },
+    credentialSchema: { type: "JsonSchema", id: "https://issuer-sandbox.wallet.gov.tw/schema/1" },
+    // The digests live here, not at the top level.
+    credentialSubject,
+  };
+  if (placement === "vc") vc._sd_alg = sdAlg;
+  const payload: Record<string, unknown> = {
     iss: did,
     sub: `did:example:holder:${input.cid}`,
     nbf: iat,
     exp: iat + Math.round(input.ttlDays * 86_400),
     nonce: b64u(sha256(utf8(`nonce/${input.cid}`)).subarray(0, 12)),
+    // A URL, not an opaque string: the CID is its last segment.
     jti: `https://issuer-sandbox.wallet.gov.tw/api/credential/${input.cid}`,
-    vc: {
-      "@context": ["https://www.w3.org/ns/credentials/v2"],
-      type: ["VerifiableCredential", "ChildcareAllowanceCredential"],
-      credentialStatus: {
-        type: "BitstringStatusListEntry",
-        statusPurpose: "revocation",
-        statusListIndex: "0",
-      },
-      credentialSchema: { type: "JsonSchema", id: "https://issuer-sandbox.wallet.gov.tw/schema/1" },
-      // The digests live here, not at the top level.
-      credentialSubject: { _sd: digests },
-    },
-    _sd_alg: "sha-256",
+    // EC P-256, because the wallet holds a P-256 key — not the OKP key our own
+    // issuer binds. Key binding has to cope with both.
+    cnf: { jwk: input.holderJwk ?? fixtureHolderJwk(input.cid) },
+    vc,
   };
+  if (placement === "top") payload._sd_alg = sdAlg;
 
   const signingInput = `${b64u(utf8(JSON.stringify(header)))}.${b64u(utf8(JSON.stringify(payload)))}`;
   const signature = p256.sign(sha256(utf8(signingInput)), FIXTURE_SECRET, { prehash: false });

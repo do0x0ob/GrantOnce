@@ -19,7 +19,7 @@ npm run test:mcp       # MCP 檢查
 npm run test:race      # 跨 process 檢查（會開子行程）
 npm run test:all       # 以上五個
 npm run test:rehearsal # 逐句對照演示腳本，需先開 dev
-npm run test:mutate    # 48 個注入的 bug，每個都必須被上面某個測試抓到
+npm run test:mutate    # 50 個注入的 bug，每個都必須被上面某個測試抓到
 ```
 
 需要 Node 20+。沒有資料庫、沒有真實 MyData。環境變數全部是選用的：不填就跑本地路徑（理解層退回規則、皮夾沙盒停用），一個 socket 都不會開。
@@ -98,15 +98,18 @@ npm run test:mutate    # 48 個注入的 bug，每個都必須被上面某個測
 
 這就是「把 MyData 與數位憑證串起來」：MyData 是取得資料的管道，皮夾是出示資料的方式。
 
-## 撤銷：分成三件事，誠實回答
+## 撤銷：分成四件事，誠實回答
 
 | 撤銷什麼 | 怎麼做到的 |
 | --- | --- |
 | 停止 Agent 協調委託 | ✅ 即時。停用後流程不再接受新的 Grant 簽署，未兌現的一併作廢 |
 | 撤銷還沒兌現的匣 | ✅ 短效（600 秒）＋ 一次性 `jti` 清單，兌現端擋下 |
+| 撤銷已經發到皮夾裡的憑證 | ✅ `PUT /api/credential/{cid}/revocation`，發證機構那一側真的撤得掉 |
 | 撤銷已交付給機關的述詞 | ❌ **收不回來** |
 
-第三項收不回來，所以唯一的防線是一開始就少給。育兒津貼那四個述詞就算收不回來也無所謂——它本來就不含個資。
+第三格是接上數位憑證皮夾之後才有的：卡片已經在人家手機裡，發證機構仍然撤得掉——不過 action 的 enum 只有 `revocation`，**不可逆**，沒有暫停也沒有復原。
+
+最後一格還是收不回來，所以唯一的防線是一開始就少給。育兒津貼那四個述詞就算收不回來也無所謂——它本來就不含個資。
 
 ## 高風險攔截
 
@@ -242,16 +245,27 @@ MCP 工具清單裡沒有任何簽署工具，而且 `mcp/test.ts` 不是用名�
 
 ```
 TWDIW_ENABLED=false
+TWDIW_API_KEY=                       # 唯一要自己填的；其餘都有預設
 TWDIW_ISSUER_BASE=https://issuer-sandbox.wallet.gov.tw
 TWDIW_VERIFIER_BASE=https://verifier-sandbox.wallet.gov.tw
-TWDIW_VC_UID=                 # 憑證模板代碼，要在沙盒的管理台先建一張
+TWDIW_VC_UID=0038403010_childcare_predicates_demo
 TWDIW_VP_FULL_ID=childcare_full
 TWDIW_VP_PARTIAL_ID=childcare_partial
-TWDIW_API_KEY=
-TWDIW_API_KEY_HEADER=api_key  # 認證是 api_key 不是 Bearer；實際的 header 名稱看 Swagger 的 Authorize
+TWDIW_API_KEY_HEADER=Access-Token    # 不是 Authorization: Bearer，也不是 X-API-KEY
 ```
 
-`TWDIW_ENABLED=true` 一個人說了不算：沒有 `TWDIW_VC_UID` 就沒有模板可以發，沒有 api key 就過不了認證，任一缺項都讓整區停用而不是送出一個必然被拒的請求。停用時畫面不隱藏，會寫出缺哪一項。
+模板、欄位與每個欄位的 regex 都只能在沙盒 console 裡建，沒有 API，所以 `vcUid` 是常數不是這個程式能開的東西。`TWDIW_ENABLED=true` 一個人說了不算：沒有 api key 就過不了認證，缺項讓整區停用而不是送出一個必然被拒的請求。停用時畫面不隱藏，會寫出缺哪一項。
+
+### 沙盒實測踩到的四件事
+
+一次真的互通就把四個「照理說應該是」打掉，所以它們現在都各有一條測試釘著（`test/sdjwt.ts` 的「發行端的請求形狀」用 stub 過的 `fetch` 檢查，不出網路）：
+
+1. **沙盒簽 ES256，不是 EdDSA**，而且 `cnf.jwk` 是 EC P-256。`verify()` 依 header 的 `alg` 分派驗章函式，金鑰由呼叫端給；key binding 則反過來，由 `cnf.jwk` 自己的 `kty`／`crv` 決定能用哪個演算法簽，KB header 宣告的 alg 必須對得上。JWS 的 ECDSA signature 是 `r||s` 原始 64 bytes，**不是 DER**。
+2. **`_sd` 摘要在 `vc.credentialSubject` 裡**，不在 payload 頂層——W3C VC data model 包在 SD-JWT 外面。`_sd_alg` 則是三個層級都找。
+3. **認證 header 是 `Access-Token`**。Bearer 與 X-API-KEY 都是會被拒的猜法。
+4. **`deepLink` 是 HTTPS 包裝**（`https://frontend-uat.wallet.gov.tw/api/moda/vcqrcode?…`），內層 base64 才是 `modadigitalwallet://`。原封放進 `<a href>`，不要解碼重組；`qrCode` 已經是 data URI PNG，不要自己畫。`/api/qrcode/nodata` 的 schema 只有 `vcUid`，帶不了任何欄位值，所以只能走 `/api/qrcode/data`。
+
+`GET /api/credential/nonce/{transactionId}` 會回原始憑證 JWT，所以互通這條路是通的：把一張真的沙盒憑證放進 `test/fixtures/sandbox-sdjwt.txt`、把發證機構的公鑰放進 `test/fixtures/sandbox-issuer-jwk.json`（單一 JWK 或整份 JWKS 都可以），那條 skip 就會變成一條真的斷言。
 
 ## MCP（協定客戶端）
 

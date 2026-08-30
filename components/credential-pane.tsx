@@ -226,6 +226,7 @@ export function CredentialPane({ demo }: { demo: Demo }) {
             <p className="text-[13px] leading-5 text-stone-500">
               同樣四個述詞，寫進 {twdiw.issuerBase}，效期取最小的 {twdiw.ttlDays} 天。
             </p>
+            <p className={MONO}>模板 {twdiw.vcUid}</p>
           </div>
           <StatusChip tone={twdiw.enabled ? "mint" : "stone"}>
             {twdiw.enabled ? "已啟用" : "停用中"}
@@ -299,9 +300,15 @@ export function CredentialPane({ demo }: { demo: Demo }) {
                       ? `${remaining} 秒後失效`
                       : "已失效，請重新產生"}
                 </p>
+                {/* The sandbox's deep link is an HTTPS wrapper whose inner
+                    base64 is the modadigitalwallet:// URL. It goes into href
+                    exactly as it arrived — decoding and rebuilding it loses
+                    whatever else the wrapper carries. */}
                 <a
                   className="inline-flex rounded-full bg-[var(--ink)] px-4 py-1.5 text-[13px] leading-5 text-[var(--primary-foreground)]"
                   href={twdiw.ticket.issuance.deepLink}
+                  target="_blank"
+                  rel="noreferrer"
                 >
                   用皮夾開啟
                 </a>

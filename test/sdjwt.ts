@@ -15,13 +15,21 @@ import { ISSUER_KEYS } from "../lib/parties";
 import { CLAIM_DEFS } from "../lib/claims";
 import { issue, p256PublicKeyFromJwk, present, sdDigest, verify } from "../lib/sdjwt";
 import type { IssuedSdJwt } from "../lib/sdjwt";
+import { p256 } from "@noble/curves/nist.js";
+import { sha256 } from "@noble/hashes/sha2";
 import {
   claimValues,
   credentialTtlDays,
+  DEMO_VC_UID,
   FixtureTwdiw,
+  fixtureHolderSecret,
   fixtureIssuerPublicKey,
+  ISSUER_AUTH_HEADER,
+  mintSandboxShapedCredential,
+  SandboxTwdiw,
   twdiwConfig,
   TWDIW_FIELDS,
+  type SdAlgPlacement,
 } from "../lib/twdiw";
 import { getState, resetState } from "../lib/store";
 
@@ -81,8 +89,9 @@ function mint(rngSeed = "seed-a"): IssuedSdJwt {
   });
 }
 
-function payloadOf(jwt: string): Record<string, unknown> {
-  return JSON.parse(decoder.decode(unb64u(jwt.split(".")[1])));
+/** Segment 1 is the payload; pass 0 for the header. */
+function payloadOf(jwt: string, segment = 1): Record<string, unknown> {
+  return JSON.parse(decoder.decode(unb64u(jwt.split(".")[segment])));
 }
 
 function jwsOf(header: unknown, payload: unknown, secret: Uint8Array): string {
@@ -232,6 +241,68 @@ section("Key Binding");
 
   const noKb = verify({ combined: present({ issued, disclose: names }), issuerPublicKey, now: NOW, expect });
   check("要求 key binding 卻沒附 KB-JWT → 拒絕", !noKb.ok, codeOf(noKb));
+
+  // The 皮夾 binds an EC P-256 key, so the KB-JWT that comes back is ES256.
+  // Our own credential binds Ed25519. Both have to work, and neither may be
+  // allowed to sign for the other.
+  const cid = "kb-es256";
+  const holderSecret = fixtureHolderSecret(cid);
+  const sandbox = mintSandboxShapedCredential({
+    claims: CLAIMS,
+    cid,
+    now: NOW,
+    ttlDays: 30,
+  });
+  const sandboxKey = fixtureIssuerPublicKey();
+
+  function bindEs256(header: Record<string, unknown>, patch: Record<string, unknown> = {}) {
+    const kbPayload = {
+      iat: Math.floor(NOW.getTime() / 1000),
+      aud: AUD,
+      nonce: NONCE,
+      sd_hash: sdDigest(sandbox),
+      ...patch,
+    };
+    const signingInput = `${b64u(utf8(JSON.stringify(header)))}.${b64u(utf8(JSON.stringify(kbPayload)))}`;
+    const sig = p256.sign(sha256(utf8(signingInput)), holderSecret, { prehash: false });
+    return `${sandbox}${signingInput}.${b64u(sig)}`;
+  }
+
+  const es256Kb = verify({
+    combined: bindEs256({ alg: "ES256", typ: "kb+jwt" }),
+    issuerPublicKey: sandboxKey,
+    now: NOW,
+    expect,
+  });
+  check(
+    "皮夾的 EC P-256 cnf.jwk：ES256 的 KB-JWT 驗得過",
+    es256Kb.ok && es256Kb.keyBindingVerified,
+    codeOf(es256Kb),
+  );
+
+  const confused = verify({
+    combined: bindEs256({ alg: "EdDSA", typ: "kb+jwt" }),
+    issuerPublicKey: sandboxKey,
+    now: NOW,
+    expect,
+  });
+  check(
+    "cnf.jwk 是 EC 卻宣告 EdDSA → BAD_KB_ALG（演算法混淆）",
+    codeOf(confused) === "BAD_KB_ALG",
+    codeOf(confused),
+  );
+
+  const wrongHolder = verify({
+    combined: `${sandbox}${jwsOf({ alg: "EdDSA", typ: "kb+jwt" }, { iat: 0, aud: AUD, nonce: NONCE, sd_hash: sdDigest(sandbox) }, holder.secret)}`,
+    issuerPublicKey: sandboxKey,
+    now: NOW,
+    expect,
+  });
+  check(
+    "拿自己的 ed25519 金鑰去簽皮夾憑證的 KB → 擋下",
+    !wrongHolder.ok,
+    codeOf(wrongHolder),
+  );
 }
 
 section("互通");
@@ -260,18 +331,53 @@ section("互通");
     codeOf(presentation),
   );
 
-  const sandboxFixture = "test/fixtures/sandbox-sdjwt.txt";
-  if (existsSync(sandboxFixture)) {
-    const combined = readFileSync(sandboxFixture, "utf8").trim();
-    const key = process.env.TWDIW_FIXTURE_ISSUER_KEY ?? "";
-    if (!key) {
-      skip("verify() 驗得過 test/fixtures/sandbox-sdjwt.txt", "缺 TWDIW_FIXTURE_ISSUER_KEY");
-    } else {
-      const result = verify({ combined, issuerPublicKey: key, now: new Date() });
-      check("verify() 驗得過 test/fixtures/sandbox-sdjwt.txt", result.ok, codeOf(result));
-    }
+  // A credential the real sandbox issued, straight out of
+  // `GET /api/credential/nonce/{transactionId}`, with the issuer's public key
+  // beside it. This is the only assertion in the file that proves we read what
+  // the 數位憑證皮夾 actually writes, rather than what we think it writes.
+  const CREDENTIAL_FILE = "test/fixtures/sandbox-sdjwt.txt";
+  const JWK_FILE = "test/fixtures/sandbox-issuer-jwk.json";
+  if (!existsSync(CREDENTIAL_FILE) || !existsSync(JWK_FILE)) {
+    const missing = [CREDENTIAL_FILE, JWK_FILE].filter((f) => !existsSync(f));
+    skip("verify() 驗得過真的沙盒憑證", `尚未提供 ${missing.join(" 與 ")}`);
   } else {
-    skip("verify() 驗得過 test/fixtures/sandbox-sdjwt.txt", "沙盒 fixture 尚未提供");
+    const combined = readFileSync(CREDENTIAL_FILE, "utf8").trim();
+    const raw = JSON.parse(readFileSync(JWK_FILE, "utf8")) as
+      | { x: string; y: string; kid?: string }
+      | { keys: { x: string; y: string; kid?: string; kty?: string; crv?: string }[] };
+    const header = payloadOf(combined.split("~")[0], 0) as { kid?: string; alg?: string };
+    const jwk =
+      "keys" in raw
+        ? (raw.keys.find((k) => k.kid === header.kid) ??
+          raw.keys.find((k) => k.kty === "EC" && k.crv === "P-256") ??
+          raw.keys[0])
+        : raw;
+    const key = b64u(p256PublicKeyFromJwk(jwk));
+
+    check("沙盒憑證簽的是 ES256", header.alg === "ES256", String(header.alg));
+
+    // Verified inside its own validity window: a card issued weeks before the
+    // demo would otherwise fail on EXPIRED and tell us nothing about the parts
+    // this assertion exists for.
+    const body = payloadOf(combined.split("~")[0]) as { nbf?: number; iat?: number };
+    const anchorSeconds = body.nbf ?? body.iat ?? Math.floor(Date.now() / 1000);
+    const at = new Date((anchorSeconds + 60) * 1000);
+    const result = verify({ combined, issuerPublicKey: key, now: at });
+    check("verify() 驗得過真的沙盒憑證", result.ok, codeOf(result));
+
+    if (result.ok) {
+      const flat = JSON.stringify(result.claims);
+      const found = TWDIW_FIELDS.filter((f) => flat.includes(f.ename));
+      check(
+        "四個述詞的 ename 都在還原出來的內容裡",
+        found.length === TWDIW_FIELDS.length,
+        `找到 ${found.map((f) => f.ename).join("、") || "（無）"}`,
+      );
+    }
+    const live = verify({ combined, issuerPublicKey: key, now: new Date() });
+    if (!live.ok && live.code === "EXPIRED") {
+      console.log("       （這張沙盒憑證今天已經過期，簽章與結構仍然驗過）");
+    }
   }
 }
 
@@ -282,8 +388,12 @@ async function sandboxSection() {
   const config = twdiwConfig({});
   check("沒有環境變數時沙盒是停用的", !config.enabled && config.disabledReason.length > 0, config.disabledReason);
   check(
-    "TWDIW_ENABLED=true 但缺 vcUid 仍是停用",
-    !twdiwConfig({ TWDIW_ENABLED: "true", TWDIW_API_KEY: "k" }).enabled,
+    "TWDIW_ENABLED=true 但缺 api key 仍是停用",
+    !twdiwConfig({ TWDIW_ENABLED: "true" }).enabled,
+  );
+  check(
+    "把 vcUid 明確清空也是停用（沒有模板就沒有東西可發）",
+    !twdiwConfig({ TWDIW_ENABLED: "true", TWDIW_API_KEY: "k", TWDIW_VC_UID: "" }).enabled,
   );
 
   const values = claimValues(state, NOW);
@@ -303,9 +413,16 @@ async function sandboxSection() {
   const wallet = new FixtureTwdiw(() => NOW);
   const ticket = await wallet.issue({ ...values, syntheticData: "true" });
   check(
-    "發證票有 QR data URI 與 deep link",
-    ticket.qrCodeDataUri.startsWith("data:image/png;base64,") &&
-      ticket.deepLink.startsWith("modadigitalwallet://"),
+    "發證票的 QR 是 data URI PNG，不用自己畫",
+    ticket.qrCodeDataUri.startsWith("data:image/png;base64,"),
+  );
+  check(
+    "deepLink 是 HTTPS 包裝，內層才是 modadigitalwallet://",
+    ticket.deepLink.startsWith("https://frontend-uat.wallet.gov.tw/api/moda/vcqrcode?") &&
+      decoder
+        .decode(unb64u(new URL(ticket.deepLink).searchParams.get("data") ?? ""))
+        .startsWith("modadigitalwallet://"),
+    ticket.deepLink,
   );
   check("發證票會過期", new Date(ticket.expiresAt).getTime() > NOW.getTime());
 
@@ -326,6 +443,37 @@ async function sandboxSection() {
   }
   const jti = String((payloadOf(credential.split("~")[0]) as { jti?: string }).jti ?? "");
   check("cid 取自 jti 這個 URL 的尾段", jti.endsWith(`/${cid}`), jti);
+  check(
+    "沙盒憑證的 typ 是 vc+sd-jwt，不是 dc+sd-jwt",
+    (payloadOf(credential.split("~")[0], 0) as { typ?: string }).typ === "vc+sd-jwt",
+  );
+
+  // The sandbox documentation points at three levels for `_sd_alg`, so all
+  // three have to resolve rather than only the one RFC 9901 mandates.
+  for (const at of ["top", "vc", "credentialSubject"] as SdAlgPlacement[]) {
+    const moved = mintSandboxShapedCredential({
+      claims: values,
+      cid: `sdalg-${at}`,
+      now: NOW,
+      ttlDays: 30,
+      sdAlgAt: at,
+    });
+    const result = verify({ combined: moved, issuerPublicKey: fixtureIssuerPublicKey(), now: NOW });
+    check(`_sd_alg 放在 ${at} 也找得到`, result.ok, codeOf(result));
+
+    // Reading it is not the same as defaulting to it: an unsupported value at
+    // that level has to be refused, or「三個位置都找」is a comment, not code.
+    const bogus = mintSandboxShapedCredential({
+      claims: values,
+      cid: `sdalg-bogus-${at}`,
+      now: NOW,
+      ttlDays: 30,
+      sdAlgAt: at,
+      sdAlgValue: "sha-512",
+    });
+    const refused = verify({ combined: bogus, issuerPublicKey: fixtureIssuerPublicKey(), now: NOW });
+    check(`${at} 的 _sd_alg 認不得就拒絕，不是當成預設值`, codeOf(refused) === "BAD_ALG", codeOf(refused));
+  }
 
   const vp = await wallet.present("childcare_partial");
   check("出示票有 authUri 與交易序號", vp.authUri.length > 0 && vp.txId.length > 0);
@@ -351,14 +499,141 @@ async function sandboxSection() {
   );
 }
 
+/**
+ * The發行端 request shape, pinned without a socket.
+ *
+ * `fetch` is replaced with a recorder, so what goes on the wire is an assertion
+ * rather than something you find out on stage. Every one of these was wrong on
+ * the first guess: the header is `Access-Token` (not Bearer, not X-API-KEY),
+ * `/qrcode/nodata` cannot carry field values at all, and the deep link is an
+ * HTTPS wrapper that must be handed on exactly as it arrived.
+ */
+async function issuerWireSection() {
+  section("發行端的請求形狀（stub fetch，不出網路）");
+
+  const calls: { url: string; init: RequestInit }[] = [];
+  const canned: Record<string, unknown> = {
+    transactionId: "TX-0038403010-1",
+    qrCode: "data:image/png;base64,iVBORw0KGgo=",
+    deepLink:
+      "https://frontend-uat.wallet.gov.tw/api/moda/vcqrcode?data=bW9kYWRpZ2l0YWx3YWxsZXQ6Ly9jcmVkZW50aWFsX29mZmVyP3E9MQ",
+  };
+  const cid = "CID-abc123";
+  const credential = mintSandboxShapedCredential({
+    claims: { residentInNewTaipei: "true" },
+    cid,
+    now: NOW,
+    ttlDays: 30,
+  });
+
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = (async (url: string | URL | Request, init: RequestInit = {}) => {
+    calls.push({ url: String(url), init });
+    const body = String(url).includes("/credential/nonce/") ? { credential } : canned;
+    return new Response(JSON.stringify(body), {
+      status: 201,
+      headers: { "content-type": "application/json" },
+    });
+  }) as typeof fetch;
+
+  try {
+    const config = twdiwConfig({ TWDIW_ENABLED: "true", TWDIW_API_KEY: "secret-key" });
+    check("預設的 vcUid 就是 console 裡登記好的那一張", config.vcUid === DEMO_VC_UID, config.vcUid);
+    check("有 api key 就啟用，vcUid 不必自己填", config.enabled, config.disabledReason);
+
+    const sandbox = new SandboxTwdiw(config);
+    const ticket = await sandbox.issue({
+      residentInNewTaipei: "true",
+      movedWithin12m: "true",
+      parentChildVerified: "true",
+      childAgeBand: "0-2",
+      syntheticData: "true",
+    });
+
+    const issueCall = calls[0];
+    const headers = issueCall.init.headers as Record<string, string>;
+    check("認證 header 是 Access-Token", headers[ISSUER_AUTH_HEADER] === "secret-key", JSON.stringify(Object.keys(headers)));
+    check(
+      "不是 Bearer 也不是 X-API-KEY",
+      headers.Authorization === undefined && headers["X-API-KEY"] === undefined,
+    );
+    check("只打 /api/qrcode/data", issueCall.url.endsWith("/api/qrcode/data"), issueCall.url);
+
+    const sent = JSON.parse(String(issueCall.init.body)) as {
+      vcUid: string;
+      expiredDate: string;
+      issuanceDate: string;
+      fields: { ename: string; content: unknown }[];
+    };
+    check("帶上登記好的 vcUid", sent.vcUid === DEMO_VC_UID, sent.vcUid);
+    check("五個欄位都送出去", sent.fields.length === 5, JSON.stringify(sent.fields));
+    check(
+      "content 一律是字串，沒有任何轉型",
+      sent.fields.every((f) => typeof f.content === "string"),
+      JSON.stringify(sent.fields),
+    );
+    check(
+      "expiredDate 是 YYYYMMDD，且離發證日 30 天",
+      /^\d{8}$/.test(sent.expiredDate) && /^\d{8}$/.test(sent.issuanceDate),
+      `${sent.issuanceDate} → ${sent.expiredDate}`,
+    );
+    check(
+      "deepLink 原封回傳，沒有解碼重組",
+      ticket.deepLink === canned.deepLink,
+      ticket.deepLink,
+    );
+    check("qrCode 直接當成 data URI 用", ticket.qrCodeDataUri === canned.qrCode);
+
+    const fetched = await sandbox.getCredential("TX-0038403010-1");
+    check(
+      "取憑證打 /api/credential/nonce/{transactionId}",
+      calls[1].url.endsWith("/api/credential/nonce/TX-0038403010-1"),
+      calls[1].url,
+    );
+    check("cid 從回傳憑證的 jti 尾段取出", fetched.cid === cid, fetched.cid);
+    const roundTrip = verify({
+      combined: fetched.credential,
+      issuerPublicKey: fixtureIssuerPublicKey(),
+      now: NOW,
+    });
+    check("取回來的原始憑證就能直接餵進 verify()", roundTrip.ok, codeOf(roundTrip));
+
+    await sandbox.revoke(cid);
+    check(
+      "撤銷是 PUT /api/credential/{cid}/revocation",
+      calls[2].init.method === "PUT" && calls[2].url.endsWith(`/api/credential/${cid}/revocation`),
+      `${calls[2].init.method} ${calls[2].url}`,
+    );
+    check(
+      "撤銷的 action enum 只有 revocation",
+      JSON.parse(String(calls[2].init.body)).action === "revocation",
+    );
+
+    let presentThrew = "";
+    try {
+      await sandbox.present("childcare_full");
+    } catch (thrown) {
+      presentThrew = (thrown as Error).message;
+    }
+    check("驗證端路徑還沒公布，present() 明說而不是亂猜", presentThrew === "verifier paths TBD", presentThrew);
+    check("而且它沒有多打任何一次網路", calls.length === 3, String(calls.length));
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-void sandboxSection().then(() => {
-  console.log(`\n${pass} passed, ${failures.length} failed${skipped.length ? `, ${skipped.length} skipped` : ""}`);
-  if (failures.length) {
-    console.log("failed:", failures.join(", "));
-    process.exit(1);
-  }
-});
+void sandboxSection()
+  .then(issuerWireSection)
+  .then(() => {
+    console.log(
+      `\n${pass} passed, ${failures.length} failed${skipped.length ? `, ${skipped.length} skipped` : ""}`,
+    );
+    if (failures.length) {
+      console.log("failed:", failures.join(", "));
+      process.exit(1);
+    }
+  });

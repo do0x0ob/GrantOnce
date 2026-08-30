@@ -253,11 +253,24 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-/** Top level first, then `payload.vc`; absent means SHA-256. */
+/**
+ * Top level, then `payload.vc`, then `payload.vc.credentialSubject`; absent
+ * means SHA-256.
+ *
+ * RFC 9901 says `_sd_alg` belongs at the top and nowhere else, and that is
+ * where we write it. The sandbox's documentation points at three levels, so
+ * reading is deliberately more forgiving than writing: refusing a credential
+ * over where its issuer put a field we can find would be pedantry with a
+ * failed demo attached.
+ */
 function sdAlgOf(payload: Record<string, unknown>): unknown {
   if ("_sd_alg" in payload) return payload._sd_alg;
   const vc = payload.vc;
-  if (isRecord(vc) && "_sd_alg" in vc) return vc._sd_alg;
+  if (isRecord(vc)) {
+    if ("_sd_alg" in vc) return vc._sd_alg;
+    const subject = vc.credentialSubject;
+    if (isRecord(subject) && "_sd_alg" in subject) return subject._sd_alg;
+  }
   return DEFAULT_SD_ALG;
 }
 
@@ -406,27 +419,28 @@ function verifyKeyBinding(input: {
   }
   if (!isRecord(header) || !isRecord(payload)) return deny("BAD_KB_ALG", "KB-JWT 不是物件");
   if (header.typ !== KB_JWT_TYP) return deny("BAD_KB_ALG", `KB-JWT 的 typ 不是 ${KB_JWT_TYP}`);
-  if (header.alg !== "EdDSA") return deny("BAD_KB_ALG", `KB-JWT 的 alg 不可為 ${String(header.alg)}`);
+  if (typeof header.alg !== "string" || !SIGNING_ALGS.has(header.alg)) {
+    return deny("BAD_KB_ALG", `KB-JWT 的 alg 不可為 ${String(header.alg)}`);
+  }
 
   // The holder key comes from the credential the issuer signed, never from the
   // KB-JWT itself — otherwise anyone could bring their own key and their own proof.
+  // The holder key comes from the credential the issuer signed, and its own
+  // `kty`/`crv` decide which algorithm may sign against it. Our issuer binds an
+  // Ed25519 key; the 皮夾 binds EC P-256. Both are real, so both are here.
   const cnf = input.payload.cnf;
   const jwk = isRecord(cnf) ? cnf.jwk : undefined;
-  const x = isRecord(jwk) ? jwk.x : undefined;
-  if (typeof x !== "string") return deny("BAD_KB_SIGNATURE", "憑證裡沒有 cnf.jwk，無從驗持有證明");
-  // Only the Ed25519 holder key is implemented. A sandbox credential binds an
-  // EC P-256 key instead, and reading its `x` as an Ed25519 key would be a
-  // verification that cannot succeed dressed up as one that failed.
-  if (isRecord(jwk) && jwk.kty !== undefined && jwk.kty !== "OKP") {
-    return deny("BAD_KB_SIGNATURE", `尚未實作 ${String(jwk.kty)} 的 key binding`);
+  const holder = isRecord(jwk) ? holderKeyFrom(jwk) : null;
+  if (!holder) return deny("BAD_KB_SIGNATURE", "憑證裡沒有認得出來的 cnf.jwk，無從驗持有證明");
+  // Matching them is the point: a KB-JWT claiming EdDSA over an EC holder key
+  // is the algorithm-confusion move, and it has to be refused before any
+  // verification is attempted rather than merely failing to verify.
+  if (header.alg !== holder.alg) {
+    return deny("BAD_KB_ALG", `KB-JWT 宣告 ${String(header.alg)}，但 cnf.jwk 是 ${holder.alg} 的金鑰`);
   }
-  let holderKey: Uint8Array;
-  try {
-    holderKey = unb64u(x);
-  } catch {
-    return deny("BAD_KB_SIGNATURE", "cnf.jwk.x 解不開");
+  if (!verifyJws(holder.alg, `${h}.${p}`, s, holder.key)) {
+    return deny("BAD_KB_SIGNATURE", "KB-JWT 簽章驗不過");
   }
-  if (!edVerify(s, `${h}.${p}`, holderKey)) return deny("BAD_KB_SIGNATURE", "KB-JWT 簽章驗不過");
 
   if (payload.sd_hash !== sdHashOf(input.sdPart)) {
     return deny("SD_HASH_MISMATCH", "sd_hash 與實際出示的內容對不上");
@@ -434,6 +448,27 @@ function verifyKeyBinding(input: {
   if (input.expect) {
     if (payload.nonce !== input.expect.nonce) return deny("NONCE_MISMATCH", "nonce 不符");
     if (payload.aud !== input.expect.aud) return deny("AUDIENCE_MISMATCH", "aud 不符");
+  }
+  return null;
+}
+
+type HolderKey = { key: Uint8Array; alg: "EdDSA" | "ES256" };
+
+/**
+ * Reads the holder key out of `cnf.jwk`, and reports which algorithm that key
+ * can be verified with. The JWK's own `kty`/`crv` decide; the KB-JWT header
+ * gets no say in it.
+ */
+function holderKeyFrom(jwk: Record<string, unknown>): HolderKey | null {
+  const { kty, crv, x, y } = jwk;
+  if (typeof x !== "string") return null;
+  try {
+    if (kty === "OKP" && crv === "Ed25519") return { key: unb64u(x), alg: "EdDSA" };
+    if (kty === "EC" && crv === "P-256" && typeof y === "string") {
+      return { key: p256PublicKeyFromJwk({ x, y }), alg: "ES256" };
+    }
+  } catch {
+    return null;
   }
   return null;
 }
