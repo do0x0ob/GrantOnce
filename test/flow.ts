@@ -6,12 +6,8 @@ import { b64u, digest, keyPairFromSeed, pairwiseId, serializeBody, sign, utf8 } 
 import { sha256 } from "@noble/hashes/sha2";
 import { CLAIM_DEFS, isClaimId } from "../lib/claims";
 import { isPurposeId, PURPOSES } from "../lib/purposes";
-import {
-  isLivePurposeId,
-  retirePurpose,
-  upsertPurpose,
-  validatePurposeDraft,
-} from "../lib/registry";
+import { purposesFrom, validatePurposeDraft } from "../lib/registry";
+import { isLivePurposeId, retirePurpose, upsertPurpose } from "../lib/registry-io";
 import { assessRisk } from "../lib/risk";
 import {
   makeAgencyProof,
@@ -404,6 +400,7 @@ section("登記台");
     delegation: getState().delegation,
     recentAudit: [],
     now: new Date(),
+    purposes: purposesFrom(getState()),
   });
   check("掛上的目的可以用既有述詞通過風險檢查", hungRisk.level === "low", JSON.stringify(hungRisk));
 
@@ -413,6 +410,7 @@ section("登記台");
     delegation: getState().delegation,
     recentAudit: [],
     now: new Date(),
+    purposes: purposesFrom(getState()),
   });
   check("未掛目的直接攔截", unknown.level === "blocked");
 

@@ -1,5 +1,4 @@
 import { PURPOSES, type PurposeDef, type PurposeId } from "./purposes";
-import { livePurposes } from "./registry";
 import type { AgencyId } from "./types";
 
 /**
@@ -135,15 +134,15 @@ function entryFromPurpose(def: PurposeDef): CatalogEntry {
   };
 }
 
-function activeCatalog(): CatalogEntry[] {
-  const live = Object.values(livePurposes()).map(entryFromPurpose);
+function activeCatalog(liveDefs: PurposeDef[] = Object.values(PURPOSES)): CatalogEntry[] {
+  const live = liveDefs.map(entryFromPurpose);
   const refs = PURPOSE_CATALOG.filter((entry) => !live.some((row) => row.id === entry.id));
   return [...live, ...refs];
 }
 
 /** Filter the issuable profile. Not a web search. */
-export function searchCatalog(query: string): CatalogEntry[] {
-  const catalog = activeCatalog();
+export function searchCatalog(query: string, liveDefs?: PurposeDef[]): CatalogEntry[] {
+  const catalog = activeCatalog(liveDefs);
   const t = compactText(query);
   if (!t) return sortCatalog(catalog);
 

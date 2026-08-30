@@ -14,7 +14,7 @@ import { normalizeGrantId } from "../lib/fields";
 import { evaluateInquiry, formatInquiryMessage, inquiryPayload } from "../lib/inquiry";
 import { isKnownAgency } from "../lib/parties";
 import { isPurposeId, PURPOSES } from "../lib/purposes";
-import { isLivePurposeId, livePurpose } from "../lib/registry";
+import { isLivePurposeId, livePurpose, livePurposes } from "../lib/registry-io";
 import { researchWorld } from "../lib/research";
 import { AGENT_NOTES, effectiveToday, HAPPY_PATH_UTTERANCE } from "../lib/rules";
 import { appendChat, getState, mutate } from "../lib/store";
@@ -102,7 +102,7 @@ function grantPublic(grantId: GrantId) {
 
 export async function searchPurposes(query: string) {
   const world = await researchWorld(query);
-  const hits = searchCatalog(query);
+  const hits = searchCatalog(query, Object.values(livePurposes()));
   const payload = {
     ok: true,
     query,

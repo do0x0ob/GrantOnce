@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { retirePurpose, upsertPurpose } from "@/lib/registry";
+import { retirePurpose, upsertPurpose } from "@/lib/registry-io";
 import { getState } from "@/lib/store";
 import { principalView } from "@/lib/view";
 

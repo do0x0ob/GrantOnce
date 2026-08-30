@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { requestClaims } from "@/lib/authz";
 import { isKnownAgency } from "@/lib/parties";
-import { isLivePurposeId } from "@/lib/registry";
+import { isLivePurposeId } from "@/lib/registry-io";
 import { principalView } from "@/lib/view";
 
 export const dynamic = "force-dynamic";

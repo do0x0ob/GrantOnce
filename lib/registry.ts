@@ -1,7 +1,6 @@
 import { CLAIM_DEFS, ISSUERS, isClaimId, type ClaimId } from "./claims";
 import { AGENCY_NAMES, isKnownAgency } from "./parties";
 import { PURPOSES, type PurposeDef } from "./purposes";
-import { appendAudit, getState, mutate, nowIso } from "./store";
 import type { AgencyId, DemoState } from "./types";
 
 const FORBIDDEN = new Set(["__proto__", "constructor", "prototype", "tostring", "valueof"]);
@@ -29,23 +28,20 @@ export function purposesFrom(
   return merged;
 }
 
-export function livePurposes(): Record<string, PurposeDef> {
-  return purposesFrom(getState());
-}
-
-export function livePurpose(id: string): PurposeDef | undefined {
-  return livePurposes()[id];
-}
-
-export function isLivePurposeId(value: string, state?: DemoState): boolean {
+export function isLivePurposeId(
+  value: string,
+  state: Pick<DemoState, "registeredPurposes" | "retiredPurposes">,
+): boolean {
   if (FORBIDDEN.has(value.toLowerCase())) return false;
-  return Object.hasOwn(purposesFrom(state ?? getState()), value);
+  return Object.hasOwn(purposesFrom(state), value);
 }
 
 /** Live row, or builtin fallback for titles of already-issued grants. */
-export function resolvePurpose(id: string, state?: DemoState): PurposeDef | undefined {
-  const table = purposesFrom(state ?? getState());
-  return table[id] ?? PURPOSES[id];
+export function resolvePurpose(
+  id: string,
+  state: Pick<DemoState, "registeredPurposes" | "retiredPurposes">,
+): PurposeDef | undefined {
+  return purposesFrom(state)[id] ?? PURPOSES[id];
 }
 
 export function validatePurposeDraft(draft: PurposeDraft): { def?: PurposeDef; error?: string } {
@@ -86,50 +82,11 @@ export function validatePurposeDraft(draft: PurposeDraft): { def?: PurposeDef; e
   return { def };
 }
 
-export function upsertPurpose(draft: PurposeDraft): { state: DemoState; error?: string } {
-  const checked = validatePurposeDraft(draft);
-  if (checked.error || !checked.def) {
-    return { state: getState(), error: checked.error };
-  }
-  const def = checked.def;
-  const state = mutate((s) => {
-    s.registeredPurposes = { ...s.registeredPurposes, [def.id]: def };
-    s.retiredPurposes = (s.retiredPurposes ?? []).filter((id) => id !== def.id);
-    if (!s.delegation.purposes.includes(def.id)) {
-      s.delegation.purposes = [...s.delegation.purposes, def.id];
-    }
-    appendAudit(s, {
-      actor: `${def.agencyName}（登記台）`,
-      actorRole: def.agency === "jia" ? "agency-jia" : "agency-yi",
-      action: "register",
-      detail: `掛上目的「${def.title}」（${def.id}），允許述詞 ${def.allowedClaims.join("、")}。`,
-    });
-  });
-  return { state };
-}
-
-export function retirePurpose(id: string): { state: DemoState; error?: string } {
-  const trimmed = id.trim();
-  if (!isLivePurposeId(trimmed)) {
-    return { state: getState(), error: `沒有已掛上的目的：${trimmed}` };
-  }
-  const def = livePurpose(trimmed)!;
-  const state = mutate((s) => {
-    s.retiredPurposes = [...new Set([...(s.retiredPurposes ?? []), trimmed])];
-    delete s.registeredPurposes[trimmed];
-    s.delegation.purposes = s.delegation.purposes.filter((item) => item !== trimmed);
-    appendAudit(s, {
-      actor: `${def.agencyName}（登記台）`,
-      actorRole: def.agency === "jia" ? "agency-jia" : "agency-yi",
-      action: "revoke",
-      detail: `下架目的「${def.title}」（${trimmed}）。已提案的匣不會自動改寫。`,
-    });
-  });
-  return { state };
-}
-
 export function issuerInventory() {
-  const byIssuer = new Map<string, { issuer: string; issuerName: string; claims: { id: ClaimId; label: string; sensitivity: string }[] }>();
+  const byIssuer = new Map<
+    string,
+    { issuer: string; issuerName: string; claims: { id: ClaimId; label: string; sensitivity: string }[] }
+  >();
   for (const claim of Object.values(CLAIM_DEFS)) {
     const current = byIssuer.get(claim.issuer) ?? {
       issuer: claim.issuer,
@@ -164,6 +121,6 @@ export function registryView(state: DemoState) {
       inventable: false,
     })),
     note: "兌現機關在這裡掛目的。發證機關上線的述詞才能勾。不能發明 disaster.* 這類還沒 adapter 的欄位。",
-    updatedAt: nowIso(),
+    updatedAt: new Date().toISOString(),
   };
 }

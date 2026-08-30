@@ -88,6 +88,7 @@ function buildGrant(
     delegation: state.delegation,
     recentAudit: state.audit,
     now,
+    purposes: purposesFrom(state),
   });
 
   return {
@@ -156,6 +157,7 @@ export function requestClaims(
       delegation: s.delegation,
       recentAudit: s.audit,
       now,
+      purposes: purposesFrom(s),
     });
     notes = risk.notes;
     blocked = risk.level === "blocked";
@@ -515,6 +517,7 @@ export function redeemGrant(
       delegation: s.delegation,
       recentAudit: s.audit,
       now,
+      purposes: purposesFrom(s),
     });
     if (risk.level === "blocked") {
       return fail("RISK_BLOCKED", risk.notes.join(" "), {

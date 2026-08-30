@@ -5,7 +5,7 @@
 import { keyPairFromSeed, sign, b64u } from "../lib/crypto";
 import { registerPrincipalKey, signGrant } from "../lib/authz";
 import { FLOOD_UTTERANCE } from "../lib/catalog";
-import { upsertPurpose } from "../lib/registry";
+import { upsertPurpose } from "../lib/registry-io";
 import { getState, resetState } from "../lib/store";
 import { callTool, TOOL_NAMES, vaultLeakIn, type ToolName } from "./tools";
 

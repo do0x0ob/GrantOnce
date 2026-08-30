@@ -8,6 +8,7 @@ import {
 } from "./catalog";
 import { CLAIM_DEFS } from "./claims";
 import { PURPOSES } from "./purposes";
+import { livePurposes } from "./registry-io";
 import { formatResearchLines, type ResearchResult } from "./research";
 import {
   AGENT_NOTES,
@@ -49,7 +50,7 @@ function closeReasonFor(result: Omit<InquiryResult, "closeReason">): string | nu
 export function evaluateInquiry(utterance: string, today: string): InquiryResult {
   const message = utterance.trim();
   const topics = topicsFromUtterance(message);
-  const catalog = searchCatalog(message).map(catalogPublic);
+  const catalog = searchCatalog(message, Object.values(livePurposes())).map(catalogPublic);
   const situation = situationFromUtterance(message, today);
   const programs = situation ? matchPrograms(situation) : [];
   const partial = {

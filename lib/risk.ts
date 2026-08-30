@@ -7,7 +7,6 @@ import {
   type Sensitivity,
 } from "./claims";
 import { claimsOutsidePurpose, PURPOSES, type PurposeId, type PurposeDef } from "./purposes";
-import { livePurposes } from "./registry";
 import type { AuditEntry, Delegation, RiskLevel } from "./types";
 
 const LEVELS: RiskLevel[] = ["low", "elevated", "blocked"];
@@ -49,6 +48,7 @@ export function assessRisk(input: {
   delegation: Delegation;
   recentAudit: AuditEntry[];
   now: Date;
+  purposes?: Record<string, PurposeDef>;
 }): RiskAssessment {
   const notes: string[] = [];
   const blockedClaims: string[] = [];
@@ -58,8 +58,8 @@ export function assessRisk(input: {
   };
   const blocked = () => LEVELS[rank] === "blocked";
 
-  const table = livePurposes();
-  const purpose: PurposeDef | undefined = table[input.purpose] ?? PURPOSES[input.purpose];
+  const table = input.purposes ?? PURPOSES;
+  const purpose: PurposeDef | undefined = table[input.purpose];
   if (!purpose) {
     return {
       level: "blocked",
